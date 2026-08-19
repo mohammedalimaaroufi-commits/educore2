@@ -1,0 +1,146 @@
+function round(value, digits = 2) {
+  return Number(Number(value).toFixed(digits));
+}
+
+export function getClassData(snapshot, classId) {
+  const classData = snapshot?.classes?.find((item) => item.id === classId) || null;
+  const students = (snapshot?.students || []).filter((item) => item.class_id === classId && !item.archived);
+  const categories = (snapshot?.grade_categories || [])
+    .filter((item) => item.class_id === classId)
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((category) => ({
+      ...category,
+      assessments: (snapshot?.assessments || [])
+        .filter((assessment) => assessment.category_id === category.id)
+        .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.created_at || '').localeCompare(String(b.created_at || ''))),
+    }));
+  return { classData, students, categories };
+}
+
+export function buildGradeMap(snapshot) {
+  return new Map((snapshot?.grades || []).map((grade) => [`${grade.assessment_id}:${grade.student_id}`, grade]));
+}
+
+export function calculateFinalGrade(studentId, categories, gradeMap) {
+  let weightedTotal = 0;
+  let weightUsed = 0;
+  categories.forEach((category) => {
+    let earned = 0;
+    let possible = 0;
+    category.assessments.forEach((assessment) => {
+      const grade = gradeMap.get(`${assessment.id}:${studentId}`);
+      if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '') {
+        earned += Number(grade.score_numeric);
+        possible += Number(assessment.max_score || 0);
+      }
+    });
+    if (possible > 0) {
+      weightedTotal += (earned / possible) * 100 * (Number(category.weight_percent || 0) / 100);
+      weightUsed += Number(category.weight_percent || 0);
+    }
+  });
+  return weightUsed > 0 ? round((weightedTotal / weightUsed) * 100) : null;
+}
+
+export function calculateBehaviorScore(studentId, snapshot) {
+  const pointsByType = new Map((snapshot?.behavior_types || []).map((item) => [item.id, Number(item.points || 0)]));
+  return (snapshot?.behavior_logs || [])
+    .filter((log) => log.student_id === studentId)
+    .reduce((sum, log) => sum + (pointsByType.get(log.behavior_type_id) || 0), 0);
+}
+
+export function calculateAttendanceRate(studentId, snapshot) {
+  const sessions = new Map((snapshot?.attendance_sessions || []).map((session) => [session.id, session]));
+  const records = (snapshot?.attendance_records || []).filter((record) => record.student_id === studentId && sessions.has(record.session_id));
+  if (!records.length) return null;
+  const present = records.filter((record) => record.status === 'present').length;
+  return round((present / records.length) * 100, 1);
+}
+
+export function buildClassRoster(snapshot, classId) {
+  const { students, categories } = getClassData(snapshot, classId);
+  const gradeMap = buildGradeMap(snapshot);
+  return students.map((student) => ({
+    student_id: student.id,
+    full_name: student.full_name,
+    finalGrade: calculateFinalGrade(student.id, categories, gradeMap),
+    behaviorScore: calculateBehaviorScore(student.id, snapshot),
+    attendanceRate: calculateAttendanceRate(student.id, snapshot),
+  }));
+}
+
+export function buildDistribution(roster) {
+  const buckets = { '0-59': 0, '60-69': 0, '70-79': 0, '80-89': 0, '90-100': 0 };
+  roster.forEach((student) => {
+    if (student.finalGrade === null) return;
+    if (student.finalGrade < 60) buckets['0-59'] += 1;
+    else if (student.finalGrade < 70) buckets['60-69'] += 1;
+    else if (student.finalGrade < 80) buckets['70-79'] += 1;
+    else if (student.finalGrade < 90) buckets['80-89'] += 1;
+    else buckets['90-100'] += 1;
+  });
+  return buckets;
+}
+
+export function buildCategoryAverages(snapshot, classId) {
+  const { students, categories } = getClassData(snapshot, classId);
+  const gradeMap = buildGradeMap(snapshot);
+  return categories.map((category) => {
+    const rows = [];
+    category.assessments.forEach((assessment) => {
+      students.forEach((student) => {
+        const grade = gradeMap.get(`${assessment.id}:${student.id}`);
+        if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined) {
+          rows.push((Number(grade.score_numeric) / Number(assessment.max_score || 1)) * 100);
+        }
+      });
+    });
+    return {
+      category: category.name,
+      weight_percent: category.weight_percent,
+      averagePercent: rows.length ? round(rows.reduce((sum, value) => sum + value, 0) / rows.length, 1) : null,
+      enteredCount: rows.length,
+      studentCount: students.length,
+    };
+  });
+}
+
+export function buildGrowth(snapshot, studentId) {
+  const assessmentMap = new Map((snapshot?.assessments || []).map((assessment) => [assessment.id, assessment]));
+  const categoryMap = new Map((snapshot?.grade_categories || []).map((category) => [category.id, category]));
+  return (snapshot?.grades || [])
+    .filter((grade) => grade.student_id === studentId && grade.score_numeric !== null && assessmentMap.has(grade.assessment_id))
+    .map((grade) => {
+      const assessment = assessmentMap.get(grade.assessment_id);
+      return {
+        title: assessment.title,
+        date: assessment.date,
+        category: categoryMap.get(assessment.category_id)?.name,
+        percent: round((Number(grade.score_numeric) / Number(assessment.max_score || 1)) * 100),
+      };
+    })
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    .map((item, index) => ({ ...item, index: index + 1 }));
+}
+
+export function buildStudentReport(snapshot, studentId) {
+  const student = snapshot?.students?.find((item) => item.id === studentId);
+  if (!student) return null;
+  const { classData, categories } = getClassData(snapshot, student.class_id);
+  const gradeMap = buildGradeMap(snapshot);
+  const gradesByCategory = categories.map((category) => ({
+    category: category.name,
+    weight_percent: category.weight_percent,
+    items: category.assessments.map((assessment) => {
+      const grade = gradeMap.get(`${assessment.id}:${student.id}`);
+      return { title: assessment.title, max_score: assessment.max_score, score: grade?.score_numeric ?? null, comment: grade?.comment ?? null };
+    }),
+  }));
+  const behaviorTypeMap = new Map((snapshot.behavior_types || []).map((item) => [item.id, item]));
+  const behaviorLogs = (snapshot.behavior_logs || []).filter((log) => log.student_id === student.id).map((log) => ({ ...log, ...(behaviorTypeMap.get(log.behavior_type_id) || {}) }));
+  const sessions = new Map((snapshot.attendance_sessions || []).map((session) => [session.id, session]));
+  const attendance = (snapshot.attendance_records || []).filter((record) => record.student_id === student.id && sessions.has(record.session_id)).map((record) => ({ ...record, session_date: sessions.get(record.session_id).session_date }));
+  const finalGrade = calculateFinalGrade(student.id, categories, gradeMap);
+  const rules = (snapshot.grade_recommendation_rules || []).filter((rule) => finalGrade !== null && finalGrade >= rule.min_score && finalGrade <= rule.max_score);
+  return { student, class: classData, gradesByCategory, behaviorLogs, behaviorScore: calculateBehaviorScore(student.id, snapshot), attendance, attendanceTotals: attendance.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {}), finalGrade, autoRecommendation: rules[0]?.text || null, generated_at: new Date().toISOString() };
+}

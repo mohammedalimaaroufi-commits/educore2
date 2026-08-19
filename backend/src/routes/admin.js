@@ -1,0 +1,192 @@
+const express = require('express');
+const { v4: uuid } = require('uuid');
+const db = require('../db');
+const { signAdminToken, requireAdmin } = require('../middleware/auth');
+
+const router = express.Router();
+
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change_this_admin_password';
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+// POST /api/admin/login  { password }  -> private console, separate from teacher accounts
+router.post('/login', (req, res) => {
+  const { password } = req.body;
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
+  res.json({ token: signAdminToken() });
+});
+
+router.use(requireAdmin);
+
+// GET /api/admin/payment-requests?status=pending|approved|rejected&archived=1  -> incoming transfer receipts
+// By default only non-archived requests are returned; pass archived=1 to view the archive instead.
+router.get('/payment-requests', (req, res) => {
+  const { status } = req.query;
+  const archived = req.query.archived === '1' ? 1 : 0;
+  const clauses = ['pr.archived = ?'];
+  const params = [archived];
+  if (status) { clauses.push('pr.status = ?'); params.push(status); }
+  const query = `SELECT pr.*, t.full_name, t.email FROM payment_requests pr JOIN teachers t ON pr.teacher_id = t.id
+                  WHERE ${clauses.join(' AND ')} ORDER BY pr.created_at DESC`;
+  const rows = db.prepare(query).all(...params);
+  res.json({ requests: rows });
+});
+
+// POST /api/admin/payment-requests/:id/archive  -> hide from the main list, recoverable
+router.post('/payment-requests/:id/archive', (req, res) => {
+  const result = db.prepare('UPDATE payment_requests SET archived = 1 WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
+  res.json({ success: true });
+});
+
+// POST /api/admin/payment-requests/:id/restore  -> bring an archived request back to the main list
+router.post('/payment-requests/:id/restore', (req, res) => {
+  const result = db.prepare('UPDATE payment_requests SET archived = 0 WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
+  res.json({ success: true });
+});
+
+// DELETE /api/admin/payment-requests/:id  -> permanent delete (does not touch the teacher's subscription)
+router.delete('/payment-requests/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM payment_requests WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
+  res.json({ success: true });
+});
+
+// POST /api/admin/payment-requests/:id/approve  { admin_note }
+// Activates the teacher's subscription for the requested plan immediately.
+router.post('/payment-requests/:id/approve', (req, res) => {
+  const request = db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(req.params.id);
+  if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
+
+  const now = new Date().toISOString();
+  const periodEnd = request.plan === 'lifetime' ? null : addDays(now, request.plan === 'yearly' ? 365 : 182);
+
+  const activate = db.transaction(() => {
+    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', current_period_start = ?, current_period_end = ?,
+                payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE teacher_id = ?`)
+      .run(request.plan, now, periodEnd, request.reference_note || null, now, request.teacher_id);
+    db.prepare(`UPDATE payment_requests SET status = 'approved', admin_note = ?, reviewed_at = ? WHERE id = ?`)
+      .run(req.body.admin_note || null, now, request.id);
+  });
+  activate();
+
+  res.json({ success: true });
+});
+
+// POST /api/admin/payment-requests/:id/reject  { admin_note }
+router.post('/payment-requests/:id/reject', (req, res) => {
+  const request = db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(req.params.id);
+  if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
+  db.prepare(`UPDATE payment_requests SET status = 'rejected', admin_note = ?, reviewed_at = datetime('now') WHERE id = ?`)
+    .run(req.body.admin_note || null, request.id);
+  res.json({ success: true });
+});
+
+// GET /api/admin/teachers  -> quick overview of all registered teachers + their subscription state
+router.get('/teachers', (req, res) => {
+  const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
+                              s.plan, s.status, s.trial_end_date, s.current_period_end
+                            FROM teachers t LEFT JOIN subscriptions s ON s.teacher_id = t.id
+                            ORDER BY t.created_at DESC`).all();
+  res.json({ teachers: rows });
+});
+
+// ---------- Live chat with teachers ----------
+
+// GET /api/admin/conversations  -> one row per teacher who has exchanged messages, with last message + unread count
+router.get('/conversations', (req, res) => {
+  const rows = db.prepare(`
+    WITH ranked_messages AS (
+      SELECT
+        m.teacher_id,
+        m.text,
+        m.created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY m.teacher_id
+          ORDER BY m.created_at DESC, m.id DESC
+        ) AS message_rank,
+        SUM(CASE WHEN m.sender = 'teacher' AND m.read_by_admin = 0 THEN 1 ELSE 0 END)
+          OVER (PARTITION BY m.teacher_id) AS unread_count
+      FROM messages m
+    )
+    SELECT
+      t.id AS teacher_id,
+      t.full_name,
+      t.email,
+      r.text AS last_message,
+      r.created_at AS last_message_at,
+      r.unread_count
+    FROM ranked_messages r
+    JOIN teachers t ON t.id = r.teacher_id
+    WHERE r.message_rank = 1
+    ORDER BY r.created_at DESC
+  `).all();
+  res.json({ conversations: rows });
+});
+
+// GET /api/admin/messages/:teacherId  -> full conversation history with one teacher
+router.get('/messages/:teacherId', (req, res) => {
+  const messages = db.prepare('SELECT * FROM messages WHERE teacher_id = ? ORDER BY created_at ASC').all(req.params.teacherId);
+  db.prepare("UPDATE messages SET read_by_admin = 1 WHERE teacher_id = ? AND sender = 'teacher' AND read_by_admin = 0").run(req.params.teacherId);
+  res.json({ messages });
+});
+
+// POST /api/admin/messages/:teacherId  { text }  -> admin replies to a specific teacher
+router.post('/messages/:teacherId', (req, res) => {
+  const { text, client_message_id } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'الرسالة لا يمكن أن تكون فارغة' });
+  const teacher = db.prepare('SELECT id FROM teachers WHERE id = ?').get(req.params.teacherId);
+  if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  if (client_message_id) {
+    const previous = db.prepare('SELECT * FROM messages WHERE teacher_id = ? AND sender = ? AND client_message_id = ?').get(req.params.teacherId, 'admin', client_message_id);
+    if (previous) return res.json({ message: previous, reused: true });
+  }
+
+  const id = uuid();
+  db.prepare(`INSERT INTO messages (id, teacher_id, sender, text, read_by_teacher, read_by_admin, client_message_id) VALUES (?, ?, 'admin', ?, 0, 1, ?)`)
+    .run(id, req.params.teacherId, text.trim(), client_message_id || null);
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
+
+  const io = req.app.get('io');
+  if (io) {
+    io.to(`chat:${req.params.teacherId}`).emit('new_message', message);
+    io.to('admin').emit('new_message', message);
+  }
+
+  res.status(201).json({ message });
+});
+
+// POST /api/admin/broadcast  { text }  -> sends one message to every registered teacher's conversation
+router.post('/broadcast', (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'الرسالة لا يمكن أن تكون فارغة' });
+
+  const teachers = db.prepare('SELECT id FROM teachers').all();
+  const insert = db.prepare(`INSERT INTO messages (id, teacher_id, sender, text, read_by_teacher, read_by_admin) VALUES (?, ?, 'admin', ?, 0, 1)`);
+  const io = req.app.get('io');
+
+  const sendAll = db.transaction((rows) => {
+    const sent = [];
+    for (const t of rows) {
+      const id = uuid();
+      insert.run(id, t.id, text.trim());
+      sent.push(db.prepare('SELECT * FROM messages WHERE id = ?').get(id));
+    }
+    return sent;
+  });
+  const sent = sendAll(teachers);
+
+  if (io) {
+    sent.forEach((message) => io.to(`chat:${message.teacher_id}`).emit('new_message', message));
+    sent.forEach((message) => io.to('admin').emit('new_message', message));
+  }
+
+  res.status(201).json({ success: true, sentTo: sent.length });
+});
+
+module.exports = router;

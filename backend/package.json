@@ -1,0 +1,24 @@
+{
+  "name": "educore-manager-backend",
+  "version": "1.0.0",
+  "description": "EduCore Manager - Backend API (Node.js + Express + SQLite)",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "csv-parse": "^5.5.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "libsql": "^0.5.29",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.8.3",
+    "uuid": "^9.0.1"
+  }
+}
