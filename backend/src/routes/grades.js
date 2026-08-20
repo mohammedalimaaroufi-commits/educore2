@@ -104,11 +104,20 @@ router.patch('/categories/:id', (req, res) => {
   const { name, weight_percent, grading_type, grading_mode, details_note } = req.body;
   const nextWeight = weight_percent === undefined || weight_percent === null ? Number(cat.weight_percent || 0) : Number(weight_percent);
   if (nextWeight < 0) return res.status(400).json({ error: 'وزن الفئة لا يمكن أن يكون سالبًا' });
-  if (detailTotal(cat.id) > nextWeight + 0.0001) return res.status(400).json({ error: 'وزن الفئة أقل من مجموع تقييماتها التفصيلية' });
   const nextMode = grading_mode === 'detailed' ? 'detailed' : grading_mode === 'direct' ? 'direct' : cat.grading_mode;
+  if (nextMode === 'detailed' && detailTotal(cat.id) > nextWeight + 0.0001) return res.status(400).json({ error: 'وزن الفئة أقل من مجموع تقييماتها التفصيلية' });
+  const nextName = name || cat.name;
+  if (nextMode === 'direct') {
+    // Direct approval is non-destructive: keep detail assessments and their grades
+    // stored so the teacher can switch back later, but use the summary column now.
+    ensureSummaryAssessment({ ...cat, name: nextName, weight_percent: nextWeight });
+  }
   db.prepare(`UPDATE grade_categories SET name = COALESCE(?, name), weight_percent = ?, grading_type = COALESCE(?, grading_type), grading_mode = ?, details_note = COALESCE(?, details_note) WHERE id = ?`)
     .run(name, nextWeight, grading_type, nextMode || 'direct', details_note, cat.id);
-  if (name && nextMode !== 'detailed') db.prepare('UPDATE assessments SET title = ?, max_score = ? WHERE category_id = ? AND is_summary = 1').run(name, nextWeight, cat.id);
+  if (nextMode === 'direct') {
+    db.prepare('UPDATE assessments SET title = ?, max_score = ?, is_summary = 1 WHERE category_id = ? AND is_summary = 1')
+      .run(nextName, nextWeight, cat.id);
+  }
   res.json({ category: db.prepare('SELECT * FROM grade_categories WHERE id = ?').get(cat.id) });
 });
 

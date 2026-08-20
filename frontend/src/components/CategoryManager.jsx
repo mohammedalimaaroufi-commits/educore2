@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/client';
+import { getTeacherId } from '../utils/localCache.js';
+import { syncSnapshot } from '../utils/snapshotSync.js';
 
 const MODE_LABELS = { direct: 'درجة واحدة من وزن الفئة', detailed: 'تفاصيل متعددة مجموعها من وزن الفئة' };
 
@@ -8,6 +10,7 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
   const [totalWeight, setTotalWeight] = useState(0);
   const [newCat, setNewCat] = useState({ name: '', weight_percent: 0, grading_mode: 'direct', details_note: '' });
   const [savedId, setSavedId] = useState(null);
+  const teacherId = getTeacherId();
 
   const load = async () => {
     const { data } = await api.get('/grades/categories', { params: { class_id: classId } });
@@ -26,6 +29,7 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
 
   const updateCategory = async (id, patch) => {
     await api.patch(`/grades/categories/${id}`, patch);
+    if (teacherId) await syncSnapshot(teacherId, { force: true });
     setSavedId(id);
     setTimeout(() => setSavedId(null), 1200);
     load();
@@ -37,6 +41,12 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
     await api.delete(`/grades/categories/${id}`);
     load();
     onChange?.();
+  };
+
+  const approveDirect = async (category) => {
+    const detailCount = Number(category.detail_count || 0);
+    if (detailCount > 0 && !confirm(`اعتماد الإدخال المباشر سيستخدم خانة واحدة من وزن ${category.weight_percent}. ستبقى التقييمات التفصيلية ودرجاتها محفوظة ويمكن الرجوع إليها لاحقًا. متابعة؟`)) return;
+    await updateCategory(category.id, { grading_mode: 'direct' });
   };
 
   const rowCols = { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(130px,1.2fr) 96px 32px', gap: '0.75rem', alignItems: 'center' };
@@ -57,7 +67,7 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
         {categories.map((c) => (
           <div key={c.id} style={rowCols} className="border-b border-line pb-3">
             <div className="space-y-1"><input className="input text-sm" defaultValue={c.name} onBlur={(e) => e.target.value !== c.name && updateCategory(c.id, { name: e.target.value })} /><input className="input text-xs" defaultValue={c.details_note || ''} placeholder="تفاصيل اختيارية للفئة" onBlur={(e) => e.target.value !== (c.details_note || '') && updateCategory(c.id, { details_note: e.target.value })} /></div>
-            <div className="space-y-1"><select className="input text-xs" value={c.grading_mode || 'direct'} onChange={(e) => updateCategory(c.id, { grading_mode: e.target.value })}><option value="direct">{MODE_LABELS.direct}</option><option value="detailed">{MODE_LABELS.detailed}</option></select><p className="text-[11px] text-ink/50">{Number(c.detail_count || 0) > 0 ? `${c.detail_count} تفاصيل — مجموعها ${c.detail_total} من ${c.weight_percent}` : 'لا توجد تفاصيل؛ يظهر إدخال الفئة مباشرة'}</p></div>
+            <div className="space-y-1"><select className="input text-xs" value={c.grading_mode || 'direct'} onChange={(e) => updateCategory(c.id, { grading_mode: e.target.value })}><option value="direct">{MODE_LABELS.direct}</option><option value="detailed">{MODE_LABELS.detailed}</option></select><p className="text-[11px] text-ink/50">{Number(c.detail_count || 0) > 0 ? `${c.detail_count} تفاصيل — مجموعها ${c.detail_total} من ${c.weight_percent}` : 'لا توجد تفاصيل؛ يظهر إدخال الفئة مباشرة'}</p>{c.grading_mode === 'detailed' && <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => approveDirect(c)}>اعتماد مباشر</button>}{c.grading_mode === 'direct' && Number(c.detail_count || 0) > 0 && <p className="text-[11px] text-primary">الإدخال المباشر معتمد؛ التفاصيل محفوظة</p>}</div>
             <div className="relative"><input className="input text-sm pl-6" type="number" min="0" max="100" defaultValue={c.weight_percent} onBlur={(e) => Number(e.target.value) !== Number(c.weight_percent) && updateCategory(c.id, { weight_percent: Number(e.target.value) })} /><span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-ink/40">%</span></div>
             <button className="text-danger text-xs hover:underline" onClick={() => deleteCategory(c.id)} title="حذف الفئة">حذف</button>
             {savedId === c.id && <span className="text-primary text-xs col-span-4">تم الحفظ ✓</span>}
