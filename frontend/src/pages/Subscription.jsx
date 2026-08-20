@@ -6,9 +6,9 @@ import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
 
 const FALLBACK_PLANS = [
-  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, price_omr: 4, original_price_omr: 4, duration_days: 182 },
-  { id: 'yearly', title: 'الباقة السنوية', highlight: true, note: 'الأكثر توفيرًا', base_price_omr: 7, price_omr: 7, original_price_omr: 7, duration_days: 365 },
-  { id: 'lifetime', title: 'مدى الحياة', note: 'دفعة واحدة، وصول دائم', base_price_omr: 18, price_omr: 18, original_price_omr: 18, duration_days: null },
+  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, price_omr: 4, original_price_omr: 4, duration_days: 182, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'] },
+  { id: 'yearly', title: 'الباقة السنوية', highlight: true, base_price_omr: 7, price_omr: 7, original_price_omr: 7, duration_days: 365, note: 'الأكثر توفيرًا للعام الدراسي', features: ['كل أدوات EduCore', 'نسخ محلية ومزامنة', 'دعم فني مباشر'] },
+  { id: 'lifetime', title: 'مدى الحياة', note: 'دفعة واحدة، وصول دائم', base_price_omr: 18, price_omr: 18, original_price_omr: 18, duration_days: null, features: ['وصول دائم', 'كل التحديثات المستقبلية', 'أولوية في الدعم'] },
 ];
 const STATUS_LABELS = { active: 'مفعّل', pending: 'قيد المراجعة', approved: 'مُفعّل ✓', rejected: 'مرفوض', expired: 'منتهي' };
 const PLAN_LABELS = { trial: 'فترة تجريبية', '6_months': 'باقة 6 أشهر', yearly: 'الباقة السنوية', lifetime: 'مدى الحياة' };
@@ -22,6 +22,7 @@ function SubscriptionDetailsCard() {
   const { subscriptionInfo } = useAuth();
   if (!subscriptionInfo) return null;
   const { plan, status, startDate, endDate, daysLeft, expired } = subscriptionInfo;
+  const isTrial = plan === 'trial';
   const statusLabel = expired ? 'منتهي' : (STATUS_LABELS[status] || status || 'غير محدد');
   return (
     <section className="subscription-current-card">
@@ -29,8 +30,8 @@ function SubscriptionDetailsCard() {
       <div className="subscription-details-grid">
         <div><p>الباقة</p><strong>{PLAN_LABELS[plan] || plan || 'غير محددة'}</strong></div>
         <div><p>تاريخ التفعيل</p><strong>{formatDate(startDate)}</strong></div>
-        <div><p>تاريخ الانتهاء</p><strong>{endDate ? formatDate(endDate) : 'مدى الحياة'}</strong></div>
-        <div><p>المتبقي</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? 'غير محدود' : expired ? 'منتهي' : `${daysLeft} يوم`}</strong></div>
+        <div><p>تاريخ الانتهاء</p><strong>{endDate ? formatDate(endDate) : isTrial ? 'غير متاح' : 'مدى الحياة'}</strong></div>
+        <div><p>المتبقي</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isTrial ? 'غير محدد' : 'غير محدود') : expired ? 'منتهي' : `${daysLeft} يوم`}</strong></div>
       </div>
       {status !== 'active' && !expired && <p className="subscription-current-card__note">حالة الاشتراك الحالية: {statusLabel}. يمكنك إرسال طلب تفعيل جديد من الباقات أدناه.</p>}
     </section>
@@ -120,6 +121,9 @@ export default function Subscription() {
             <p className="subscription-plan-price">{price ? omrWithEquivalent(price) : '...'}</p>
             {hasOffer && plan.offer.description && <p className="subscription-offer-description">{plan.offer.description}</p>}
             {plan.note && <p className="subscription-plan-note">{plan.note}</p>}
+            {Array.isArray(plan.features) && plan.features.length > 0 && <ul className="subscription-plan-features">{plan.features.map((feature) => <li key={feature}><span>✓</span>{feature}</li>)}</ul>}
+            {plan.duration_days !== null && plan.duration_days !== undefined && <p className="subscription-plan-duration">صلاحية الباقة: {plan.duration_days} يومًا</p>}
+            {plan.duration_days === null && <p className="subscription-plan-duration">وصول غير محدود</p>}
             <button className="btn-primary" onClick={() => setSelectedPlan(plan.id)}>اختيار هذه الباقة</button>
           </article>;
         })}

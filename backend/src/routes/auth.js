@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, PLAN_PRICES_OMR } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices } = require('../utils/subscriptions');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -106,7 +106,12 @@ router.post('/reset-password', async (req, res) => {
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
-  const sub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY created_at DESC LIMIT 1').get(req.teacherId);
+  const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(req.teacherId);
+  // Repair legacy rows created by the old default-lifetime bug: a row with trial dates and
+  // no paid period is a trial, even if its plan value was accidentally stored as lifetime.
+  const sub = rawSub && rawSub.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end && rawSub.plan === 'lifetime'
+    ? { ...rawSub, plan: 'trial' }
+    : rawSub;
 
   let trialInfo = null;
   if (sub && sub.plan === 'trial') {
@@ -145,18 +150,18 @@ const PAYMENT_PHONE = process.env.PAYMENT_PHONE || '00968737448';
 // GET /api/auth/plans  -> public pricing info shown on the subscription page
 router.get('/plans', (req, res) => {
   const plans = getPublicPlans();
-  const byId = Object.fromEntries(plans.map((plan) => [plan.id, plan]));
-  res.json({ plans, prices_omr: Object.fromEntries(plans.map((plan) => [plan.id, plan.price_omr])), base_prices_omr: PLAN_PRICES_OMR, payment_phone: PAYMENT_PHONE, trial_days: getTrialDays() });
+  res.json({ plans, prices_omr: Object.fromEntries(plans.map((plan) => [plan.id, plan.price_omr])), base_prices_omr: getBasePrices(), payment_phone: PAYMENT_PHONE, trial_days: getTrialDays() });
 });
 
 // POST /api/auth/payment-requests  { plan, reference_note, receipt_image }
 // Submits a bank-transfer receipt for manual review; does NOT activate the subscription immediately.
 router.post('/payment-requests', requireAuth, (req, res) => {
   const { plan, reference_note, receipt_image } = req.body;
-  if (!PLAN_PRICES_OMR[plan]) return res.status(400).json({ error: 'باقة غير صالحة' });
+  const basePrices = getBasePrices();
+  if (!basePrices[plan]) return res.status(400).json({ error: 'باقة غير صالحة' });
   const offer = getActiveOffer(plan);
-  const originalAmount = offer ? Number(offer.original_price_omr || PLAN_PRICES_OMR[plan]) : PLAN_PRICES_OMR[plan];
-  const amount = offer ? Number(offer.offer_price_omr) : PLAN_PRICES_OMR[plan];
+  const originalAmount = offer ? Number(offer.original_price_omr || basePrices[plan]) : basePrices[plan];
+  const amount = offer ? Number(offer.offer_price_omr) : basePrices[plan];
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });
 
   const id = uuid();

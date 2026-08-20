@@ -6,6 +6,11 @@ import { connectSocket } from '../api/socket';
 const PLAN_LABELS = { '6_months': '6 أشهر', yearly: 'سنوية', lifetime: 'مدى الحياة' };
 const STATUS_LABELS = { pending: 'قيد المراجعة', approved: 'مُفعّل', rejected: 'مرفوض' };
 const EMPTY_OFFER = { plan: 'yearly', title: '', description: '', original_price_omr: 7, offer_price_omr: 5, starts_at: '', ends_at: '', enabled: true };
+const DEFAULT_PLAN_EDITOR = [
+  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, duration_days: 182, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'], highlight: false },
+  { id: 'yearly', title: 'الباقة السنوية', base_price_omr: 7, duration_days: 365, note: 'الأكثر توفيرًا للعام الدراسي', features: ['كل أدوات EduCore', 'نسخ محلية ومزامنة', 'دعم فني مباشر'], highlight: true },
+  { id: 'lifetime', title: 'مدى الحياة', base_price_omr: 18, duration_days: null, note: 'دفعة واحدة ووصول دائم', features: ['وصول دائم', 'كل التحديثات المستقبلية', 'أولوية في الدعم'], highlight: false },
+];
 
 function toDateTimeLocal(value) {
   if (!value) return '';
@@ -47,6 +52,8 @@ function PaymentRequests() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [showArchived, setShowArchived] = useState(false);
   const [viewReceipt, setViewReceipt] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
 
   const load = async () => {
     const { data } = await adminApi.get('/admin/payment-requests', {
@@ -58,13 +65,22 @@ function PaymentRequests() {
 
   const approve = async (id) => {
     if (!confirm('تأكيد استلام التحويل وتفعيل الاشتراك؟')) return;
-    await adminApi.post(`/admin/payment-requests/${id}/approve`, {});
-    load();
+    setBusyId(id);
+    setActionMessage('');
+    try {
+      await adminApi.post(`/admin/payment-requests/${id}/approve`, {});
+      await load();
+      setActionMessage('تم تفعيل الاشتراك وتحديث حساب المعلم بنجاح.');
+    } catch (error) {
+      setActionMessage(error.response?.data?.error || 'تعذر تفعيل الاشتراك. تحقق من جلسة المسؤول وحاول مرة أخرى.');
+    } finally {
+      setBusyId(null);
+    }
   };
   const reject = async (id) => {
     const note = prompt('سبب الرفض (اختياري):') || '';
-    await adminApi.post(`/admin/payment-requests/${id}/reject`, { admin_note: note });
-    load();
+    setBusyId(id);
+    try { await adminApi.post(`/admin/payment-requests/${id}/reject`, { admin_note: note }); await load(); } finally { setBusyId(null); }
   };
   const archive = async (id) => {
     await adminApi.post(`/admin/payment-requests/${id}/archive`, {});
@@ -82,6 +98,7 @@ function PaymentRequests() {
 
   return (
     <>
+      {actionMessage && <div className={`admin-action-feedback ${actionMessage.startsWith('تم') ? 'is-success' : 'is-error'}`} role="status">{actionMessage}</div>}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex gap-2">
           {['pending', 'approved', 'rejected', ''].map((s) => (
@@ -121,8 +138,8 @@ function PaymentRequests() {
               </span>
               {r.status === 'pending' && !showArchived && (
                 <>
-                  <button className="btn-primary text-xs" onClick={() => approve(r.id)}>تفعيل</button>
-                  <button className="text-danger text-xs" onClick={() => reject(r.id)}>رفض</button>
+                  <button className="btn-primary text-xs" disabled={busyId === r.id} onClick={() => approve(r.id)}>{busyId === r.id ? 'جارِ التفعيل...' : 'تفعيل'}</button>
+                  <button className="text-danger text-xs" disabled={busyId === r.id} onClick={() => reject(r.id)}>رفض</button>
                 </>
               )}
               {showArchived ? (
@@ -149,16 +166,19 @@ function PaymentRequests() {
 }
 
 function SubscriptionConfig() {
-  const [config, setConfig] = useState({ trial_days: 14, plans: [], offers: [] });
+  const [config, setConfig] = useState({ trial_days: 14, plans: [], plan_definitions: DEFAULT_PLAN_EDITOR, offers: [] });
+  const [planDrafts, setPlanDrafts] = useState(DEFAULT_PLAN_EDITOR);
   const [trialDays, setTrialDays] = useState(14);
   const [offer, setOffer] = useState(EMPTY_OFFER);
   const [editingOfferId, setEditingOfferId] = useState(null);
   const [savedMessage, setSavedMessage] = useState('');
+  const [planSavedMessage, setPlanSavedMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
     const { data } = await adminApi.get('/admin/subscription-config');
     setConfig(data);
+    setPlanDrafts((data.plan_definitions || DEFAULT_PLAN_EDITOR).map((plan) => ({ ...plan, features: Array.isArray(plan.features) ? plan.features : [] })));
     setTrialDays(data.trial_days);
   };
   useEffect(() => { load(); }, []);
@@ -166,6 +186,25 @@ function SubscriptionConfig() {
   const saveTrial = async () => {
     setBusy(true);
     try { await adminApi.patch('/admin/subscription-config', { trial_days: Number(trialDays) }); await load(); } finally { setBusy(false); }
+  };
+  const updatePlan = (id, field, value) => setPlanDrafts((current) => current.map((plan) => plan.id === id ? { ...plan, [field]: value } : plan));
+  const savePlans = async () => {
+    setBusy(true);
+    setPlanSavedMessage('');
+    try {
+      const payload = planDrafts.map((plan) => ({
+        ...plan,
+        base_price_omr: Number(plan.base_price_omr),
+        duration_days: plan.duration_days === '' || plan.duration_days === null ? null : Number(plan.duration_days),
+        features: Array.isArray(plan.features) ? plan.features : [],
+      }));
+      const { data } = await adminApi.patch('/admin/subscription-config', { plan_definitions: payload });
+      setPlanDrafts(data.plan_definitions || payload);
+      setPlanSavedMessage('تم حفظ الباقات الأساسية، وستظهر التغييرات للمعلمين فورًا.');
+      await load();
+    } catch (error) {
+      setPlanSavedMessage(error.response?.data?.error || 'تعذر حفظ الباقات الأساسية.');
+    } finally { setBusy(false); }
   };
   const saveOffer = async (event) => {
     event.preventDefault();
@@ -193,6 +232,17 @@ function SubscriptionConfig() {
   const removeOffer = async (id) => { if (!confirm('حذف هذا العرض؟')) return; await adminApi.delete(`/admin/offers/${id}`); load(); };
 
   return <div className="admin-subscription-config">
+    <div className="admin-config-card admin-config-card--plans">
+      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">المنتج الأساسي</span><h3>تحرير الباقات الأساسية</h3><p>غيّر اسم الباقة وسعرها ومدتها وخصائصها. هذه القيم هي السعر الأساسي الذي تُبنى عليه العروض وطلبات التفعيل.</p></div><span className="admin-config-icon">◇</span></div>
+      <div className="admin-base-plans-grid">{planDrafts.map((plan) => <article key={plan.id} className={`admin-base-plan-editor ${plan.highlight ? 'is-featured' : ''}`}>
+        <div className="admin-base-plan-editor__top"><span className="admin-plan-pill">{PLAN_LABELS[plan.id]}</span><label className="admin-featured-toggle"><input type="checkbox" checked={Boolean(plan.highlight)} onChange={(e) => updatePlan(plan.id, 'highlight', e.target.checked)} /><span>مميزة</span></label></div>
+        <label className="label">اسم الباقة<input className="input" value={plan.title} onChange={(e) => updatePlan(plan.id, 'title', e.target.value)} /></label>
+        <div className="admin-plan-editor-row"><label className="label">السعر الأساسي<input className="input" type="number" min="0.01" step="0.01" value={plan.base_price_omr} onChange={(e) => updatePlan(plan.id, 'base_price_omr', e.target.value)} /></label><label className="label">المدة بالأيام<input className="input" type="number" min="1" step="1" value={plan.duration_days ?? ''} placeholder={plan.id === 'lifetime' ? 'غير محدودة' : ''} onChange={(e) => updatePlan(plan.id, 'duration_days', e.target.value)} /></label></div>
+        <label className="label">وصف مختصر<input className="input" value={plan.note || ''} onChange={(e) => updatePlan(plan.id, 'note', e.target.value)} /></label>
+        <label className="label">خصائص الباقة <span className="admin-label-hint">خاصية واحدة في كل سطر</span><textarea className="input" rows={4} value={(plan.features || []).join('\n')} onChange={(e) => updatePlan(plan.id, 'features', e.target.value.split('\n').map((item) => item.trim()).filter(Boolean))} /></label>
+      </article>)}</div>
+      <div className="admin-plan-editor-actions"><button className="btn-primary" type="button" disabled={busy} onClick={savePlans}>{busy ? 'جارِ الحفظ...' : 'حفظ الباقات الأساسية'}</button>{planSavedMessage && <span className={`save-feedback ${planSavedMessage.startsWith('تم') ? 'save-feedback--success' : 'save-feedback--error'}`}>{planSavedMessage}</span>}</div>
+    </div>
     <div className="admin-config-card admin-config-card--trial"><div className="admin-config-icon">◷</div><div className="flex-1"><span className="admin-config-eyebrow">سياسة الحسابات الجديدة</span><h3>مدة الفترة التجريبية</h3><p>تُطبّق على الحسابات الجديدة فقط، ويمكن تعديلها دون تغيير اشتراكات المعلمين الحاليين.</p></div><div className="admin-inline-edit"><input className="input" type="number" min="1" max="365" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} /><span>يومًا</span><button className="btn-primary" disabled={busy} onClick={saveTrial}>حفظ المدة</button></div></div>
     <div className="admin-config-card admin-config-card--offer"><div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">{editingOfferId ? 'تحرير عرض محفوظ' : 'إنشاء عرض جديد'}</span><h3>{editingOfferId ? 'تعديل تفاصيل العرض' : 'أضف عرضًا يظهر للمعلمين'}</h3><p>يظهر العرض الفعّال في بطاقات الاشتراك مع السعر الأصلي المشطوب وسعر العرض والوصف والفترة المحددة.</p></div>{editingOfferId && <button className="btn-secondary text-sm" type="button" onClick={cancelEditOffer}>إلغاء التحرير</button>}</div><form onSubmit={saveOffer} className="offer-editor-grid"><label className="label">الباقة<select className="input" value={offer.plan} onChange={(e) => setOffer({ ...offer, plan: e.target.value })}>{Object.entries(PLAN_LABELS).filter(([id]) => id !== 'trial').map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="label">عنوان العرض<input className="input" placeholder="مثال: عرض العودة للمدارس" value={offer.title} onChange={(e) => setOffer({ ...offer, title: e.target.value })} required /></label><label className="label offer-editor-grid__wide">الوصف الذي سيظهر للمعلم<input className="input" placeholder="مثال: خصم محدود حتى نهاية الشهر" value={offer.description} onChange={(e) => setOffer({ ...offer, description: e.target.value })} /></label><label className="label">السعر الأصلي<input className="input" type="number" min="0.01" step="0.01" value={offer.original_price_omr} onChange={(e) => setOffer({ ...offer, original_price_omr: e.target.value })} required /></label><label className="label">سعر العرض<input className="input" type="number" min="0.01" step="0.01" value={offer.offer_price_omr} onChange={(e) => setOffer({ ...offer, offer_price_omr: e.target.value })} required /></label><label className="label">يبدأ في<input className="input" type="datetime-local" value={offer.starts_at} onChange={(e) => setOffer({ ...offer, starts_at: e.target.value })} /></label><label className="label">ينتهي في<input className="input" type="datetime-local" value={offer.ends_at} onChange={(e) => setOffer({ ...offer, ends_at: e.target.value })} /></label><label className="offer-enabled-toggle"><input type="checkbox" checked={offer.enabled} onChange={(e) => setOffer({ ...offer, enabled: e.target.checked })} /><span>إظهار العرض للمعلمين فورًا إذا كان ضمن الفترة</span></label><div className="offer-editor-actions"><button className="btn-primary" disabled={busy} type="submit">{busy ? 'جارِ الحفظ...' : editingOfferId ? 'حفظ تعديل العرض' : 'إضافة العرض'}</button>{savedMessage && <span className="save-feedback save-feedback--success">{savedMessage}</span>}</div></form></div>
     <div className="admin-offers-list"><div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">المكتبة الحالية</span><h3>العروض المحفوظة</h3><p>راجع حالة كل عرض وعدّل السعر والوصف والفترة من زر التحرير.</p></div><span className="admin-offer-count">{config.offers?.length || 0} عروض</span></div><div className="admin-offers-grid">{(config.offers || []).map((item) => <article key={item.id} className={`admin-offer-row ${item.enabled ? 'is-enabled' : 'is-disabled'}`}><div className="admin-offer-row__status"><span className="admin-offer-status-dot" />{item.enabled ? 'مفعّل' : 'متوقف'}</div><div className="admin-offer-row__body"><div className="flex items-center gap-2 flex-wrap"><h4>{item.title || 'عرض بلا عنوان'}</h4><span className="admin-plan-pill">{PLAN_LABELS[item.plan] || item.plan}</span></div><p>{item.description || 'لا يوجد وصف للعرض بعد.'}</p><div className="admin-offer-row__meta"><strong><del>{item.original_price_omr} ر.ع</del> {item.offer_price_omr} ر.ع</strong><span>{item.starts_at ? `من ${new Date(item.starts_at).toLocaleDateString('ar')}` : 'فوري'} · {item.ends_at ? `حتى ${new Date(item.ends_at).toLocaleDateString('ar')}` : 'دون انتهاء'}</span></div></div><div className="admin-offer-row__actions"><button className="text-primary text-xs" disabled={busy} onClick={() => startEditOffer(item)}>تحرير</button><button className="text-ink/60 text-xs" disabled={busy} onClick={() => toggleOffer(item)}>{item.enabled ? 'إيقاف' : 'تفعيل'}</button><button className="text-danger text-xs" disabled={busy} onClick={() => removeOffer(item.id)}>حذف</button></div></article>)}{config.offers?.length === 0 && <div className="admin-empty-offers">لا توجد عروض محفوظة. أضف أول عرض ليظهر للمعلمين.</div>}</div></div>

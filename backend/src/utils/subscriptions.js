@@ -1,11 +1,65 @@
 const db = require('../db');
 
-const PLAN_PRICES_OMR = { '6_months': 4, yearly: 7, lifetime: 18 };
-const PLAN_DURATIONS_DAYS = { '6_months': 182, yearly: 365, lifetime: null };
+const DEFAULT_PLAN_DEFINITIONS = [
+  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, duration_days: 182, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'], highlight: false },
+  { id: 'yearly', title: 'الباقة السنوية', base_price_omr: 7, duration_days: 365, note: 'الأكثر توفيرًا للعام الدراسي', features: ['كل أدوات EduCore', 'نسخ محلية ومزامنة', 'دعم فني مباشر'], highlight: true },
+  { id: 'lifetime', title: 'مدى الحياة', base_price_omr: 18, duration_days: null, note: 'دفعة واحدة ووصول دائم', features: ['وصول دائم', 'كل التحديثات المستقبلية', 'أولوية في الدعم'], highlight: false },
+];
+
+const PLAN_PRICES_OMR = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.base_price_omr]));
+const PLAN_DURATIONS_DAYS = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.duration_days]));
+const PLAN_SETTINGS_KEY = 'subscription_plans';
 
 function getSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
   return row?.value ?? fallback;
+}
+
+function normalizePlan(raw, fallback) {
+  const source = { ...fallback, ...(raw || {}) };
+  const basePrice = Number(source.base_price_omr);
+  const duration = source.duration_days === null || source.duration_days === '' || source.duration_days === undefined
+    ? null
+    : Number(source.duration_days);
+  return {
+    id: fallback.id,
+    title: String(source.title || fallback.title).trim() || fallback.title,
+    base_price_omr: Number.isFinite(basePrice) && basePrice > 0 ? basePrice : fallback.base_price_omr,
+    duration_days: duration === null ? null : (Number.isInteger(duration) && duration > 0 ? duration : fallback.duration_days),
+    note: String(source.note || '').trim(),
+    features: Array.isArray(source.features)
+      ? source.features.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : fallback.features,
+    highlight: Boolean(source.highlight),
+  };
+}
+
+function getPlanDefinitions() {
+  const raw = getSetting(PLAN_SETTINGS_KEY, null);
+  if (!raw) return DEFAULT_PLAN_DEFINITIONS.map((plan) => ({ ...plan, features: [...plan.features] }));
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('invalid plan settings');
+    return DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(parsed.find((plan) => plan?.id === fallback.id), fallback));
+  } catch {
+    return DEFAULT_PLAN_DEFINITIONS.map((plan) => ({ ...plan, features: [...plan.features] }));
+  }
+}
+
+function getPlanDefinition(planId) {
+  return getPlanDefinitions().find((plan) => plan.id === planId) || null;
+}
+
+function savePlanDefinitions(plans) {
+  const incoming = Array.isArray(plans) ? plans : [];
+  const normalized = DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(incoming.find((plan) => plan?.id === fallback.id), fallback));
+  db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+    .run(PLAN_SETTINGS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function getBasePrices() {
+  return Object.fromEntries(getPlanDefinitions().map((plan) => [plan.id, plan.base_price_omr]));
 }
 
 function getTrialDays() {
@@ -29,14 +83,12 @@ function getActiveOffer(plan) {
 }
 
 function getPublicPlans() {
-  return Object.entries(PLAN_PRICES_OMR).map(([id, basePrice]) => {
-    const offer = getActiveOffer(id);
+  return getPlanDefinitions().map((definition) => {
+    const offer = getActiveOffer(definition.id);
     return {
-      id,
-      base_price_omr: basePrice,
-      price_omr: offer ? Number(offer.offer_price_omr) : basePrice,
-      original_price_omr: offer ? Number(offer.original_price_omr || basePrice) : basePrice,
-      duration_days: PLAN_DURATIONS_DAYS[id],
+      ...definition,
+      price_omr: offer ? Number(offer.offer_price_omr) : definition.base_price_omr,
+      original_price_omr: offer ? Number(offer.original_price_omr || definition.base_price_omr) : definition.base_price_omr,
       offer: offer ? {
         id: offer.id,
         title: offer.title,
@@ -49,9 +101,14 @@ function getPublicPlans() {
 }
 
 module.exports = {
+  DEFAULT_PLAN_DEFINITIONS,
   PLAN_PRICES_OMR,
   PLAN_DURATIONS_DAYS,
   getSetting,
+  getPlanDefinitions,
+  getPlanDefinition,
+  savePlanDefinitions,
+  getBasePrices,
   getTrialDays,
   getActiveOffers,
   getActiveOffer,

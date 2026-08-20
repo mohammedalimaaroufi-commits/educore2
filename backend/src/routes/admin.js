@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, PLAN_PRICES_OMR } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices } = require('../utils/subscriptions');
 
 const router = express.Router();
 
@@ -27,7 +27,7 @@ router.use(requireAdmin);
 // GET /api/admin/subscription-config -> current trial setting, plans, and active offers
 router.get('/subscription-config', (req, res) => {
   const offers = db.prepare('SELECT * FROM subscription_offers ORDER BY updated_at DESC, created_at DESC').all();
-  res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), offers });
+  res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), plan_definitions: getPlanDefinitions(), offers });
 });
 
 // PATCH /api/admin/subscription-config { trial_days }
@@ -37,13 +37,24 @@ router.patch('/subscription-config', (req, res) => {
     if (!Number.isInteger(trialDays) || trialDays < 1 || trialDays > 365) return res.status(400).json({ error: 'مدة التجربة يجب أن تكون بين يوم و365 يومًا' });
     db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('trial_days', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(String(trialDays));
   }
-  res.json({ trial_days: getTrialDays(), plans: getPublicPlans() });
+  if (req.body.plan_definitions !== undefined) {
+    if (!Array.isArray(req.body.plan_definitions)) return res.status(400).json({ error: 'بيانات الباقات غير صالحة' });
+    for (const plan of req.body.plan_definitions) {
+      const price = Number(plan?.base_price_omr);
+      if (!['6_months', 'yearly', 'lifetime'].includes(plan?.id) || !Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ error: 'تحقق من أسماء الباقات وأسعارها' });
+      }
+    }
+    savePlanDefinitions(req.body.plan_definitions);
+  }
+  res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), plan_definitions: getPlanDefinitions() });
 });
 
 router.post('/offers', (req, res) => {
   const { plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled } = req.body;
-  if (!PLAN_PRICES_OMR[plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
-  const original = Number(original_price_omr || PLAN_PRICES_OMR[plan]);
+  const basePrices = getBasePrices();
+  if (!basePrices[plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  const original = Number(original_price_omr || basePrices[plan]);
   const offer = Number(offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
   const id = uuid();
@@ -57,7 +68,8 @@ router.patch('/offers/:id', (req, res) => {
   const current = db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(req.params.id);
   if (!current) return res.status(404).json({ error: 'العرض غير موجود' });
   const next = { ...current, ...req.body };
-  if (!PLAN_PRICES_OMR[next.plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  const basePrices = getBasePrices();
+  if (!basePrices[next.plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
   const original = Number(next.original_price_omr);
   const offer = Number(next.offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
@@ -144,18 +156,26 @@ router.post('/payment-requests/:id/approve', (req, res) => {
   if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
 
   const now = new Date().toISOString();
-  const periodEnd = request.plan === 'lifetime' ? null : addDays(now, request.plan === 'yearly' ? 365 : 182);
+  const definitions = getPlanDefinitions();
+  const selectedPlan = definitions.find((plan) => plan.id === request.plan);
+  if (!selectedPlan) return res.status(400).json({ error: 'الباقة المرتبطة بالطلب غير موجودة' });
+  const periodEnd = selectedPlan.duration_days === null ? null : addDays(now, selectedPlan.duration_days);
 
   const activate = db.transaction(() => {
-    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', current_period_start = ?, current_period_end = ?,
-                payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE teacher_id = ?`)
+    const updated = db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL,
+                current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE teacher_id = ?`)
       .run(request.plan, now, periodEnd, request.reference_note || null, now, request.teacher_id);
+    if (!updated.changes) {
+      db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference)
+                  VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), request.teacher_id, request.plan, now, periodEnd, request.reference_note || null);
+    }
     db.prepare(`UPDATE payment_requests SET status = 'approved', admin_note = ?, reviewed_at = ? WHERE id = ?`)
       .run(req.body.admin_note || null, now, request.id);
   });
   activate();
 
-  res.json({ success: true });
+  const subscription = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(request.teacher_id);
+  res.json({ success: true, subscription, request: db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(request.id) });
 });
 
 // POST /api/admin/payment-requests/:id/reject  { admin_note }
