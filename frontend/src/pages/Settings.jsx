@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useLocale } from '../context/LocaleContext.jsx';
 import { readProfileDraft, removeProfileDraft, savePendingProfile, saveProfileDraft } from '../utils/localCache.js';
 import SchemesManager from '../components/SchemesManager.jsx';
 import BehaviorTemplateManager from '../components/BehaviorTemplateManager.jsx';
@@ -26,7 +27,8 @@ const TABS = [
 
 function ProfileTab() {
   const { teacher, refreshMe, updateLocalTeacher } = useAuth();
-  const [profile, setProfile] = useState({ full_name: '', subject: '', school_stage: '', school_name: '' });
+  const { t, locale, changeLocale } = useLocale();
+  const [profile, setProfile] = useState({ full_name: '', subject: '', school_stage: '', school_name: '', locale: 'ar' });
   const [savedMsg, setSavedMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
@@ -39,13 +41,14 @@ function ProfileTab() {
       subject: teacher.subject || '',
       school_stage: teacher.school_stage || '',
       school_name: teacher.school_name || '',
+      locale: teacher.locale || locale,
     };
     const localDraft = readProfileDraft(teacher.id);
     const draftMatchesServer = localDraft && JSON.stringify(localDraft) === JSON.stringify(serverProfile);
     if (draftMatchesServer) removeProfileDraft(teacher.id);
     setProfile(draftMatchesServer ? serverProfile : (localDraft || serverProfile));
     setDraftDirty(Boolean(localDraft && !draftMatchesServer));
-  }, [teacher]);
+  }, [teacher, locale]);
 
   useEffect(() => {
     if (teacher?.id && draftDirty && profile.full_name) saveProfileDraft(teacher.id, profile);
@@ -82,14 +85,15 @@ function ProfileTab() {
 
   return (
     <div className="card p-5">
-      <h3 className="font-bold mb-3">الملف الشخصي</h3>
+      <h3 className="font-bold mb-3">{t('profile')}</h3>
       <form onSubmit={saveProfile} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div><label className="label">الاسم الكامل</label><input className="input" value={profile.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></div>
-        <div><label className="label">المادة</label><input className="input" value={profile.subject} onChange={(e) => updateProfileField('subject', e.target.value)} /></div>
-        <div><label className="label">المرحلة الدراسية</label><input className="input" value={profile.school_stage} onChange={(e) => updateProfileField('school_stage', e.target.value)} /></div>
-        <div><label className="label">اسم المدرسة</label><input className="input" value={profile.school_name} onChange={(e) => updateProfileField('school_name', e.target.value)} /></div>
+        <div><label className="label">{t('fullName')}</label><input className="input" value={profile.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></div>
+        <div><label className="label">{t('subject')}</label><input className="input" value={profile.subject} onChange={(e) => updateProfileField('subject', e.target.value)} /></div>
+        <div><label className="label">{t('schoolStage')}</label><input className="input" value={profile.school_stage} onChange={(e) => updateProfileField('school_stage', e.target.value)} /></div>
+        <div><label className="label">{t('schoolName')}</label><input className="input" value={profile.school_name} onChange={(e) => updateProfileField('school_name', e.target.value)} /></div>
+        <div><label className="label">{t('language')}</label><select className="input" value={profile.locale || locale} onChange={(e) => { updateProfileField('locale', e.target.value); void changeLocale(e.target.value); }}><option value="ar">{t('arabic')}</option><option value="en">{t('english')}</option></select></div>
         <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
-          <button className="btn-primary" type="submit" disabled={saving}>{saving ? 'جارٍ الحفظ...' : 'حفظ'}</button>
+          <button className="btn-primary" type="submit" disabled={saving}>{saving ? '...' : t('save')}</button>
           {savedMsg && <span className="text-primary text-sm">{savedMsg}</span>}
           {error && <span className="text-danger text-sm">{error}</span>}
         </div>

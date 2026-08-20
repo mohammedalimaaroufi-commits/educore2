@@ -1,7 +1,9 @@
 const express = require('express');
+const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
+const { getTrialDays, getPublicPlans, PLAN_PRICES_OMR } = require('../utils/subscriptions');
 
 const router = express.Router();
 
@@ -21,6 +23,84 @@ router.post('/login', (req, res) => {
 });
 
 router.use(requireAdmin);
+
+// GET /api/admin/subscription-config -> current trial setting, plans, and active offers
+router.get('/subscription-config', (req, res) => {
+  const offers = db.prepare('SELECT * FROM subscription_offers ORDER BY updated_at DESC, created_at DESC').all();
+  res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), offers });
+});
+
+// PATCH /api/admin/subscription-config { trial_days }
+router.patch('/subscription-config', (req, res) => {
+  if (req.body.trial_days !== undefined) {
+    const trialDays = Number(req.body.trial_days);
+    if (!Number.isInteger(trialDays) || trialDays < 1 || trialDays > 365) return res.status(400).json({ error: 'مدة التجربة يجب أن تكون بين يوم و365 يومًا' });
+    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('trial_days', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(String(trialDays));
+  }
+  res.json({ trial_days: getTrialDays(), plans: getPublicPlans() });
+});
+
+router.post('/offers', (req, res) => {
+  const { plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled } = req.body;
+  if (!PLAN_PRICES_OMR[plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  const original = Number(original_price_omr || PLAN_PRICES_OMR[plan]);
+  const offer = Number(offer_price_omr);
+  if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
+  const id = uuid();
+  db.prepare(`INSERT INTO subscription_offers (id, plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, plan, title || 'عرض خاص', description || null, original, offer, starts_at || null, ends_at || null, enabled === false ? 0 : 1);
+  res.status(201).json({ offer: db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(id) });
+});
+
+router.patch('/offers/:id', (req, res) => {
+  const current = db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(req.params.id);
+  if (!current) return res.status(404).json({ error: 'العرض غير موجود' });
+  const next = { ...current, ...req.body };
+  if (!PLAN_PRICES_OMR[next.plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  const original = Number(next.original_price_omr);
+  const offer = Number(next.offer_price_omr);
+  if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
+  db.prepare(`UPDATE subscription_offers SET plan = ?, title = ?, description = ?, original_price_omr = ?, offer_price_omr = ?, starts_at = ?, ends_at = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(next.plan, next.title || null, next.description || null, original, offer, next.starts_at || null, next.ends_at || null, next.enabled ? 1 : 0, current.id);
+  res.json({ offer: db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(current.id) });
+});
+
+router.delete('/offers/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM subscription_offers WHERE id = ?').run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'العرض غير موجود' });
+  res.json({ success: true });
+});
+
+// Password reset requests are intentionally handled by the administrator. The reset link is
+// generated only after review and returned to the private console for manual email delivery.
+router.get('/password-reset-requests', (req, res) => {
+  const status = req.query.status || 'pending';
+  const where = status === 'all' ? '' : 'WHERE pr.status = ?';
+  const params = status === 'all' ? [] : [status];
+  const requests = db.prepare(`SELECT pr.*, t.full_name, t.email FROM password_reset_requests pr JOIN teachers t ON t.id = pr.teacher_id ${where} ORDER BY pr.created_at DESC`).all(...params);
+  res.json({ requests });
+});
+
+router.post('/password-reset-requests/:id/generate-link', (req, res) => {
+  const request = db.prepare(`SELECT pr.*, t.full_name, t.email FROM password_reset_requests pr JOIN teachers t ON t.id = pr.teacher_id WHERE pr.id = ?`).get(req.params.id);
+  if (!request) return res.status(404).json({ error: 'طلب إعادة التعيين غير موجود' });
+  if (request.status === 'closed') return res.status(400).json({ error: 'تم إغلاق الطلب' });
+  db.prepare('DELETE FROM password_resets WHERE teacher_id = ? AND used = 0').run(request.teacher_id);
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO password_resets (id, teacher_id, token, expires_at) VALUES (?, ?, ?, ?)').run(uuid(), request.teacher_id, token, expiresAt);
+  const frontendBase = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const resetLink = `${frontendBase}/reset-password?token=${token}`;
+  db.prepare("UPDATE password_reset_requests SET status = 'link_generated', admin_note = ?, reviewed_at = datetime('now') WHERE id = ?").run(req.body.admin_note || null, request.id);
+  res.json({ success: true, request: db.prepare('SELECT * FROM password_reset_requests WHERE id = ?').get(request.id), reset_link: resetLink, expires_at: expiresAt });
+});
+
+router.post('/password-reset-requests/:id/close', (req, res) => {
+  const result = db.prepare("UPDATE password_reset_requests SET status = 'closed', admin_note = COALESCE(?, admin_note), reviewed_at = datetime('now') WHERE id = ?").run(req.body.admin_note || null, req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'طلب إعادة التعيين غير موجود' });
+  res.json({ success: true });
+});
 
 // GET /api/admin/payment-requests?status=pending|approved|rejected&archived=1  -> incoming transfer receipts
 // By default only non-archived requests are returned; pass archived=1 to view the archive instead.

@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
+import { useLocale } from './context/LocaleContext.jsx';
 
 const Login = lazy(() => import('./pages/Login.jsx'));
 const Register = lazy(() => import('./pages/Register.jsx'));
@@ -15,17 +16,15 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard.jsx'));
 const ChatWidget = lazy(() => import('./components/ChatWidget.jsx'));
 
 function LoadingScreen() {
-  return <div className="p-10 text-center text-ink/60">جارِ التحميل...</div>;
+  const { t } = useLocale();
+  return <div className="p-10 text-center text-ink/60">{t('appLoading')}</div>;
 }
 
 function OfflineBanner() {
   const { offline } = useAuth();
+  const { t } = useLocale();
   if (!offline) return null;
-  return (
-    <div className="sticky top-0 z-50 bg-amber-100 text-amber-900 border-b border-amber-200 px-4 py-2 text-center text-xs">
-      لا يوجد اتصال بالخادم حاليًا. تظهر النسخ المحفوظة على هذا الجهاز، وستتم محاولة المزامنة عند عودة الاتصال.
-    </div>
-  );
+  return <div className="sticky top-0 z-50 bg-amber-100 text-amber-900 border-b border-amber-200 px-4 py-2 text-center text-xs">{t('offline')}</div>;
 }
 
 function ProtectedRoute({ children }) {

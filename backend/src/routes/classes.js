@@ -126,15 +126,14 @@ router.post('/', (req, res) => {
         { name: 'مشروع', weight_percent: 15 },
         { name: 'اختبار نهائي', weight_percent: 40 },
       ];
-  const insertCategory = db.prepare(`INSERT INTO grade_categories (id, class_id, name, weight_percent, grading_type, sort_order)
-                                      VALUES (?, ?, ?, ?, 'numeric', ?)`);
-  // Each category gets one ready-to-use assessment column immediately, so the teacher can start
-  // entering grades straight away without first clicking "+ تقييم" under every column.
-  const insertAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score) VALUES (?, ?, ?, 100)`);
+  const insertCategory = db.prepare(`INSERT INTO grade_categories (id, class_id, name, weight_percent, grading_type, grading_mode, sort_order)
+                                      VALUES (?, ?, ?, ?, 'numeric', 'direct', ?)`);
+  // Each category gets a ready-to-use summary column whose maximum is the category weight.
+  const insertAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`);
   defaultCategories.forEach((c, i) => {
     const categoryId = uuid();
     insertCategory.run(categoryId, id, c.name, c.weight_percent, i);
-    insertAssessment.run(uuid(), categoryId, c.name);
+    insertAssessment.run(uuid(), categoryId, c.name, Number(c.weight_percent || 0));
   });
 
   const created = db.prepare('SELECT * FROM classes WHERE id = ?').get(id);

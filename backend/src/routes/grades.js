@@ -10,29 +10,74 @@ function assertClassOwnership(classId, teacherId) {
   return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
 }
 
+function categoryAssessments(categoryId) {
+  return db.prepare('SELECT * FROM assessments WHERE category_id = ? ORDER BY is_summary DESC, date, created_at').all(categoryId);
+}
+
+function detailTotal(categoryId) {
+  return Number(db.prepare('SELECT COALESCE(SUM(max_score), 0) AS total FROM assessments WHERE category_id = ? AND is_summary = 0').get(categoryId).total || 0);
+}
+
+function ensureSummaryAssessment(category) {
+  let summary = db.prepare('SELECT * FROM assessments WHERE category_id = ? AND is_summary = 1 LIMIT 1').get(category.id);
+  if (!summary) {
+    const id = uuid();
+    db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`)
+      .run(id, category.id, category.name, Number(category.weight_percent || 0));
+    summary = db.prepare('SELECT * FROM assessments WHERE id = ?').get(id);
+  }
+  return summary;
+}
+
+function weightedPercent(studentId, category) {
+  const detailRows = db.prepare(`SELECT a.max_score, g.score_numeric
+    FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
+    WHERE a.category_id = ? AND a.is_summary = 0`).all(studentId, category.id);
+  const rows = detailRows.length > 0 ? detailRows : db.prepare(`SELECT a.max_score, g.score_numeric
+    FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
+    WHERE a.category_id = ? AND a.is_summary = 1`).all(studentId, category.id);
+  let earned = 0;
+  let possible = 0;
+  rows.forEach((row) => {
+    if (row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '') {
+      earned += Number(row.score_numeric);
+      possible += Number(row.max_score || 0);
+    }
+  });
+  return possible > 0 ? (earned / possible) * 100 : null;
+}
+
 // ---------- Grade Categories ----------
 
 // GET /api/grades/categories?class_id=...
 router.get('/categories', (req, res) => {
   const { class_id } = req.query;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
-  const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
-  const totalWeight = categories.reduce((sum, c) => sum + c.weight_percent, 0);
+  const categories = db.prepare(`SELECT gc.*,
+      (SELECT COUNT(*) FROM assessments a WHERE a.category_id = gc.id AND a.is_summary = 0) AS detail_count,
+      (SELECT COALESCE(SUM(a.max_score), 0) FROM assessments a WHERE a.category_id = gc.id AND a.is_summary = 0) AS detail_total
+    FROM grade_categories gc WHERE gc.class_id = ? ORDER BY gc.sort_order`).all(class_id);
+  const totalWeight = categories.reduce((sum, c) => sum + Number(c.weight_percent || 0), 0);
   res.json({ categories, totalWeight, isValid: Math.round(totalWeight) === 100 });
 });
 
 // POST /api/grades/categories
 router.post('/categories', (req, res) => {
-  const { class_id, name, weight_percent, grading_type } = req.body;
+  const { class_id, name, weight_percent, grading_type, grading_mode, details_note } = req.body;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
   if (!name) return res.status(400).json({ error: 'اسم الفئة مطلوب' });
+  const weight = Number(weight_percent || 0);
+  if (weight < 0) return res.status(400).json({ error: 'وزن الفئة لا يمكن أن يكون سالبًا' });
+  const mode = grading_mode === 'detailed' ? 'detailed' : 'direct';
   const id = uuid();
   const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM grade_categories WHERE class_id = ?').get(class_id).m;
-  db.prepare(`INSERT INTO grade_categories (id, class_id, name, weight_percent, grading_type, sort_order)
-              VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(id, class_id, name, weight_percent || 0, grading_type || 'numeric', maxOrder + 1);
-  // Open a ready-to-use grade column right away — no need to add an assessment manually before grading.
-  db.prepare(`INSERT INTO assessments (id, category_id, title, max_score) VALUES (?, ?, ?, 100)`).run(uuid(), id, name);
+  db.prepare(`INSERT INTO grade_categories (id, class_id, name, weight_percent, grading_type, grading_mode, details_note, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, class_id, name, weight, grading_type || 'numeric', mode, details_note || null, maxOrder + 1);
+  // The summary column lets a teacher grade the whole category immediately. It is hidden
+  // automatically once one or more detailed assessments are added.
+  db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`)
+    .run(uuid(), id, name, weight);
   res.status(201).json({ category: db.prepare('SELECT * FROM grade_categories WHERE id = ?').get(id) });
 });
 
@@ -40,9 +85,14 @@ router.post('/categories', (req, res) => {
 router.patch('/categories/:id', (req, res) => {
   const cat = db.prepare('SELECT gc.* FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE gc.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
-  const { name, weight_percent, grading_type } = req.body;
-  db.prepare(`UPDATE grade_categories SET name = COALESCE(?, name), weight_percent = COALESCE(?, weight_percent), grading_type = COALESCE(?, grading_type) WHERE id = ?`)
-    .run(name, weight_percent, grading_type, cat.id);
+  const { name, weight_percent, grading_type, grading_mode, details_note } = req.body;
+  const nextWeight = weight_percent === undefined || weight_percent === null ? Number(cat.weight_percent || 0) : Number(weight_percent);
+  if (nextWeight < 0) return res.status(400).json({ error: 'وزن الفئة لا يمكن أن يكون سالبًا' });
+  if (detailTotal(cat.id) > nextWeight + 0.0001) return res.status(400).json({ error: 'وزن الفئة أقل من مجموع تقييماتها التفصيلية' });
+  const nextMode = grading_mode === 'detailed' ? 'detailed' : grading_mode === 'direct' ? 'direct' : cat.grading_mode;
+  db.prepare(`UPDATE grade_categories SET name = COALESCE(?, name), weight_percent = ?, grading_type = COALESCE(?, grading_type), grading_mode = ?, details_note = COALESCE(?, details_note) WHERE id = ?`)
+    .run(name, nextWeight, grading_type, nextMode || 'direct', details_note, cat.id);
+  if (name && nextMode !== 'detailed') db.prepare('UPDATE assessments SET title = ?, max_score = ? WHERE category_id = ? AND is_summary = 1').run(name, nextWeight, cat.id);
   res.json({ category: db.prepare('SELECT * FROM grade_categories WHERE id = ?').get(cat.id) });
 });
 
@@ -65,15 +115,22 @@ router.get('/assessments', (req, res) => {
 
 // POST /api/grades/assessments
 router.post('/assessments', (req, res) => {
-  const { id: requestedId, category_id, title, max_score, date } = req.body;
+  const { id: requestedId, category_id, title, max_score, date, is_summary } = req.body;
   const cat = db.prepare(`SELECT gc.* FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE gc.id = ? AND c.teacher_id = ?`).get(category_id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
   if (!title) return res.status(400).json({ error: 'عنوان التقييم مطلوب' });
+  const summary = Boolean(is_summary);
+  const max = Number(max_score || 0);
+  if (max <= 0) return res.status(400).json({ error: 'الدرجة القصوى يجب أن تكون أكبر من صفر' });
+  if (!summary && detailTotal(category_id) + max > Number(cat.weight_percent || 0) + 0.0001) {
+    return res.status(400).json({ error: 'مجموع التقييمات التفصيلية لا يمكن أن يتجاوز وزن الفئة' });
+  }
   const id = requestedId || uuid();
   const existing = db.prepare('SELECT a.* FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ assessment: existing, reused: true });
-  db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, date) VALUES (?, ?, ?, ?, ?)`)
-    .run(id, category_id, title, max_score || 100, date || null);
+  db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary, date) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(id, category_id, title, max, summary ? 1 : 0, date || null);
+  if (!summary) db.prepare("UPDATE grade_categories SET grading_mode = 'detailed' WHERE id = ?").run(category_id);
   res.status(201).json({ assessment: db.prepare('SELECT * FROM assessments WHERE id = ?').get(id) });
 });
 
@@ -138,12 +195,13 @@ router.get('/matrix', (req, res) => {
   const insertDefaultAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score) VALUES (?, ?, ?, 100)`);
   categories.forEach((cat) => {
     const hasAny = db.prepare('SELECT 1 FROM assessments WHERE category_id = ? LIMIT 1').get(cat.id);
-    if (!hasAny) insertDefaultAssessment.run(uuid(), cat.id, cat.name);
+    if (!hasAny) insertDefaultAssessment.run(uuid(), cat.id, cat.name, Number(cat.weight_percent || 0));
+    else if (!db.prepare('SELECT 1 FROM assessments WHERE category_id = ? AND is_summary = 1 LIMIT 1').get(cat.id)) ensureSummaryAssessment(cat);
   });
 
   const categoriesWithAssessments = categories.map((cat) => ({
     ...cat,
-    assessments: db.prepare('SELECT * FROM assessments WHERE category_id = ? ORDER BY date, created_at').all(cat.id),
+    assessments: categoryAssessments(cat.id),
   }));
 
   const allAssessmentIds = categoriesWithAssessments.flatMap((c) => c.assessments.map((a) => a.id));
@@ -194,27 +252,19 @@ router.get('/summary', (req, res) => {
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
 
   const students = db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 0').all(class_id);
-  const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ?').all(class_id);
+  const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
 
   const summary = students.map((student) => {
     let weightedTotal = 0;
     let weightUsed = 0;
     const perCategory = categories.map((cat) => {
-      const assessments = db.prepare('SELECT * FROM assessments WHERE category_id = ?').all(cat.id);
-      let earned = 0, possible = 0;
-      assessments.forEach((a) => {
-        const g = db.prepare('SELECT * FROM grades WHERE assessment_id = ? AND student_id = ?').get(a.id, student.id);
-        if (g && g.score_numeric !== null && g.score_numeric !== undefined) {
-          earned += g.score_numeric;
-          possible += a.max_score;
-        }
-      });
-      const pct = possible > 0 ? (earned / possible) * 100 : null;
+      const pct = weightedPercent(student.id, cat);
       if (pct !== null) {
-        weightedTotal += pct * (cat.weight_percent / 100);
-        weightUsed += cat.weight_percent;
+        weightedTotal += pct * (Number(cat.weight_percent || 0) / 100);
+        weightUsed += Number(cat.weight_percent || 0);
       }
-      return { category_id: cat.id, category_name: cat.name, percent: pct };
+      return { category_id: cat.id, category_name: cat.name, weight_percent: cat.weight_percent, percent: pct,
+        weighted_points: pct === null ? null : Number(((pct * Number(cat.weight_percent || 0)) / 100).toFixed(2)) };
     });
     const finalGrade = weightUsed > 0 ? Number(((weightedTotal / weightUsed) * 100).toFixed(2)) : null;
     return { student_id: student.id, full_name: student.full_name, perCategory, finalGrade };

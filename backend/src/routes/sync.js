@@ -64,11 +64,12 @@ router.get('/snapshot', (req, res) => {
       )), '[]') FROM owned_students) AS students,
       (SELECT COALESCE(json_group_array(json_object(
         'id', id, 'class_id', class_id, 'name', name, 'weight_percent', weight_percent,
-        'grading_type', grading_type, 'sort_order', sort_order, 'created_at', created_at
+        'grading_type', grading_type, 'grading_mode', grading_mode, 'details_note', details_note,
+        'sort_order', sort_order, 'created_at', created_at
       )), '[]') FROM owned_categories) AS grade_categories,
       (SELECT COALESCE(json_group_array(json_object(
         'id', id, 'category_id', category_id, 'title', title, 'max_score', max_score,
-        'date', date, 'created_at', created_at
+        'is_summary', is_summary, 'date', date, 'created_at', created_at
       )), '[]') FROM owned_assessments) AS assessments,
       (SELECT COALESCE(json_group_array(json_object(
         'id', g.id, 'assessment_id', g.assessment_id, 'student_id', g.student_id,
@@ -120,7 +121,7 @@ router.get('/snapshot', (req, res) => {
   if (!row || !row.teacher) return res.status(404).json({ error: 'بيانات المعلم غير موجودة' });
 
   const snapshot = {
-    version: 1,
+    version: 2,
     generated_at: new Date().toISOString(),
     teacher: parseJson(row.teacher, null),
     subscriptions: parseJson(row.subscriptions, []),

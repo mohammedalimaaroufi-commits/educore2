@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS grade_categories (
   name TEXT NOT NULL, -- e.g. quizzes, participation, homework, project, final
   weight_percent REAL NOT NULL DEFAULT 0,
   grading_type TEXT NOT NULL DEFAULT 'numeric', -- numeric | letter | rubric
+  grading_mode TEXT NOT NULL DEFAULT 'direct', -- direct: one grade out of category weight | detailed: child assessments
+  details_note TEXT,
   sort_order INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -122,6 +124,7 @@ CREATE TABLE IF NOT EXISTS assessments (
   category_id TEXT NOT NULL REFERENCES grade_categories(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   max_score REAL NOT NULL DEFAULT 100,
+  is_summary INTEGER NOT NULL DEFAULT 0,
   date TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -206,6 +209,8 @@ CREATE TABLE IF NOT EXISTS payment_requests (
   amount_omr REAL NOT NULL,
   reference_note TEXT, -- sender name / transfer reference the teacher provides
   receipt_image TEXT, -- base64 data URI of the transfer receipt screenshot (optional)
+  original_amount_omr REAL,
+  offer_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected
   admin_note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -243,6 +248,39 @@ CREATE TABLE IF NOT EXISTS password_resets (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Teacher requests a password-reset link; an administrator reviews and generates the link manually.
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | link_generated | closed
+  admin_note TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  reviewed_at TEXT
+);
+
+-- Runtime settings controlled by the private admin console.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Optional promotional prices displayed to teachers; base prices remain in auth.js.
+CREATE TABLE IF NOT EXISTS subscription_offers (
+  id TEXT PRIMARY KEY,
+  plan TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  original_price_omr REAL NOT NULL,
+  offer_price_omr REAL NOT NULL,
+  starts_at TEXT,
+  ends_at TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Reusable teacher-level behavior presets ("تحرير السلوك المخصص" في الإعدادات العامة).
 -- Applied automatically to every new class instead of the hardcoded starter list, once the
 -- teacher has saved at least one. Distinct from behavior_types, which stay per-class (a class's
@@ -270,12 +308,48 @@ function hasColumn(table, column) {
 if (!hasColumn('grading_schemes', 'is_default')) {
   db.exec('ALTER TABLE grading_schemes ADD COLUMN is_default INTEGER DEFAULT 0');
 }
+const addedGradingMode = !hasColumn('grade_categories', 'grading_mode');
+if (addedGradingMode) {
+  db.exec("ALTER TABLE grade_categories ADD COLUMN grading_mode TEXT NOT NULL DEFAULT 'direct'");
+  db.exec('ALTER TABLE grade_categories ADD COLUMN details_note TEXT');
+}
+if (!hasColumn('grade_categories', 'details_note')) {
+  db.exec('ALTER TABLE grade_categories ADD COLUMN details_note TEXT');
+}
+if (!hasColumn('assessments', 'is_summary')) {
+  db.exec('ALTER TABLE assessments ADD COLUMN is_summary INTEGER NOT NULL DEFAULT 0');
+}
+if (!hasColumn('payment_requests', 'original_amount_omr')) {
+  db.exec('ALTER TABLE payment_requests ADD COLUMN original_amount_omr REAL');
+}
+if (!hasColumn('payment_requests', 'offer_id')) {
+  db.exec('ALTER TABLE payment_requests ADD COLUMN offer_id TEXT');
+}
 if (!hasColumn('payment_requests', 'archived')) {
   db.exec('ALTER TABLE payment_requests ADD COLUMN archived INTEGER DEFAULT 0');
 }
 if (!hasColumn('messages', 'client_message_id')) {
   db.exec('ALTER TABLE messages ADD COLUMN client_message_id TEXT');
 }
+
+// Existing categories created under the old 0–100 assessment model stay detailed
+// so their saved grades retain their meaning. New categories default to direct mode.
+if (addedGradingMode) {
+  db.exec(`UPDATE grade_categories SET grading_mode = 'detailed'
+           WHERE EXISTS (
+             SELECT 1 FROM assessments a
+             WHERE a.category_id = grade_categories.id AND a.max_score = 100
+           )`);
+}
+// A legacy category's first/default column is the category-level score. Mark it as a
+// summary so detailed columns can be added later without double-counting the old grade.
+db.exec(`UPDATE assessments SET is_summary = 1
+         WHERE is_summary = 0 AND EXISTS (
+           SELECT 1 FROM grade_categories gc
+           WHERE gc.id = assessments.category_id AND gc.name = assessments.title
+         )`);
+
+db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 
 // ------------------------------------------------------------------
 // INDICES — the tables above are queried heavily by foreign key (every list screen
@@ -287,7 +361,7 @@ db.exec(`
 CREATE INDEX IF NOT EXISTS idx_classes_teacher ON classes(teacher_id, archived);
 CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_id, archived);
 CREATE INDEX IF NOT EXISTS idx_grade_categories_class ON grade_categories(class_id);
-CREATE INDEX IF NOT EXISTS idx_assessments_category ON assessments(category_id);
+CREATE INDEX IF NOT EXISTS idx_assessments_category ON assessments(category_id, is_summary);
 CREATE INDEX IF NOT EXISTS idx_grades_assessment ON grades(assessment_id);
 CREATE INDEX IF NOT EXISTS idx_grades_student ON grades(student_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_id ON messages(teacher_id, sender, client_message_id);
@@ -303,6 +377,9 @@ CREATE INDEX IF NOT EXISTS idx_grade_recommendation_rules_teacher ON grade_recom
 CREATE INDEX IF NOT EXISTS idx_messages_teacher ON messages(teacher_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(teacher_id, sender, read_by_admin, created_at);
 CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+CREATE INDEX IF NOT EXISTS idx_password_reset_requests_status ON password_reset_requests(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_app_settings_key ON app_settings(key);
+CREATE INDEX IF NOT EXISTS idx_subscription_offers_plan ON subscription_offers(plan, enabled, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_behavior_type_templates_teacher ON behavior_type_templates(teacher_id);
 `);
 

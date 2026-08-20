@@ -1,14 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { sendPasswordResetEmail, emailIsConfigured } = require('../utils/mailer');
+const { getTrialDays, getPublicPlans, getActiveOffer, PLAN_PRICES_OMR } = require('../utils/subscriptions');
 
 const router = express.Router();
-const TRIAL_DAYS = parseInt(process.env.TRIAL_DAYS || '14', 10);
 const RESET_TOKEN_MINUTES = 30;
 
 function addDays(date, days) {
@@ -32,11 +30,11 @@ router.post('/register', async (req, res) => {
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, full_name, email, password_hash, auth_provider || 'email', subject || null, school_stage || null, school_name || null);
 
-  // Start 14-day free trial automatically, full feature access, no card required
+  // Start the administrator-configured free trial automatically, with no card required.
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, trial_start_date, trial_end_date)
               VALUES (?, ?, 'trial', 'active', ?, ?)`)
-    .run(uuid(), id, now, addDays(now, TRIAL_DAYS));
+    .run(uuid(), id, now, addDays(now, getTrialDays()));
 
   // Seed default grade-based auto-recommendation phrases so reports have useful text from day one
   const defaultRules = [
@@ -68,41 +66,23 @@ router.post('/login', async (req, res) => {
   res.json({ token, teacher: { id: teacher.id, full_name: teacher.full_name, email: teacher.email, locale: teacher.locale } });
 });
 
-// POST /api/auth/forgot-password  { email }
-// Always responds with a generic success message (never reveals whether the email exists).
-// If SMTP is configured (see backend/src/utils/mailer.js), the reset link is emailed.
-// Otherwise (local/dev use with no mail server) the link is returned directly in the response
-// so "نسيت كلمة المرور" still works out of the box without any extra setup.
-router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
+// POST /api/auth/forgot-password { email }
+// The teacher only creates a request. An administrator reviews it, generates a short-lived
+// link from the private console, and sends that link manually to the subscriber's email.
+router.post('/forgot-password', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'البريد الإلكتروني مطلوب' });
 
-  const teacher = db.prepare('SELECT * FROM teachers WHERE email = ?').get(email);
-  const genericMessage = 'إذا كان هذا البريد الإلكتروني مسجلاً لدينا، فستصلك رسالة تحتوي على رابط إعادة تعيين كلمة المرور خلال دقائق.';
-
-  if (!teacher) {
-    // Same response whether or not the account exists, to avoid leaking which emails are registered.
-    return res.json({ success: true, message: genericMessage });
+  const teacher = db.prepare('SELECT id, email FROM teachers WHERE lower(email) = ?').get(email);
+  const genericMessage = 'تم استلام الطلب. إذا كان البريد مسجلاً لدينا فسيراجعه المسؤول ويرسل رابط إعادة التعيين يدويًا.';
+  if (teacher) {
+    const pending = db.prepare("SELECT id FROM password_reset_requests WHERE teacher_id = ? AND status = 'pending' LIMIT 1").get(teacher.id);
+    if (!pending) {
+      db.prepare(`INSERT INTO password_reset_requests (id, teacher_id, email, status) VALUES (?, ?, ?, 'pending')`)
+        .run(uuid(), teacher.id, teacher.email);
+    }
   }
-
-  // Invalidate any previous unused tokens for this teacher, then issue a fresh one.
-  db.prepare('DELETE FROM password_resets WHERE teacher_id = ? AND used = 0').run(teacher.id);
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + RESET_TOKEN_MINUTES * 60 * 1000).toISOString();
-  db.prepare('INSERT INTO password_resets (id, teacher_id, token, expires_at) VALUES (?, ?, ?, ?)')
-    .run(uuid(), teacher.id, token, expiresAt);
-
-  const frontendBase = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const resetLink = `${frontendBase}/reset-password?token=${token}`;
-
-  if (emailIsConfigured()) {
-    await sendPasswordResetEmail(teacher.email, teacher.full_name, resetLink);
-    return res.json({ success: true, message: genericMessage });
-  }
-
-  // Dev fallback: no SMTP configured, so hand back the link directly instead of silently failing.
-  console.log(`[password reset] لا يوجد إعداد بريد (SMTP) — رابط إعادة التعيين لـ ${teacher.email}:\n${resetLink}`);
-  return res.json({ success: true, message: genericMessage, devMode: true, resetLink });
+  return res.json({ success: true, message: genericMessage });
 });
 
 // POST /api/auth/reset-password  { token, password }
@@ -160,12 +140,13 @@ router.get('/me', requireAuth, (req, res) => {
 
 // Package prices in OMR (Omani Rial). Activation is manual: the teacher transfers the amount
 // to the app owner's phone number, then submits the receipt below for review.
-const PLAN_PRICES_OMR = { '6_months': 4, yearly: 7, lifetime: 18 };
-const PAYMENT_PHONE = '00968737448';
+const PAYMENT_PHONE = process.env.PAYMENT_PHONE || '00968737448';
 
 // GET /api/auth/plans  -> public pricing info shown on the subscription page
 router.get('/plans', (req, res) => {
-  res.json({ prices_omr: PLAN_PRICES_OMR, payment_phone: PAYMENT_PHONE });
+  const plans = getPublicPlans();
+  const byId = Object.fromEntries(plans.map((plan) => [plan.id, plan]));
+  res.json({ plans, prices_omr: Object.fromEntries(plans.map((plan) => [plan.id, plan.price_omr])), base_prices_omr: PLAN_PRICES_OMR, payment_phone: PAYMENT_PHONE, trial_days: getTrialDays() });
 });
 
 // POST /api/auth/payment-requests  { plan, reference_note, receipt_image }
@@ -173,11 +154,15 @@ router.get('/plans', (req, res) => {
 router.post('/payment-requests', requireAuth, (req, res) => {
   const { plan, reference_note, receipt_image } = req.body;
   if (!PLAN_PRICES_OMR[plan]) return res.status(400).json({ error: 'باقة غير صالحة' });
+  const offer = getActiveOffer(plan);
+  const originalAmount = offer ? Number(offer.original_price_omr || PLAN_PRICES_OMR[plan]) : PLAN_PRICES_OMR[plan];
+  const amount = offer ? Number(offer.offer_price_omr) : PLAN_PRICES_OMR[plan];
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });
 
   const id = uuid();
-  db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, reference_note, receipt_image, status)
-              VALUES (?, ?, ?, ?, ?, ?, 'pending')`)
-    .run(id, req.teacherId, plan, PLAN_PRICES_OMR[plan], reference_note || null, receipt_image || null);
+  db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, original_amount_omr, offer_id, reference_note, receipt_image, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
+    .run(id, req.teacherId, plan, amount, originalAmount, offer?.id || null, reference_note || null, receipt_image || null);
 
   res.status(201).json({ request: db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(id) });
 });

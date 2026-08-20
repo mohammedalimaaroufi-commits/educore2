@@ -126,6 +126,57 @@ function PaymentRequests() {
   );
 }
 
+function SubscriptionConfig() {
+  const [config, setConfig] = useState({ trial_days: 14, plans: [], offers: [] });
+  const [trialDays, setTrialDays] = useState(14);
+  const [offer, setOffer] = useState({ plan: 'yearly', title: '', description: '', original_price_omr: 7, offer_price_omr: 5, starts_at: '', ends_at: '', enabled: true });
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const { data } = await adminApi.get('/admin/subscription-config');
+    setConfig(data);
+    setTrialDays(data.trial_days);
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveTrial = async () => {
+    setBusy(true);
+    try { await adminApi.patch('/admin/subscription-config', { trial_days: Number(trialDays) }); await load(); } finally { setBusy(false); }
+  };
+  const addOffer = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try { await adminApi.post('/admin/offers', { ...offer, original_price_omr: Number(offer.original_price_omr), offer_price_omr: Number(offer.offer_price_omr) }); setOffer({ ...offer, title: '', description: '' }); await load(); } finally { setBusy(false); }
+  };
+  const toggleOffer = async (item) => { await adminApi.patch(`/admin/offers/${item.id}`, { enabled: !item.enabled }); load(); };
+  const removeOffer = async (id) => { if (!confirm('حذف هذا العرض؟')) return; await adminApi.delete(`/admin/offers/${id}`); load(); };
+
+  return <div className="space-y-4">
+    <div className="card p-4"><div className="flex flex-wrap items-end gap-3"><div className="flex-1 min-w-[180px]"><label className="label">مدة التجربة الافتراضية بالأيام</label><input className="input" type="number" min="1" max="365" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} /></div><button className="btn-primary" disabled={busy} onClick={saveTrial}>حفظ مدة التجربة</button><span className="text-xs text-ink/50">الحسابات الجديدة فقط تبدأ بهذه المدة.</span></div></div>
+    <div className="card p-4"><h3 className="font-bold mb-3">إضافة عرض اشتراك</h3><form onSubmit={addOffer} className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select className="input" value={offer.plan} onChange={(e) => setOffer({ ...offer, plan: e.target.value })}>{Object.entries(PLAN_LABELS).filter(([id]) => id !== 'trial').map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><input className="input" placeholder="عنوان العرض" value={offer.title} onChange={(e) => setOffer({ ...offer, title: e.target.value })} required /><input className="input" placeholder="وصف العرض" value={offer.description} onChange={(e) => setOffer({ ...offer, description: e.target.value })} /><input className="input" type="number" step="0.01" placeholder="السعر الأصلي" value={offer.original_price_omr} onChange={(e) => setOffer({ ...offer, original_price_omr: e.target.value })} required /><input className="input" type="number" step="0.01" placeholder="سعر العرض" value={offer.offer_price_omr} onChange={(e) => setOffer({ ...offer, offer_price_omr: e.target.value })} required /><div className="flex gap-2"><input className="input" type="datetime-local" value={offer.starts_at} onChange={(e) => setOffer({ ...offer, starts_at: e.target.value ? new Date(e.target.value).toISOString() : '' })} /><input className="input" type="datetime-local" value={offer.ends_at} onChange={(e) => setOffer({ ...offer, ends_at: e.target.value ? new Date(e.target.value).toISOString() : '' })} /></div><button className="btn-primary sm:col-span-2" disabled={busy} type="submit">إضافة العرض</button></form></div>
+    <div className="card p-4"><h3 className="font-bold mb-3">العروض الحالية</h3><div className="space-y-2">{(config.offers || []).map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2"><div><p className="font-medium">{item.title} — {PLAN_LABELS[item.plan] || item.plan}</p><p className="text-xs text-ink/60">{item.original_price_omr} ر.ع ← {item.offer_price_omr} ر.ع {item.enabled ? '— ظاهر' : '— متوقف'}</p></div><div className="flex gap-2"><button className="text-primary text-xs" onClick={() => toggleOffer(item)}>{item.enabled ? 'إيقاف' : 'تفعيل'}</button><button className="text-danger text-xs" onClick={() => removeOffer(item.id)}>حذف</button></div></div>)}{config.offers?.length === 0 && <p className="text-sm text-ink/50">لا توجد عروض مضافة.</p>}</div></div>
+  </div>;
+}
+
+function PasswordResetRequests() {
+  const [requests, setRequests] = useState([]);
+  const [generated, setGenerated] = useState(null);
+  const load = async () => { const { data } = await adminApi.get('/admin/password-reset-requests', { params: { status: 'pending' } }); setRequests(data.requests || []); };
+  useEffect(() => { load(); }, []);
+  const generate = async (id) => {
+    const { data } = await adminApi.post(`/admin/password-reset-requests/${id}/generate-link`, {});
+    setGenerated(data);
+    try { await navigator.clipboard.writeText(data.reset_link); } catch { /* manual copy remains visible */ }
+    load();
+  };
+  const close = async (id) => { await adminApi.post(`/admin/password-reset-requests/${id}/close`, {}); load(); };
+  return <div className="space-y-3">
+    {generated && <div className="card p-4 border-2 border-primary"><p className="font-bold text-primary mb-1">رابط إعادة التعيين لـ {generated.request?.email}</p><p className="text-xs text-ink/60 mb-2">تم نسخه إلى الحافظة إن سمح المتصفح. أرسله يدويًا إلى بريد المعلم، وهو صالح لمدة 30 دقيقة.</p><div className="flex gap-2"><input className="input text-xs flex-1" readOnly value={generated.reset_link} onFocus={(e) => e.target.select()} /><button className="btn-secondary text-xs" onClick={() => navigator.clipboard?.writeText(generated.reset_link)}>نسخ</button></div></div>}
+    {requests.map((request) => <div key={request.id} className="card p-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{request.full_name}</p><p className="text-sm text-ink/60">{request.email}</p><p className="text-xs text-ink/40">{new Date(request.created_at).toLocaleString('ar')}</p></div><div className="flex gap-2"><button className="btn-primary text-xs" onClick={() => generate(request.id)}>إنشاء الرابط</button><button className="text-ink/50 text-xs" onClick={() => close(request.id)}>إغلاق</button></div></div>)}
+    {requests.length === 0 && <div className="card p-6 text-sm text-ink/50">لا توجد طلبات إعادة تعيين معلقة.</div>}
+  </div>;
+}
+
 function TeachersList({ onMessage }) {
   const [teachers, setTeachers] = useState([]);
   useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers)); }, []);
@@ -363,11 +414,15 @@ export default function AdminDashboard() {
       <div className="flex gap-2 mb-5">
         <button onClick={() => setTab('requests')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'requests' ? 'bg-primary text-white border-primary' : 'border-line'}`}>طلبات التفعيل</button>
         <button onClick={() => setTab('teachers')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'teachers' ? 'bg-primary text-white border-primary' : 'border-line'}`}>كل المعلمين</button>
+        <button onClick={() => setTab('subscriptions')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'subscriptions' ? 'bg-primary text-white border-primary' : 'border-line'}`}>الاشتراكات والعروض</button>
+        <button onClick={() => setTab('passwords')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'passwords' ? 'bg-primary text-white border-primary' : 'border-line'}`}>طلبات كلمات المرور</button>
         <button onClick={() => setTab('chat')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'chat' ? 'bg-primary text-white border-primary' : 'border-line'}`}>الدردشة مع المعلمين</button>
       </div>
 
       {tab === 'requests' && <PaymentRequests />}
       {tab === 'teachers' && <TeachersList onMessage={goToChat} />}
+      {tab === 'subscriptions' && <SubscriptionConfig />}
+      {tab === 'passwords' && <PasswordResetRequests />}
       {tab === 'chat' && <ChatPanel initialTeacher={chatTarget} />}
     </div>
   );

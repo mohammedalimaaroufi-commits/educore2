@@ -6,6 +6,7 @@ import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapsho
 import { getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useLocale } from '../context/LocaleContext.jsx';
 import TrialBanner from '../components/TrialBanner.jsx';
 import Icon from '../components/Icon.jsx';
 import { APP_NAME } from '../constants.js';
@@ -128,6 +129,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
 
 export default function Dashboard() {
   const { teacher, logout } = useAuth();
+  const { t } = useLocale();
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -162,8 +164,8 @@ export default function Dashboard() {
     const defaultCategories = [
       ['مشاركة', 10], ['واجبات منزلية', 15], ['اختبارات قصيرة', 20], ['مشروع', 15], ['اختبار نهائي', 40],
     ];
-    const localCategories = defaultCategories.map(([name, weight_percent], index) => ({ id: localId('category'), class_id: id, name, weight_percent, grading_type: 'numeric', sort_order: index, created_at: new Date().toISOString() }));
-    const localAssessments = localCategories.map((category) => ({ id: localId('assessment'), category_id: category.id, title: category.name, max_score: 100, date: null, created_at: new Date().toISOString() }));
+    const localCategories = defaultCategories.map(([name, weight_percent], index) => ({ id: localId('category'), class_id: id, name, weight_percent, grading_type: 'numeric', grading_mode: 'direct', sort_order: index, created_at: new Date().toISOString() }));
+    const localAssessments = localCategories.map((category) => ({ id: localId('assessment'), category_id: category.id, title: category.name, max_score: category.weight_percent, is_summary: 1, date: null, created_at: new Date().toISOString() }));
     const behaviorDefaults = [
       ['مشاركة متميزة', 'positive', 2, 'star'], ['إحضار الأدوات', 'positive', 1, 'check'], ['مساعدة زميل', 'positive', 1, 'heart'],
       ['تأخر عن الحصة', 'negative', -1, 'clock'], ['إزعاج الصف', 'negative', -2, 'alert'], ['عدم إحضار الواجب', 'negative', -1, 'x'],
@@ -209,21 +211,21 @@ export default function Dashboard() {
           <p className="text-ink/60 text-sm">أهلاً، {teacher?.full_name}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/settings" className="btn-secondary text-sm">الإعدادات</Link>
-          <Link to="/subscription" className="btn-secondary text-sm">إدارة الاشتراك</Link>
-          <button className="btn-secondary text-sm" onClick={logout}>تسجيل الخروج</button>
+          <Link to="/settings" className="btn-secondary text-sm">{t('settings')}</Link>
+          <Link to="/subscription" className="btn-secondary text-sm">{t('subscription')}</Link>
+          <button className="btn-secondary text-sm" onClick={logout}>{t('logout')}</button>
         </div>
       </header>
 
       <TrialBanner />
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <h2 className="text-lg font-bold">صفوفي الدراسية</h2>
+        <h2 className="text-lg font-bold">{t('myClasses')}</h2>
         <div className="flex gap-2">
           <button className="btn-secondary text-sm flex items-center gap-1" onClick={() => setShowArchived(true)}>
-            <Icon name="archive" className="w-4 h-4" /> الصفوف المؤرشفة
+            <Icon name="archive" className="w-4 h-4" /> {t('archivedClasses')}
           </button>
-          <button className="btn-primary" onClick={startAdd}>+ إنشاء صف جديد</button>
+          <button className="btn-primary" onClick={startAdd}>+ {t('newClass')}</button>
         </div>
       </div>
 

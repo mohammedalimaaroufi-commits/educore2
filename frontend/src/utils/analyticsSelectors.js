@@ -21,22 +21,41 @@ export function buildGradeMap(snapshot) {
   return new Map((snapshot?.grades || []).map((grade) => [`${grade.assessment_id}:${grade.student_id}`, grade]));
 }
 
+export function getCategoryAssessments(category) {
+  const assessments = category?.assessments || [];
+  const detailed = assessments.filter((assessment) => !Number(assessment.is_summary));
+  const summaries = assessments.filter((assessment) => Number(assessment.is_summary));
+  return detailed.length ? detailed : summaries.length ? summaries : assessments;
+}
+
+export function calculateCategoryPercent(studentId, category, gradeMap) {
+  const assessments = getCategoryAssessments(category);
+  let earned = 0;
+  let possible = 0;
+  assessments.forEach((assessment) => {
+    const grade = gradeMap.get(`${assessment.id}:${studentId}`);
+    if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '') {
+      earned += Number(grade.score_numeric);
+      possible += Number(assessment.max_score || 0);
+    }
+  });
+  return possible > 0 ? round((earned / possible) * 100) : null;
+}
+
+export function calculateCategoryPoints(studentId, category, gradeMap) {
+  const percent = calculateCategoryPercent(studentId, category, gradeMap);
+  return percent === null ? null : round((percent * Number(category.weight_percent || 0)) / 100);
+}
+
 export function calculateFinalGrade(studentId, categories, gradeMap) {
   let weightedTotal = 0;
   let weightUsed = 0;
   categories.forEach((category) => {
-    let earned = 0;
-    let possible = 0;
-    category.assessments.forEach((assessment) => {
-      const grade = gradeMap.get(`${assessment.id}:${studentId}`);
-      if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '') {
-        earned += Number(grade.score_numeric);
-        possible += Number(assessment.max_score || 0);
-      }
-    });
-    if (possible > 0) {
-      weightedTotal += (earned / possible) * 100 * (Number(category.weight_percent || 0) / 100);
-      weightUsed += Number(category.weight_percent || 0);
+    const percent = calculateCategoryPercent(studentId, category, gradeMap);
+    if (percent !== null) {
+      const weight = Number(category.weight_percent || 0);
+      weightedTotal += percent * (weight / 100);
+      weightUsed += weight;
     }
   });
   return weightUsed > 0 ? round((weightedTotal / weightUsed) * 100) : null;
@@ -87,7 +106,7 @@ export function buildCategoryAverages(snapshot, classId) {
   const gradeMap = buildGradeMap(snapshot);
   return categories.map((category) => {
     const rows = [];
-    category.assessments.forEach((assessment) => {
+    getCategoryAssessments(category).forEach((assessment) => {
       students.forEach((student) => {
         const grade = gradeMap.get(`${assessment.id}:${student.id}`);
         if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined) {
@@ -117,6 +136,7 @@ export function buildGrowth(snapshot, studentId) {
         date: assessment.date,
         category: categoryMap.get(assessment.category_id)?.name,
         percent: round((Number(grade.score_numeric) / Number(assessment.max_score || 1)) * 100),
+        is_summary: Number(assessment.is_summary) === 1,
       };
     })
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
@@ -128,14 +148,20 @@ export function buildStudentReport(snapshot, studentId) {
   if (!student) return null;
   const { classData, categories } = getClassData(snapshot, student.class_id);
   const gradeMap = buildGradeMap(snapshot);
-  const gradesByCategory = categories.map((category) => ({
-    category: category.name,
-    weight_percent: category.weight_percent,
-    items: category.assessments.map((assessment) => {
+  const gradesByCategory = categories.map((category) => {
+    const items = getCategoryAssessments(category).map((assessment) => {
       const grade = gradeMap.get(`${assessment.id}:${student.id}`);
-      return { title: assessment.title, max_score: assessment.max_score, score: grade?.score_numeric ?? null, comment: grade?.comment ?? null };
-    }),
-  }));
+      return { title: assessment.title, max_score: assessment.max_score, score: grade?.score_numeric ?? null, comment: grade?.comment ?? null, is_summary: Number(assessment.is_summary) === 1 };
+    });
+    return {
+      category: category.name,
+      weight_percent: category.weight_percent,
+      grading_mode: category.grading_mode || (items.some((item) => !item.is_summary) ? 'detailed' : 'direct'),
+      categoryPercent: calculateCategoryPercent(student.id, category, gradeMap),
+      weightedPoints: calculateCategoryPoints(student.id, category, gradeMap),
+      items,
+    };
+  });
   const behaviorTypeMap = new Map((snapshot.behavior_types || []).map((item) => [item.id, item]));
   const behaviorLogs = (snapshot.behavior_logs || []).filter((log) => log.student_id === student.id).map((log) => ({ ...log, ...(behaviorTypeMap.get(log.behavior_type_id) || {}) }));
   const sessions = new Map((snapshot.attendance_sessions || []).map((session) => [session.id, session]));
