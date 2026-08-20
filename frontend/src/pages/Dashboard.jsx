@@ -14,7 +14,14 @@ import { APP_NAME } from '../constants.js';
 const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86'];
 const EMPTY_FORM = { name: '', subject: '', academic_year: '', color: COLORS[0] };
 
+const VISUAL_LABELS = ['كتب وتعلّم', 'متابعة وتقدّم', 'نشاط وتطبيق'];
+
 function localId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+
+function classVisualIndex(classData) {
+  const value = String(classData.id || classData.name || 'class');
+  return Math.abs([...value].reduce((hash, char) => hash + char.charCodeAt(0), 0)) % VISUAL_LABELS.length;
+}
 
 function cardForClass(snapshot, classData) {
   const { students, categories } = getClassData(snapshot, classData.id);
@@ -45,27 +52,25 @@ function ClassQuickStats({ stats }) {
   const { grading = [], behavior, attendance_marked_today } = stats;
 
   return (
-    <div className="mt-3 pt-3 border-t border-line space-y-2 text-xs">
+    <div className="class-card__stats">
       {grading.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="class-card__pills">
           {grading.map((g) => (
-            <span key={g.category_id} className={`px-2 py-0.5 rounded-full font-medium ${gradingPillClasses(g.percent)}`}>
-              رصد {g.name} {g.percent === null ? '—' : `${g.percent}%`}
+            <span key={g.category_id} className={`class-stat-pill ${gradingPillClasses(g.percent)}`}>
+              {g.name} {g.percent === null ? '—' : `${g.percent}%`}
             </span>
           ))}
         </div>
       )}
 
       {behavior && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          <span className="text-primary font-medium">🟢 {behavior.best.full_name} ({behavior.best.points > 0 ? '+' : ''}{behavior.best.points})</span>
-          {behavior.worst && (
-            <span className="text-danger font-medium">🔴 {behavior.worst.full_name} ({behavior.worst.points > 0 ? '+' : ''}{behavior.worst.points})</span>
-          )}
+        <div className="class-card__behavior">
+          <span><span className="status-dot status-dot--good" />{behavior.best.full_name} ({behavior.best.points > 0 ? '+' : ''}{behavior.best.points})</span>
+          {behavior.worst && <span><span className="status-dot status-dot--bad" />{behavior.worst.full_name} ({behavior.worst.points > 0 ? '+' : ''}{behavior.worst.points})</span>}
         </div>
       )}
 
-      <div className={`flex items-center gap-1 ${attendance_marked_today ? 'text-primary' : 'text-ink/40'}`}>
+      <div className={`class-card__attendance ${attendance_marked_today ? 'is-marked' : ''}`}>
         <Icon name={attendance_marked_today ? 'check' : 'clock'} className="w-3.5 h-3.5" />
         <span>{attendance_marked_today ? 'تم رصد الحضور اليوم' : 'لم يُرصد الحضور اليوم بعد'}</span>
       </div>
@@ -136,6 +141,8 @@ export default function Dashboard() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showArchived, setShowArchived] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
 
   const load = async () => {
     setLoading(true);
@@ -145,6 +152,22 @@ export default function Dashboard() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const updateOnline = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
+    return () => {
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
+    };
+  }, []);
+
+  const visibleClasses = classes.filter((classData) => {
+    const needle = searchTerm.trim().toLocaleLowerCase();
+    if (!needle) return true;
+    return `${classData.name} ${classData.subject || ''} ${classData.academic_year || ''}`.toLocaleLowerCase().includes(needle);
+  });
 
   const startAdd = () => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); };
   const startEdit = (e, c) => {
@@ -204,86 +227,96 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-primary">{APP_NAME}</h1>
-          <p className="text-ink/60 text-sm">أهلاً، {teacher?.full_name}</p>
+    <div className="dashboard-shell" dir="rtl">
+      <div className="dashboard-topbar">
+        <div className="brand-lockup">
+          <div className="brand-mark">س</div>
+          <div>
+            <div className="brand-title">{APP_NAME}</div>
+            <div className="brand-subtitle">إدارة الفصل الذكي</div>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/settings" className="btn-secondary text-sm">{t('settings')}</Link>
-          <Link to="/subscription" className="btn-secondary text-sm">{t('subscription')}</Link>
-          <button className="btn-secondary text-sm" onClick={logout}>{t('logout')}</button>
-        </div>
-      </header>
-
-      <TrialBanner />
-
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <h2 className="text-lg font-bold">{t('myClasses')}</h2>
-        <div className="flex gap-2">
-          <button className="btn-secondary text-sm flex items-center gap-1" onClick={() => setShowArchived(true)}>
-            <Icon name="archive" className="w-4 h-4" /> {t('archivedClasses')}
-          </button>
-          <button className="btn-primary" onClick={startAdd}>+ {t('newClass')}</button>
+        <label className="dashboard-search" aria-label="البحث في الصفوف">
+          <Icon name="search" className="w-4 h-4" />
+          <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="بحث في الصفوف..." />
+          <kbd>⌘ K</kbd>
+        </label>
+        <div className="dashboard-utilities">
+          <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? 'متصل' : 'وضع دون اتصال'}</span>
+          <button type="button" className="utility-icon" aria-label="مساعدة" title="مساعدة">؟</button>
+          <span className="utility-date">{new Intl.DateTimeFormat('ar', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
         </div>
       </div>
 
-      {showForm && (
-        <form onSubmit={submit} className="card p-5 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <main className="dashboard-content">
+        <section className="dashboard-hero">
           <div>
-            <label className="label">اسم الصف</label>
-            <input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="مثال: الصف الثامن - أ" />
+            <span className="eyebrow">لوحة المعلم</span>
+            <h1>السجل المصاحب الإلكتروني</h1>
+            <p>أهلاً، {teacher?.full_name || 'معلمنا العزيز'} — كل صفوفك وبياناتك في مكان واحد.</p>
           </div>
-          <div>
-            <label className="label">المادة</label>
-            <input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+          <div className="hero-note">
+            <span className="hero-note__mark">✓</span>
+            <div><strong>بياناتك محفوظة محليًا</strong><span>{isOnline ? 'تتم المزامنة بهدوء في الخلفية' : 'يمكنك مواصلة العمل دون اتصال'}</span></div>
           </div>
-          <div>
-            <label className="label">السنة الدراسية</label>
-            <input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" />
-          </div>
-          <div>
-            <label className="label">اللون المميز</label>
-            <div className="flex gap-2">
-              {COLORS.map((c) => (
-                <button key={c} type="button" onClick={() => setForm({ ...form, color: c })}
-                  className={`w-8 h-8 rounded-full border-2 ${form.color === c ? 'border-ink' : 'border-transparent'}`}
-                  style={{ background: c }} />
-              ))}
-            </div>
-          </div>
-          <div className="sm:col-span-2 flex gap-2">
-            <button className="btn-primary" type="submit">{editingId ? 'حفظ التعديلات' : 'إنشاء'}</button>
-            <button className="btn-secondary" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>إلغاء</button>
-          </div>
-        </form>
-      )}
+        </section>
 
-      {loading ? (
-        <p className="text-ink/50">جارِ التحميل...</p>
-      ) : classes.length === 0 ? (
-        <div className="card p-10 text-center text-ink/60">لا يوجد صفوف بعد. أنشئ أول صف لبدء إدارة طلابك.</div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {classes.map((c) => (
-            <div key={c.id} className="card p-5 hover:shadow-md transition-shadow">
-              <Link to={`/classes/${c.id}`} className="block">
-                <div className="w-10 h-10 rounded-lg mb-3" style={{ background: c.color }} />
-                <h3 className="font-bold text-lg mb-1">{c.name}</h3>
-                <p className="text-sm text-ink/60 mb-3">{c.subject || 'بدون مادة محددة'} {c.academic_year ? `• ${c.academic_year}` : ''}</p>
-                <p className="text-sm text-primary font-medium">{c.student_count} طالب</p>
-              </Link>
-              <ClassQuickStats stats={c.quick_stats} />
-              <div className="flex gap-3 mt-3 pt-3 border-t border-line text-xs">
-                <button className="text-primary" onClick={(e) => startEdit(e, c)}>تعديل</button>
-                <button className="text-accent" onClick={(e) => archiveClass(e, c.id)}>أرشفة</button>
-                <button className="text-danger" onClick={(e) => deleteClassPermanently(e, c.id)}>حذف نهائي</button>
-              </div>
-            </div>
-          ))}
+        <TrialBanner />
+
+        <div className="dashboard-section-head">
+          <div>
+            <span className="eyebrow">مساحة العمل</span>
+            <h2>{t('myClasses')}</h2>
+          </div>
+          <div className="dashboard-actions">
+            <button className="btn-secondary action-button" onClick={() => setShowArchived(true)}><Icon name="archive" className="w-4 h-4" /> {t('archivedClasses')}</button>
+            <button className="btn-primary action-button" onClick={startAdd}><span className="action-plus">+</span> {t('newClass')}</button>
+          </div>
         </div>
-      )}
+
+        {showForm && (
+          <form onSubmit={submit} className="surface-panel create-class-form">
+            <div className="create-class-form__heading"><div><span className="eyebrow">إعداد جديد</span><h3>{editingId ? 'تعديل بيانات الصف' : 'إنشاء صف جديد'}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label="إغلاق">×</button></div>
+            <div className="create-class-form__grid">
+              <div><label className="label">اسم الصف</label><input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="مثال: الصف الثامن - أ" /></div>
+              <div><label className="label">المادة</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="مثال: الرياضيات" /></div>
+              <div><label className="label">السنة الدراسية</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
+              <div><label className="label">اللون المميز</label><div className="color-picker">{COLORS.map((c) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`اختيار اللون ${c}`} />)}</div></div>
+            </div>
+            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit">{editingId ? 'حفظ التعديلات' : 'إنشاء الصف'}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>إلغاء</button></div>
+          </form>
+        )}
+
+        {loading ? (
+          <div className="class-grid">{[1, 2, 3].map((item) => <div className="class-card class-card--skeleton" key={item}><div className="skeleton-block" /><div className="skeleton-line skeleton-line--long" /><div className="skeleton-line" /></div>)}</div>
+        ) : classes.length === 0 ? (
+          <div className="empty-state"><div className="empty-state__icon">＋</div><h3>أنشئ أول صف لك</h3><p>ابدأ بإضافة صفوفك لتظهر هنا مع الطلاب والدرجات والحضور في لوحة واحدة.</p><button className="btn-primary action-button" onClick={startAdd}>إنشاء صف جديد</button></div>
+        ) : visibleClasses.length === 0 ? (
+          <div className="empty-state"><div className="empty-state__icon">⌕</div><h3>لا توجد نتائج</h3><p>جرّب البحث باسم الصف أو المادة أو السنة الدراسية.</p></div>
+        ) : (
+          <div className="class-grid">
+            {visibleClasses.map((c) => {
+              const visualIndex = classVisualIndex(c);
+              const accent = c.color || COLORS[visualIndex];
+              return (
+                <article key={c.id} className="class-card" style={{ '--card-accent': accent }}>
+                  <Link to={`/classes/${c.id}`} className="class-card__visual" aria-label={`فتح ${c.name}`}>
+                    <span className="class-card__visual-label">{VISUAL_LABELS[visualIndex]}</span>
+                    <span className="class-card__visual-symbol">{visualIndex === 0 ? '▦' : visualIndex === 1 ? '◌' : '✦'}</span>
+                    <div><strong>{c.name}</strong><span>{c.subject || 'بدون مادة محددة'}</span></div>
+                  </Link>
+                  <div className="class-card__content">
+                    <div className="class-card__heading-row"><div><span className="class-card__eyebrow">{c.academic_year || 'السنة الدراسية'}</span><h3>{c.name}</h3></div><span className="class-card__badge">{c.student_count} طالب</span></div>
+                    <div className="class-card__meta"><span>{c.subject || 'بدون مادة محددة'}</span><span>{c.quick_stats?.grading?.length || 0} فئات تقييم</span></div>
+                    <ClassQuickStats stats={c.quick_stats} />
+                    <div className="class-card__footer"><Link to={`/classes/${c.id}`} className="class-card__open">فتح الصف <span>←</span></Link><div className="class-card__actions"><button className="action-link" onClick={(e) => startEdit(e, c)}>تعديل</button><button className="action-link" onClick={(e) => archiveClass(e, c.id)}>أرشفة</button><button className="action-link action-link--danger" onClick={(e) => deleteClassPermanently(e, c.id)}>حذف</button></div></div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </main>
 
       {showArchived && <ArchivedClassesPanel onClose={() => setShowArchived(false)} onRestored={load} />}
     </div>
