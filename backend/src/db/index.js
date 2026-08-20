@@ -353,6 +353,20 @@ db.exec(`UPDATE assessments SET is_summary = 1
 db.exec(`UPDATE assessments SET max_score = (
            SELECT gc.weight_percent FROM grade_categories gc WHERE gc.id = assessments.category_id
          ) WHERE is_summary = 1 AND max_score = 100`);
+// Categories with no real detail rows must remain direct. Older data may contain a
+// single 0–100 assessment without the newer summary flag; it is the original direct
+// category score, so convert it to the category-weight scale instead of treating it
+// as a multi-detail category.
+db.exec(`UPDATE assessments SET is_summary = 1,
+           max_score = (SELECT gc.weight_percent FROM grade_categories gc WHERE gc.id = assessments.category_id)
+         WHERE is_summary = 0 AND category_id IN (
+           SELECT category_id FROM assessments GROUP BY category_id HAVING COUNT(*) = 1
+         )`);
+db.exec(`UPDATE grade_categories SET grading_mode = 'direct'
+         WHERE NOT EXISTS (
+           SELECT 1 FROM assessments a
+           WHERE a.category_id = grade_categories.id AND a.is_summary = 0
+         )`);
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 

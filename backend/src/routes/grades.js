@@ -192,7 +192,7 @@ router.get('/matrix', (req, res) => {
 
   // Self-heal: any category created before this behavior existed (or restored from an old backup)
   // gets its first grade column created on the fly, so grading never requires "+ تقييم" as a first step.
-  const insertDefaultAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score) VALUES (?, ?, ?, 100)`);
+  const insertDefaultAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`);
   categories.forEach((cat) => {
     const hasAny = db.prepare('SELECT 1 FROM assessments WHERE category_id = ? LIMIT 1').get(cat.id);
     if (!hasAny) insertDefaultAssessment.run(uuid(), cat.id, cat.name, Number(cat.weight_percent || 0));

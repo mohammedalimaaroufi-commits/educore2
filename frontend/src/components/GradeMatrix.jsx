@@ -3,13 +3,7 @@ import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
-import {
-  buildGradeMap,
-  calculateCategoryPoints,
-  calculateFinalGrade,
-  getCategoryAssessments,
-  getClassData,
-} from '../utils/analyticsSelectors.js';
+import { buildGradeMap, calculateFinalGrade, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
@@ -68,9 +62,7 @@ export default function GradeMatrix({ classId, className }) {
 
   useEffect(() => {
     let active = true;
-    load().catch(() => {
-      if (active) setLoading(false);
-    });
+    load().catch(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [classId]);
 
@@ -78,7 +70,6 @@ export default function GradeMatrix({ classId, className }) {
   const categoryColor = (index) => CATEGORY_COLORS[index % CATEGORY_COLORS.length];
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
   const itemsFor = (category) => getCategoryAssessments(category);
-  const isDetailed = (category) => itemsFor(category).some((assessment) => !Number(assessment.is_summary));
 
   const setCell = (assessmentId, studentId, field, value) => {
     setGrades((current) => ({
@@ -117,19 +108,26 @@ export default function GradeMatrix({ classId, className }) {
     }
   };
 
+  const startAdding = (category) => {
+    setNewAssessment(category.id);
+    setAssessmentForm({ title: '', max_score: Number(category.weight_percent || 1), date: '' });
+  };
+
   const addAssessment = async (event) => {
     event.preventDefault();
     const category = categories.find((item) => item.id === newAssessment);
+    const maxScore = Number(assessmentForm.max_score || 0);
     const payload = {
       category_id: newAssessment,
-      ...assessmentForm,
-      max_score: Number(assessmentForm.max_score || 0),
+      title: assessmentForm.title.trim(),
+      max_score: maxScore,
+      date: assessmentForm.date || null,
       is_summary: 0,
     };
-    if (!category || !payload.title.trim() || payload.max_score <= 0) return;
-    const existingDetails = category.assessments.filter((assessment) => !Number(assessment.is_summary));
+    if (!category || !payload.title || maxScore <= 0) return;
+    const existingDetails = (category.assessments || []).filter((assessment) => !Number(assessment.is_summary));
     const detailTotal = existingDetails.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
-    if (detailTotal + payload.max_score > Number(category.weight_percent || 0) + 0.0001) {
+    if (detailTotal + maxScore > Number(category.weight_percent || 0) + 0.0001) {
       alert(`لا يمكن تجاوز وزن الفئة (${category.weight_percent}). المتبقي: ${Math.max(0, Number(category.weight_percent || 0) - detailTotal)}`);
       return;
     }
@@ -137,11 +135,10 @@ export default function GradeMatrix({ classId, className }) {
     const localAssessment = {
       id: `local-assessment-${Date.now()}`,
       ...payload,
-      date: payload.date || null,
       created_at: new Date().toISOString(),
     };
     setCategories((current) => current.map((item) => item.id === newAssessment
-      ? { ...item, grading_mode: 'detailed', assessments: [...item.assessments, localAssessment] }
+      ? { ...item, grading_mode: 'detailed', assessments: [...(item.assessments || []), localAssessment] }
       : item));
     if (snapshot) {
       const nextSnapshot = {
@@ -165,11 +162,14 @@ export default function GradeMatrix({ classId, className }) {
   };
 
   const deleteAssessment = async (assessment) => {
-    if (Number(assessment.is_summary)) return;
+    if (Number(assessment.is_summary)) {
+      alert('لا يمكن حذف خانة الفئة الأساسية. يمكنك حذف التقييمات الإضافية فقط.');
+      return;
+    }
     if (!confirm('حذف هذا التقييم وكل الدرجات المرتبطة به؟')) return;
     setCategories((current) => current.map((category) => ({
       ...category,
-      assessments: category.assessments.filter((item) => item.id !== assessment.id),
+      assessments: (category.assessments || []).filter((item) => item.id !== assessment.id),
     })));
     setGrades((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${assessment.id}:`))));
     if (snapshot) {
@@ -191,105 +191,17 @@ export default function GradeMatrix({ classId, className }) {
 
   const finalGrade = (studentId) => calculateFinalGrade(studentId, categories, gradeMap);
 
-  const startAdding = (category, initialScore = 1) => {
-    setNewAssessment(category.id);
-    setAssessmentForm({ title: '', max_score: initialScore, date: '' });
-  };
-
-  const detailForm = (category) => (
-    <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1">
-      <input
-        className="input text-xs py-0.5"
-        placeholder="عنوان التفصيل"
-        required
-        autoFocus
-        value={assessmentForm.title}
-        onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })}
-      />
-      <input
-        className="input text-xs py-0.5"
-        type="number"
-        min="0.01"
-        max={category.weight_percent}
-        placeholder="من"
-        value={assessmentForm.max_score}
-        onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: Number(event.target.value) })}
-      />
-      <div className="flex gap-1">
-        <button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button>
-        <button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button>
-      </div>
-    </form>
-  );
-
-  const assessmentHeader = (assessment, category, index, detailed) => (
-    <th
-      key={assessment.id}
-      className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]"
-      style={{ background: `${categoryColor(index)}14` }}
-    >
-      <div className="flex items-center justify-center gap-1">
-        <span>{assessment.title} <span className="text-ink/40">/{assessment.max_score}</span></span>
-        {!Number(assessment.is_summary) && (
-          <button className="text-danger print:hidden" title="حذف التقييم" onClick={() => deleteAssessment(assessment)}>×</button>
-        )}
-      </div>
-      {!detailed && Number(assessment.is_summary) === 1 && (newAssessment === category.id
-        ? detailForm(category)
-        : <button className="text-[10px] text-primary print:hidden" onClick={() => startAdding(category)}>+ إضافة تفاصيل</button>)}
-    </th>
-  );
-
-  const gradeCell = (assessment, student) => {
-    const key = cellKey(assessment.id, student.id);
-    const cell = grades[key] || {};
-    return (
-      <td key={assessment.id} className="px-1 py-1 border-r border-line">
-        <div className="flex flex-col gap-0.5 items-center">
-          <div className="relative">
-            <input
-              type="number"
-              min="0"
-              max={assessment.max_score}
-              className="input text-xs py-1.5 text-center w-16 font-medium"
-              value={cell.score_numeric ?? ''}
-              onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)}
-              onBlur={() => saveCell(assessment.id, student.id)}
-            />
-            {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
-            {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
-          </div>
-          <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>
-            {cell.comment ? '📝 ملاحظة' : '+ ملاحظة'}
-          </button>
-          {openComment === key && (
-            <div className="w-40">
-              <CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" />
-              <button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>حفظ</button>
-            </div>
-          )}
-        </div>
-      </td>
-    );
-  };
-
   const exportCSV = () => {
     const headers = [
       'الاسم',
-      ...categories.flatMap((category) => {
-        const items = itemsFor(category).map((assessment) => `${category.name} - ${assessment.title}`);
-        return isDetailed(category) ? [...items, `${category.name} - المجموع / ${category.weight_percent}`] : items;
-      }),
+      ...categories.flatMap((category) => itemsFor(category).map((assessment) => `${category.name} - ${assessment.title}`)),
       'الدرجة النهائية %',
     ];
     const rows = students.map((student) => {
       const row = { الاسم: student.full_name };
-      categories.forEach((category) => {
-        itemsFor(category).forEach((assessment) => {
-          row[`${category.name} - ${assessment.title}`] = grades[cellKey(assessment.id, student.id)]?.score_numeric ?? '';
-        });
-        if (isDetailed(category)) row[`${category.name} - المجموع / ${category.weight_percent}`] = calculateCategoryPoints(student.id, category, gradeMap) ?? '';
-      });
+      categories.forEach((category) => itemsFor(category).forEach((assessment) => {
+        row[`${category.name} - ${assessment.title}`] = grades[cellKey(assessment.id, student.id)]?.score_numeric ?? '';
+      }));
       row['الدرجة النهائية %'] = finalGrade(student.id) ?? '';
       return row;
     });
@@ -305,7 +217,7 @@ export default function GradeMatrix({ classId, className }) {
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 print:hidden">
         <div>
           <h3 className="font-bold">جدول الدرجات الكامل</h3>
-          <p className="text-xs text-ink/50">درجة الفئة المباشرة تكون من وزنها، والتقييمات التفصيلية تجمع إلى الوزن نفسه. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p>
+          <p className="text-xs text-ink/50">قيمة كل تقييم من وزن فئته، والإجمالي النهائي يُحسب من 100%. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p>
         </div>
         <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تنزيل CSV</button><button className="btn-primary text-sm" onClick={() => window.print()}>تنزيل PDF (طباعة)</button></div>
       </div>
@@ -314,25 +226,32 @@ export default function GradeMatrix({ classId, className }) {
           <thead>
             <tr>
               <th className="sticky right-0 bg-white text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-10">الطالب</th>
-              {categories.map((category, index) => {
-                const detailed = isDetailed(category);
-                return <th key={category.id} colSpan={itemsFor(category).length + (detailed ? 2 : 1)} className="text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></th>;
-              })}
+              {categories.map((category, index) => <th key={category.id} colSpan={itemsFor(category).length + 1} className="text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></th>)}
               <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">النهائية %</th>
             </tr>
             <tr>
               <th className="sticky right-0 bg-surface"></th>
-              {categories.map((category, index) => {
-                const items = itemsFor(category);
-                const detailed = isDetailed(category);
-                return (
-                  <React.Fragment key={category.id}>
-                    {items.map((assessment) => assessmentHeader(assessment, category, index, detailed))}
-                    {detailed && <th className="px-2 py-1.5 border-b border-line font-bold" style={{ background: `${categoryColor(index)}14` }}>المجموع / {category.weight_percent}</th>}
-                    {detailed && <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>{newAssessment === category.id ? detailForm(category) : <button className="font-medium hover:underline" style={{ color: categoryColor(index) }} onClick={() => startAdding(category)}>+ تفصيل</button>}</th>}
-                  </React.Fragment>
-                );
-              })}
+              {categories.map((category, index) => (
+                <React.Fragment key={category.id}>
+                  {itemsFor(category).map((assessment) => (
+                    <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{assessment.title} <span className="text-ink/40">/{assessment.max_score}</span></span>
+                        {!Number(assessment.is_summary) && <button className="text-danger print:hidden" title="حذف التقييم" onClick={() => deleteAssessment(assessment)}>×</button>}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
+                    {newAssessment === category.id ? (
+                      <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1">
+                        <input className="input text-xs py-0.5" placeholder="عنوان" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
+                        <input className="input text-xs py-0.5" type="number" min="0.01" max={category.weight_percent} placeholder={`من ${category.weight_percent}`} value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: Number(event.target.value) })} />
+                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
+                      </form>
+                    ) : <button className="font-medium hover:underline" style={{ color: categoryColor(index) }} onClick={() => startAdding(category)}>+ تقييم</button>}
+                  </th>
+                </React.Fragment>
+              ))}
               <th className="bg-surface"></th>
             </tr>
           </thead>
@@ -340,16 +259,28 @@ export default function GradeMatrix({ classId, className }) {
             {students.map((student, rowIndex) => (
               <tr key={student.id} className={`border-t border-line ${rowIndex % 2 === 1 ? 'bg-surface/40' : ''}`}>
                 <td className="sticky right-0 bg-inherit px-3 py-2 font-medium">{student.full_name}</td>
-                {categories.map((category, categoryIndex) => {
-                  const detailed = isDetailed(category);
-                  return (
-                    <React.Fragment key={category.id}>
-                      {itemsFor(category).map((assessment) => gradeCell(assessment, student))}
-                      {detailed && <td className="px-2 py-2 border-r border-line text-center font-bold" style={{ background: `${categoryColor(categoryIndex)}08` }}>{calculateCategoryPoints(student.id, category, gradeMap) ?? '—'} <span className="text-ink/40 font-normal">/ {category.weight_percent}</span></td>}
-                      {detailed && <td></td>}
-                    </React.Fragment>
-                  );
-                })}
+                {categories.map((category, categoryIndex) => (
+                  <React.Fragment key={category.id}>
+                    {itemsFor(category).map((assessment) => {
+                      const key = cellKey(assessment.id, student.id);
+                      const cell = grades[key] || {};
+                      return (
+                        <td key={assessment.id} className="px-1 py-1 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}>
+                          <div className="flex flex-col gap-0.5 items-center">
+                            <div className="relative">
+                              <input type="number" min="0" max={assessment.max_score} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onBlur={() => saveCell(assessment.id, student.id)} />
+                              {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
+                              {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
+                            </div>
+                            <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>{cell.comment ? '📝 ملاحظة' : '+ ملاحظة'}</button>
+                            {openComment === key && <div className="w-40"><CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" /><button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>حفظ</button></div>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td></td>
+                  </React.Fragment>
+                ))}
                 <td className={`px-3 py-2 text-center font-bold ${gradeColor(finalGrade(student.id))}`}>{finalGrade(student.id) ?? '—'}</td>
               </tr>
             ))}
