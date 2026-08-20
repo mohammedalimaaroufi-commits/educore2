@@ -15,26 +15,52 @@ const DEFAULT_BEHAVIORS = [
   { label: 'عدم إحضار الواجب', polarity: 'negative', points: -1, icon: 'x' },
 ];
 
-// Builds the "بطاقة الصف" quick-stats block: grading coverage per category, best/worst
+// Builds the "بطاقة الصف" quick-stats block: grading coverage per visible assessment, best/worst
 // behavior this term, and whether attendance was actually marked for today's session.
 // Kept in one place so both the classes list and (if needed later) the class detail header can reuse it.
 function computeQuickStats(classId, studentCount) {
   const grading = db.prepare(`
-    SELECT gc.id as category_id, gc.name,
-           COUNT(a.id) * ? as total_possible,
-           COUNT(g.id) as entered
+    SELECT gc.id as category_id,
+           gc.name as category_name,
+           a.id as assessment_id,
+           CASE WHEN a.is_summary = 1 THEN gc.name ELSE a.title END as title,
+           a.max_score,
+           a.is_summary,
+           COUNT(g.id) as entered_count
     FROM grade_categories gc
-    LEFT JOIN assessments a ON a.category_id = gc.id
+    JOIN assessments a ON a.category_id = gc.id
     LEFT JOIN grades g ON g.assessment_id = a.id
       AND g.student_id IN (SELECT id FROM students WHERE class_id = ? AND archived = 0)
       AND (g.score_numeric IS NOT NULL OR g.score_letter IS NOT NULL)
     WHERE gc.class_id = ?
-    GROUP BY gc.id
-    ORDER BY gc.sort_order
-  `).all(studentCount, classId, classId).map((row) => ({
+      AND (
+        (
+          a.is_summary = 0
+          AND EXISTS (
+            SELECT 1 FROM assessments detailed
+            WHERE detailed.category_id = gc.id AND detailed.is_summary = 0
+          )
+        )
+        OR (
+          a.is_summary = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM assessments detailed
+            WHERE detailed.category_id = gc.id AND detailed.is_summary = 0
+          )
+        )
+      )
+    GROUP BY gc.id, a.id
+    ORDER BY gc.sort_order, a.is_summary DESC, a.created_at
+  `).all(classId, classId).map((row) => ({
     category_id: row.category_id,
-    name: row.name,
-    percent: row.total_possible > 0 ? Math.round((row.entered / row.total_possible) * 100) : null,
+    category_name: row.category_name,
+    assessment_id: row.assessment_id,
+    title: row.title,
+    max_score: Number(row.max_score || 0),
+    is_summary: Number(row.is_summary) === 1,
+    entered_count: Number(row.entered_count || 0),
+    total_students: Number(studentCount || 0),
+    percent: studentCount > 0 ? Math.round((Number(row.entered_count || 0) / studentCount) * 100) : null,
   }));
 
   const behaviorRows = db.prepare(`

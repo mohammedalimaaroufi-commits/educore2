@@ -40,6 +40,40 @@ export function getAssessmentMaxScore(category, assessment) {
   return Number(assessment?.max_score || 0);
 }
 
+function hasGradeValue(grade) {
+  return Boolean(grade && (
+    (grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '')
+    || (grade.score_letter !== null && grade.score_letter !== undefined && grade.score_letter !== '')
+  ));
+}
+
+export function calculateAssessmentCoverage(category, assessment, students, gradeMap) {
+  const roster = students || [];
+  const enteredCount = roster.reduce((count, student) => (
+    count + (hasGradeValue(gradeMap.get(`${assessment.id}:${student.id}`)) ? 1 : 0)
+  ), 0);
+  const totalStudents = roster.length;
+  return {
+    assessment_id: assessment.id,
+    category_id: category.id,
+    category_name: category.name,
+    title: Number(assessment.is_summary) ? category.name : assessment.title,
+    max_score: getAssessmentMaxScore(category, assessment),
+    entered_count: enteredCount,
+    total_students: totalStudents,
+    percent: totalStudents ? round((enteredCount / totalStudents) * 100) : null,
+    is_summary: Number(assessment.is_summary) === 1,
+  };
+}
+
+export function buildAssessmentCoverage(snapshot, classId) {
+  const { students, categories } = getClassData(snapshot, classId);
+  const gradeMap = buildGradeMap(snapshot);
+  return categories.flatMap((category) => (
+    getCategoryAssessments(category).map((assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap))
+  ));
+}
+
 export function calculateCategoryPercent(studentId, category, gradeMap) {
   const assessments = getCategoryAssessments(category);
   let earned = 0;

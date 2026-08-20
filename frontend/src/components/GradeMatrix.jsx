@@ -3,7 +3,7 @@ import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
-import { buildGradeMap, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
+import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
@@ -70,6 +70,8 @@ export default function GradeMatrix({ classId, className }) {
   const categoryColor = (index) => CATEGORY_COLORS[index % CATEGORY_COLORS.length];
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
   const itemsFor = (category) => getCategoryAssessments(category);
+  const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
+  const coverageLabel = (coverage) => coverage.percent === null ? 'لا يوجد رصد' : `الرصد ${coverage.percent}% (${coverage.entered_count}/${coverage.total_students})`;
   const detailTotalFor = (category) => (category.assessments || [])
     .filter((assessment) => !Number(assessment.is_summary))
     .reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
@@ -262,7 +264,10 @@ export default function GradeMatrix({ classId, className }) {
                     <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
-                          <span className="font-medium">درجة الفئة <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
+                          <>
+                            <span className="font-medium">درجة الفئة <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
+                            <span className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</span>
+                          </>
                         ) : (
                           <>
                             <div className="flex items-center gap-1">
@@ -270,6 +275,7 @@ export default function GradeMatrix({ classId, className }) {
                               <button className="text-danger text-base leading-none font-bold print:hidden" title="حذف التقييم الفرعي" aria-label={`حذف ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
                             </div>
                             <div className="text-[10px] text-ink/50">تقييم فرعي ({assessment.max_score})</div>
+                            <div className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</div>
                             <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`وزن التقييم الفرعي ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
                           </>
                         )}

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
-import { getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
+import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -26,12 +26,10 @@ function classVisualIndex(classData) {
 function cardForClass(snapshot, classData) {
   const { students, categories } = getClassData(snapshot, classData.id);
   const roster = buildClassRoster(snapshot, classData.id);
-  const grading = categories.map((category) => {
-    const assessmentIds = new Set(category.assessments.map((assessment) => assessment.id));
-    const total = students.length * assessmentIds.size;
-    const entered = (snapshot.grades || []).filter((grade) => assessmentIds.has(grade.assessment_id) && grade.score_numeric !== null).length;
-    return { category_id: category.id, name: category.name, percent: total ? Math.round((entered / total) * 100) : null };
-  });
+  const gradeMap = buildGradeMap(snapshot);
+  const grading = categories.flatMap((category) => (
+    getCategoryAssessments(category).map((assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap))
+  ));
   const ordered = [...roster].sort((a, b) => b.behaviorScore - a.behaviorScore);
   const sessionsToday = (snapshot.attendance_sessions || []).filter((session) => session.class_id === classData.id && session.session_date === new Date().toISOString().slice(0, 10));
   const attendance_marked_today = sessionsToday.some((session) => (snapshot.attendance_records || []).some((record) => record.session_id === session.id));
@@ -45,7 +43,7 @@ function gradingPillClasses(percent) {
   return 'bg-ink/5 text-ink/40';
 }
 
-// Compact "بطاقة الصف" stats: how much of each grading category has been recorded,
+// Compact "بطاقة الصف" stats: how much of each visible assessment has been recorded,
 // who's leading/needs support on behavior, and whether today's attendance was taken.
 function ClassQuickStats({ stats }) {
   if (!stats) return null;
@@ -55,9 +53,9 @@ function ClassQuickStats({ stats }) {
     <div className="class-card__stats">
       {grading.length > 0 && (
         <div className="class-card__pills">
-          {grading.map((g) => (
-            <span key={g.category_id} className={`class-stat-pill ${gradingPillClasses(g.percent)}`}>
-              {g.name} {g.percent === null ? '—' : `${g.percent}%`}
+              {grading.map((g) => (
+            <span key={g.assessment_id} className={`class-stat-pill ${gradingPillClasses(g.percent)}`} title={`${g.category_name} · الوزن ${g.max_score}%`}>
+              <strong>{g.title}</strong><b>{g.percent === null ? '—' : `${g.percent}%`}</b><small>{g.entered_count}/{g.total_students} · وزن {g.max_score}%</small>
             </span>
           ))}
         </div>
@@ -84,16 +82,39 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await api.get('/classes/archived');
-    setArchived(data.classes);
-    setLoading(false);
+    try {
+      const snapshot = await getOrSyncSnapshot(getTeacherId());
+      const students = snapshot?.students || [];
+      setArchived((snapshot?.classes || [])
+        .filter((classData) => Number(classData.archived) === 1)
+        .map((classData) => ({
+          ...classData,
+          student_count: students.filter((student) => student.class_id === classData.id && !student.archived).length,
+        })));
+    } catch {
+      setArchived([]);
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
 
   const restore = async (id) => {
-    await api.post(`/classes/${id}/restore`);
-    load();
+    const teacherId = getTeacherId();
+    const snapshot = await getOrSyncSnapshot(teacherId);
+    const nextSnapshot = {
+      ...snapshot,
+      classes: (snapshot?.classes || []).map((classData) => classData.id === id ? { ...classData, archived: 0 } : classData),
+    };
+    await saveSnapshot(teacherId, nextSnapshot);
+    await load();
     onRestored?.();
+    try {
+      await api.post(`/classes/${id}/restore`);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'POST', url: `/classes/${id}/restore` });
+    }
   };
 
   return (
@@ -221,7 +242,24 @@ export default function Dashboard() {
     if (!confirm('تحذير: سيتم حذف هذا الصف وكل طلابه ودرجاته وسلوكه وحضوره نهائيًا ولا يمكن التراجع. هل أنت متأكد؟')) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
-    await saveSnapshot(teacherId, { ...snapshot, classes: (snapshot.classes || []).filter((item) => item.id !== id), students: (snapshot.students || []).filter((item) => item.class_id !== id) });
+    const studentIds = new Set((snapshot.students || []).filter((student) => student.class_id === id).map((student) => student.id));
+    const categoryIds = new Set((snapshot.grade_categories || []).filter((category) => category.class_id === id).map((category) => category.id));
+    const assessmentIds = new Set((snapshot.assessments || []).filter((assessment) => categoryIds.has(assessment.category_id)).map((assessment) => assessment.id));
+    const behaviorTypeIds = new Set((snapshot.behavior_types || []).filter((type) => type.class_id === id).map((type) => type.id));
+    const sessionIds = new Set((snapshot.attendance_sessions || []).filter((session) => session.class_id === id).map((session) => session.id));
+    const nextSnapshot = {
+      ...snapshot,
+      classes: (snapshot.classes || []).filter((item) => item.id !== id),
+      students: (snapshot.students || []).filter((student) => !studentIds.has(student.id)),
+      grade_categories: (snapshot.grade_categories || []).filter((category) => !categoryIds.has(category.id)),
+      assessments: (snapshot.assessments || []).filter((assessment) => !assessmentIds.has(assessment.id)),
+      grades: (snapshot.grades || []).filter((grade) => !assessmentIds.has(grade.assessment_id)),
+      behavior_types: (snapshot.behavior_types || []).filter((type) => !behaviorTypeIds.has(type.id)),
+      behavior_logs: (snapshot.behavior_logs || []).filter((log) => !studentIds.has(log.student_id) && !behaviorTypeIds.has(log.behavior_type_id)),
+      attendance_sessions: (snapshot.attendance_sessions || []).filter((session) => !sessionIds.has(session.id)),
+      attendance_records: (snapshot.attendance_records || []).filter((record) => !sessionIds.has(record.session_id) && !studentIds.has(record.student_id)),
+    };
+    await saveSnapshot(teacherId, nextSnapshot);
     await load();
     try { await api.delete(`/classes/${id}?permanent=1`); void syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
   };
@@ -307,7 +345,7 @@ export default function Dashboard() {
                   </Link>
                   <div className="class-card__content">
                     <div className="class-card__heading-row"><div><span className="class-card__eyebrow">{c.academic_year || 'السنة الدراسية'}</span><h3>{c.name}</h3></div><span className="class-card__badge">{c.student_count} طالب</span></div>
-                    <div className="class-card__meta"><span>{c.subject || 'بدون مادة محددة'}</span><span>{c.quick_stats?.grading?.length || 0} فئات تقييم</span></div>
+                    <div className="class-card__meta"><span>{c.subject || 'بدون مادة محددة'}</span><span>{c.quick_stats?.grading?.length || 0} تقييمات</span></div>
                     <ClassQuickStats stats={c.quick_stats} />
                     <div className="class-card__footer"><Link to={`/classes/${c.id}`} className="class-card__open">فتح الصف <span>←</span></Link><div className="class-card__actions"><button className="action-link" onClick={(e) => startEdit(e, c)}>تعديل</button><button className="action-link" onClick={(e) => archiveClass(e, c.id)}>أرشفة</button><button className="action-link action-link--danger" onClick={(e) => deleteClassPermanently(e, c.id)}>حذف</button></div></div>
                   </div>
