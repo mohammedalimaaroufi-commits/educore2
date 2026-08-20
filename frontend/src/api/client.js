@@ -4,9 +4,10 @@ import {
   getTeacherId,
   readApiCache,
   readSessionCache,
+  removeApiCache,
   writeApiCache,
 } from '../utils/localCache.js';
-import { getApiCache, saveApiCache } from '../utils/localDb.js';
+import { deleteApiCache, getApiCache, saveApiCache } from '../utils/localDb.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const api = axios.create({
@@ -72,6 +73,13 @@ api.interceptors.response.use(
     return Promise.reject(err);
   },
 );
+
+export async function invalidateApiCache(url, config = {}) {
+  const requestKey = localCacheKey(url, config);
+  const teacherId = getTeacherId();
+  removeApiCache(requestKey, teacherId);
+  await deleteApiCache(requestKey, teacherId);
+}
 
 export async function getLocalFirst(url, config = {}) {
   const requestKey = localCacheKey(url, config);

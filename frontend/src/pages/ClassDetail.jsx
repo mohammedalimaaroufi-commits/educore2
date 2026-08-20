@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import api, { getLocalFirst } from '../api/client';
+import api from '../api/client';
 import TrialBanner from '../components/TrialBanner.jsx';
 const StudentsTab = lazy(() => import('../components/StudentsTab.jsx'));
 const GradebookTab = lazy(() => import('../components/GradebookTab.jsx'));
@@ -35,7 +35,7 @@ export default function ClassDetail() {
         setLoading(false);
       }
       try {
-        const { data } = await getLocalFirst(`/classes/${id}`);
+        const { data } = await api.get(`/classes/${id}`);
         if (active && data.class) setCls(data.class);
       } catch {
         // The local snapshot remains the source for offline navigation.

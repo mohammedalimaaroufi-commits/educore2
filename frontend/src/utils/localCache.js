@@ -66,6 +66,11 @@ export function readApiCache(requestKey, teacherId = getTeacherId(), ttlMs = DEF
   return cached.data;
 }
 
+export function removeApiCache(requestKey, teacherId = getTeacherId()) {
+  if (!requestKey) return;
+  safeRemove(cacheKey(requestKey, teacherId));
+}
+
 export function saveSessionCache(session) {
   if (!session?.teacher?.id) return false;
   return safeWrite(`educore:session:${session.teacher.id}`, {

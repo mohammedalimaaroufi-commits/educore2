@@ -20,9 +20,33 @@ const PIE_COLORS = ['#2E7D6B', '#C1553D', '#E0A548', '#7A5CA1'];
 function ClassReport({ snapshot, classId, className }) {
   const classData = snapshot?.classes?.find((item) => item.id === classId);
   const roster = useMemo(() => buildClassRoster(snapshot, classId), [snapshot, classId]);
-  const gradeChart = roster.filter((row) => row.finalGrade !== null).map((row) => ({ name: row.full_name, grade: row.finalGrade }));
+  const [studentSearch, setStudentSearch] = useState('');
+  const [reportFilter, setReportFilter] = useState('all');
+  const visibleRoster = useMemo(() => {
+    const needle = studentSearch.trim().toLocaleLowerCase();
+    return roster.filter((row) => {
+      const matchesSearch = !needle || row.full_name.toLocaleLowerCase().includes(needle);
+      const matchesFilter = reportFilter === 'all'
+        || (reportFilter === 'graded' && row.finalGrade !== null)
+        || (reportFilter === 'missing' && row.finalGrade === null)
+        || (reportFilter === 'low-attendance' && row.attendanceRate !== null && row.attendanceRate < 75)
+        || (reportFilter === 'negative-behavior' && row.behaviorScore < 0);
+      return matchesSearch && matchesFilter;
+    });
+  }, [roster, studentSearch, reportFilter]);
+  const gradeChart = visibleRoster.filter((row) => row.finalGrade !== null).map((row) => ({ name: row.full_name, grade: row.finalGrade }));
+  const reportKpis = useMemo(() => {
+    const graded = roster.filter((row) => row.finalGrade !== null);
+    const attendance = roster.filter((row) => row.attendanceRate !== null);
+    return {
+      students: roster.length,
+      average: graded.length ? Math.round(graded.reduce((sum, row) => sum + row.finalGrade, 0) / graded.length) : null,
+      attendance: attendance.length ? Math.round(attendance.reduce((sum, row) => sum + row.attendanceRate, 0) / attendance.length) : null,
+      alerts: roster.filter((row) => row.finalGrade === null || row.behaviorScore < 0 || row.attendanceRate !== null && row.attendanceRate < 75).length,
+    };
+  }, [roster]);
 
-  const exportCSV = () => downloadCSV(`تقرير_${className}.csv`, roster.map((row) => ({
+  const exportCSV = () => downloadCSV(`تقرير_${className}.csv`,     visibleRoster.map((row) => ({
     الاسم: row.full_name,
     الدرجة_النهائية: row.finalGrade ?? '',
     نقاط_السلوك: row.behaviorScore,
@@ -35,10 +59,12 @@ function ClassReport({ snapshot, classId, className }) {
         <h3 className="text-lg font-bold">تقرير الفصل الشامل</h3>
         <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تصدير Excel/CSV</button><button className="btn-primary text-sm" onClick={() => window.print()}>تصدير PDF (طباعة)</button></div>
       </div>
+      <div className="report-kpi-grid print:hidden"><div><span>الطلاب</span><strong>{reportKpis.students}</strong></div><div><span>متوسط الدرجة</span><strong>{reportKpis.average === null ? '—' : `${reportKpis.average}%`}</strong></div><div><span>متوسط الحضور</span><strong>{reportKpis.attendance === null ? '—' : `${reportKpis.attendance}%`}</strong></div><div><span>تنبيهات متابعة</span><strong>{reportKpis.alerts}</strong></div></div>
+      <div className="report-filters print:hidden"><div className="analytics-search"><span>⌕</span><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="بحث سريع عن طالب" /></div><select className="input text-sm" value={reportFilter} onChange={(event) => setReportFilter(event.target.value)}><option value="all">كل الطلاب</option><option value="graded">تم رصد الدرجة</option><option value="missing">دون درجة نهائية</option><option value="low-attendance">حضور أقل من 75%</option><option value="negative-behavior">سلوك سلبي</option></select><span>عرض {visibleRoster.length} من {roster.length}</span></div>
       <div className="card p-6 mb-6">
         <h2 className="text-xl font-bold mb-1">{classData?.name || className}</h2>
         <p className="text-ink/60 text-sm mb-4">تاريخ التقرير: {new Date().toLocaleDateString('ar')} — محسوب محليًا</p>
-        <table className="w-full text-sm"><thead className="bg-surface"><tr><th className="text-right px-4 py-2">الطالب</th><th className="text-right px-4 py-2">الدرجة النهائية</th><th className="text-right px-4 py-2">نقاط السلوك</th><th className="text-right px-4 py-2">نسبة الحضور</th></tr></thead><tbody>{roster.map((row) => <tr key={row.student_id} className="border-t border-line"><td className="px-4 py-2">{row.full_name}</td><td className="px-4 py-2 font-bold text-primary">{row.finalGrade !== null ? `${row.finalGrade}%` : '—'}</td><td className={`px-4 py-2 ${row.behaviorScore >= 0 ? 'text-primary' : 'text-danger'}`}>{row.behaviorScore}</td><td className="px-4 py-2">{row.attendanceRate !== null ? `${row.attendanceRate}%` : '—'}</td></tr>)}</tbody></table>
+        <table className="w-full text-sm"><thead className="bg-surface"><tr><th className="text-right px-4 py-2">الطالب</th><th className="text-right px-4 py-2">الدرجة النهائية</th><th className="text-right px-4 py-2">نقاط السلوك</th><th className="text-right px-4 py-2">نسبة الحضور</th></tr></thead><tbody>{visibleRoster.map((row) => <tr key={row.student_id} className="border-t border-line"><td className="px-4 py-2">{row.full_name}</td><td className="px-4 py-2 font-bold text-primary">{row.finalGrade !== null ? `${row.finalGrade}%` : '—'}</td><td className={`px-4 py-2 ${row.behaviorScore >= 0 ? 'text-primary' : 'text-danger'}`}>{row.behaviorScore}</td><td className="px-4 py-2">{row.attendanceRate !== null ? `${row.attendanceRate}%` : '—'}</td></tr>)}</tbody></table>
       </div>
       {gradeChart.length > 0 && <div className="card p-4"><h3 className="font-bold mb-3">مقارنة الدرجات النهائية بين الطلاب</h3><ResponsiveContainer width="100%" height={Math.max(200, gradeChart.length * 34)}><BarChart data={gradeChart} layout="vertical" margin={{ left: 20 }}><CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" /><XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} /><YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="grade" fill="#2E7D6B" radius={[0, 6, 6, 0]} name="الدرجة %" /></BarChart></ResponsiveContainer></div>}
     </div>

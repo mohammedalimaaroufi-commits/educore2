@@ -88,6 +88,15 @@ export async function getApiCache(key, teacherId, ttlMs = 30 * 24 * 60 * 60 * 10
   return entry.data;
 }
 
+export async function deleteApiCache(key, teacherId) {
+  const db = await openDb();
+  if (!db || !key || !teacherId) return false;
+  const transaction = db.transaction(API_CACHE, 'readwrite');
+  transaction.objectStore(API_CACHE).delete(`${teacherId}:${key}`);
+  await transactionToPromise(transaction);
+  return true;
+}
+
 export async function enqueueOutbox(teacherId, operation) {
   const db = await openDb();
   if (!db || !teacherId || !operation) return null;

@@ -2,7 +2,7 @@ import {
   Star, Heart, Check, Trophy, ThumbsUp, Flag,
   Clock, AlertTriangle, X, ThumbsDown, VolumeX, Frown,
   FileCheck, Camera, User, MessageCircle, Send, Archive, RotateCcw, Image as ImageIcon,
-  Search, ChevronUp, ChevronDown,
+  Search, ChevronUp, ChevronDown, Settings, LogOut, CreditCard, Filter, RefreshCw, BarChart3, FileText,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -11,6 +11,7 @@ const ICON_MAP = {
   fileCheck: FileCheck, camera: Camera, user: User, messageCircle: MessageCircle, send: Send,
   archive: Archive, restore: RotateCcw, image: ImageIcon,
   search: Search, chevronUp: ChevronUp, chevronDown: ChevronDown,
+  settings: Settings, logout: LogOut, subscription: CreditCard, filter: Filter, refresh: RefreshCw, analytics: BarChart3, reports: FileText,
 };
 
 export default function Icon({ name, className = 'w-4 h-4', ...props }) {

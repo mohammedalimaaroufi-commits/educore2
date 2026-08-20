@@ -22,6 +22,8 @@ export default function AnalyticsTab({ classId }) {
   const [snapshot, setSnapshot] = useState(null);
   const [sortBy, setSortBy] = useState('grade');
   const [selectedStudent, setSelectedStudent] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentFilter, setStudentFilter] = useState('all');
   const [growth, setGrowth] = useState([]);
   const [detailStudentId, setDetailStudentId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -42,7 +44,29 @@ export default function AnalyticsTab({ classId }) {
   const distribution = useMemo(() => Object.entries(buildDistribution(roster)).map(([range, count]) => ({ range, count })), [roster]);
   const categoryAverages = useMemo(() => buildCategoryAverages(snapshot, classId), [snapshot, classId]);
   const students = useMemo(() => (snapshot?.students || []).filter((student) => student.class_id === classId && !student.archived), [snapshot, classId]);
-  const sortedRoster = useMemo(() => [...roster].sort(SORT_OPTIONS[sortBy]), [roster, sortBy]);
+  const filteredRoster = useMemo(() => {
+    const needle = studentSearch.trim().toLocaleLowerCase();
+    return roster.filter((row) => {
+      const matchesSearch = !needle || row.full_name.toLocaleLowerCase().includes(needle);
+      const matchesFilter = studentFilter === 'all'
+        || (studentFilter === 'needs-grade' && row.finalGrade === null)
+        || (studentFilter === 'low-grade' && row.finalGrade !== null && row.finalGrade < 60)
+        || (studentFilter === 'attendance' && row.attendanceRate !== null && row.attendanceRate < 75)
+        || (studentFilter === 'behavior' && row.behaviorScore < 0);
+      return matchesSearch && matchesFilter;
+    });
+  }, [roster, studentSearch, studentFilter]);
+  const sortedRoster = useMemo(() => [...filteredRoster].sort(SORT_OPTIONS[sortBy]), [filteredRoster, sortBy]);
+  const analyticsKpis = useMemo(() => {
+    const graded = roster.filter((row) => row.finalGrade !== null);
+    const attendance = roster.filter((row) => row.attendanceRate !== null);
+    return {
+      students: roster.length,
+      average: graded.length ? Math.round(graded.reduce((sum, row) => sum + row.finalGrade, 0) / graded.length) : null,
+      attendance: attendance.length ? Math.round(attendance.reduce((sum, row) => sum + row.attendanceRate, 0) / attendance.length) : null,
+      needsAttention: roster.filter((row) => row.finalGrade !== null && row.finalGrade < 60 || row.behaviorScore < 0).length,
+    };
+  }, [roster]);
 
   const loadGrowth = (studentId) => {
     setSelectedStudent(studentId);
@@ -54,7 +78,14 @@ export default function AnalyticsTab({ classId }) {
   if (error && !snapshot) return <div className="card p-6 text-center text-danger">{error}<button className="btn-secondary text-sm mr-3" onClick={() => window.location.reload()}>إعادة المحاولة</button></div>;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-5">
+      <div className="analytics-kpi-grid">
+        <div className="analytics-kpi"><span>إجمالي الطلاب</span><strong>{analyticsKpis.students}</strong><small>في الصف الحالي</small></div>
+        <div className="analytics-kpi analytics-kpi--primary"><span>متوسط الدرجات</span><strong>{analyticsKpis.average === null ? '—' : `${analyticsKpis.average}%`}</strong><small>للطلبة المرصودين</small></div>
+        <div className="analytics-kpi analytics-kpi--accent"><span>متوسط الحضور</span><strong>{analyticsKpis.attendance === null ? '—' : `${analyticsKpis.attendance}%`}</strong><small>من السجلات المتاحة</small></div>
+        <div className="analytics-kpi analytics-kpi--danger"><span>يحتاجون متابعة</span><strong>{analyticsKpis.needsAttention}</strong><small>درجة منخفضة أو سلوك سلبي</small></div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="card p-4">
         <h3 className="font-bold mb-3">توزيع درجات الفصل</h3>
         <ResponsiveContainer width="100%" height={280}>
@@ -113,13 +144,18 @@ export default function AnalyticsTab({ classId }) {
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold">ملخص شامل للفصل</h3>
-          <select className="input text-xs w-40" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+          <div className="flex flex-wrap gap-2">
+            <div className="analytics-search"><span>⌕</span><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="بحث عن طالب" /></div>
+            <select className="input text-xs w-40" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)}><option value="all">كل الحالات</option><option value="needs-grade">دون درجة</option><option value="low-grade">أقل من 60%</option><option value="attendance">حضور أقل من 75%</option><option value="behavior">سلوك يحتاج متابعة</option></select>
+            <select className="input text-xs w-40" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
             <option value="grade">ترتيب حسب الدرجة</option>
             <option value="behavior">ترتيب حسب السلوك</option>
             <option value="attendance">ترتيب حسب الحضور</option>
             <option value="name">ترتيب أبجدي</option>
-          </select>
+            </select>
+          </div>
         </div>
+        <div className="mb-2 text-xs text-ink/50">عرض {sortedRoster.length} من {roster.length} طالب</div>
         <div className="overflow-x-auto max-h-72 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-surface sticky top-0"><tr>
@@ -146,16 +182,20 @@ export default function AnalyticsTab({ classId }) {
         <h3 className="font-bold mb-3">تفاصيل شاملة لكل طالب</h3>
         <p className="text-xs text-ink/50 mb-3">اضغط على أي طالب لعرض درجاته وسلوكه وحضوره في مكان واحد.</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-          {students.map((student) => (
+          {filteredRoster.map((row) => {
+            const student = students.find((item) => item.id === row.student_id);
+            return student ? (
             <button key={student.id} onClick={() => setDetailStudentId(student.id)} className="flex items-center gap-2 p-2 rounded-lg border border-line hover:bg-surface text-right">
               <StudentAvatar name={student.full_name} photoUrl={student.photo_url} size={28} />
               <span className="text-sm truncate">{student.full_name}</span>
             </button>
-          ))}
+            ) : null;
+          })}
         </div>
       </div>
 
       <StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} />
+      </div>
     </div>
   );
 }

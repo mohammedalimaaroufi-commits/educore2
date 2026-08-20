@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api/client';
+import api, { invalidateApiCache } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
@@ -107,6 +107,8 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
       classes: (snapshot?.classes || []).map((classData) => classData.id === id ? { ...classData, archived: 0 } : classData),
     };
     await saveSnapshot(teacherId, nextSnapshot);
+    await invalidateApiCache('/classes');
+    await invalidateApiCache(`/classes/${id}`);
     await load();
     onRestored?.();
     try {
@@ -163,7 +165,11 @@ export default function Dashboard() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [showArchived, setShowArchived] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
+  const [completionFilter, setCompletionFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  const [saveState, setSaveState] = useState('idle');
 
   const load = async () => {
     setLoading(true);
@@ -184,10 +190,20 @@ export default function Dashboard() {
     };
   }, []);
 
+  const subjects = [...new Set(classes.map((classData) => classData.subject).filter(Boolean))];
+  const years = [...new Set(classes.map((classData) => classData.academic_year).filter(Boolean))];
   const visibleClasses = classes.filter((classData) => {
     const needle = searchTerm.trim().toLocaleLowerCase();
-    if (!needle) return true;
-    return `${classData.name} ${classData.subject || ''} ${classData.academic_year || ''}`.toLocaleLowerCase().includes(needle);
+    const matchesSearch = !needle || `${classData.name} ${classData.subject || ''} ${classData.academic_year || ''}`.toLocaleLowerCase().includes(needle);
+    const matchesSubject = subjectFilter === 'all' || classData.subject === subjectFilter;
+    const matchesYear = yearFilter === 'all' || classData.academic_year === yearFilter;
+    const coverage = classData.quick_stats?.grading || [];
+    const averageCoverage = coverage.length ? coverage.reduce((sum, item) => sum + (item.percent || 0), 0) / coverage.length : 0;
+    const matchesCompletion = completionFilter === 'all'
+      || (completionFilter === 'complete' && averageCoverage >= 100)
+      || (completionFilter === 'progress' && averageCoverage > 0 && averageCoverage < 100)
+      || (completionFilter === 'empty' && averageCoverage === 0);
+    return matchesSearch && matchesSubject && matchesYear && matchesCompletion;
   });
 
   const startAdd = () => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); };
@@ -201,30 +217,58 @@ export default function Dashboard() {
   const submit = async (e) => {
     e.preventDefault();
     const teacherId = getTeacherId();
-    const id = editingId || localId('class');
-    const payload = editingId ? form : { id, ...form };
+    const isEditing = Boolean(editingId);
+    const classId = editingId || localId('class');
+    const formPayload = { name: form.name.trim(), subject: form.subject.trim(), academic_year: form.academic_year.trim(), color: form.color };
+    const payload = isEditing ? formPayload : { id: classId, ...formPayload };
     const next = await getOrSyncSnapshot(teacherId);
-    const localClass = { id, teacher_id: teacherId, ...form, archived: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const existingClass = (next.classes || []).find((item) => item.id === classId);
+    const localClass = { ...(existingClass || {}), id: classId, teacher_id: teacherId, ...formPayload, archived: 0, created_at: existingClass?.created_at || now, updated_at: now };
     const defaultCategories = [
       ['مشاركة', 10], ['واجبات منزلية', 15], ['اختبارات قصيرة', 20], ['مشروع', 15], ['اختبار نهائي', 40],
     ];
-    const localCategories = defaultCategories.map(([name, weight_percent], index) => ({ id: localId('category'), class_id: id, name, weight_percent, grading_type: 'numeric', grading_mode: 'direct', sort_order: index, created_at: new Date().toISOString() }));
-    const localAssessments = localCategories.map((category) => ({ id: localId('assessment'), category_id: category.id, title: category.name, max_score: category.weight_percent, is_summary: 1, date: null, created_at: new Date().toISOString() }));
+    const localCategories = defaultCategories.map(([name, weight_percent], index) => ({ id: localId('category'), class_id: classId, name, weight_percent, grading_type: 'numeric', grading_mode: 'direct', sort_order: index, created_at: now }));
+    const localAssessments = localCategories.map((category) => ({ id: localId('assessment'), category_id: category.id, title: category.name, max_score: category.weight_percent, is_summary: 1, date: null, created_at: now }));
     const behaviorDefaults = [
       ['مشاركة متميزة', 'positive', 2, 'star'], ['إحضار الأدوات', 'positive', 1, 'check'], ['مساعدة زميل', 'positive', 1, 'heart'],
       ['تأخر عن الحصة', 'negative', -1, 'clock'], ['إزعاج الصف', 'negative', -2, 'alert'], ['عدم إحضار الواجب', 'negative', -1, 'x'],
-    ].map(([label, polarity, points, icon]) => ({ id: localId('behavior-type'), class_id: id, label, polarity, points, icon, is_default: 1 }));
-    const nextSnapshot = editingId ? { ...next, classes: (next.classes || []).map((item) => item.id === editingId ? { ...item, ...form } : item) } : {
+    ].map(([label, polarity, points, icon]) => ({ id: localId('behavior-type'), class_id: classId, label, polarity, points, icon, is_default: 1 }));
+    const nextClasses = isEditing
+      ? (next.classes || []).some((item) => item.id === classId)
+        ? (next.classes || []).map((item) => item.id === classId ? localClass : item)
+        : [...(next.classes || []), localClass]
+      : [...(next.classes || []), localClass];
+    const nextSnapshot = isEditing ? { ...next, classes: nextClasses } : {
       ...next,
-      classes: [...(next.classes || []), localClass],
+      classes: nextClasses,
       grade_categories: [...(next.grade_categories || []), ...localCategories],
       assessments: [...(next.assessments || []), ...localAssessments],
       behavior_types: [...(next.behavior_types || []), ...behaviorDefaults],
     };
     await saveSnapshot(teacherId, nextSnapshot);
+    setClasses(nextClasses.filter((item) => !item.archived).map((item) => cardForClass(nextSnapshot, item)));
+    setSaveState('saving');
     setForm(EMPTY_FORM); setShowForm(false); setEditingId(null);
-    await load();
-    try { await (editingId ? api.patch(`/classes/${editingId}`, form) : api.post('/classes', payload)); void syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: editingId ? 'PATCH' : 'POST', url: editingId ? `/classes/${editingId}` : '/classes', data: payload }); }
+    try {
+      const response = isEditing ? await api.patch(`/classes/${classId}`, formPayload) : await api.post('/classes', payload);
+      const serverClass = response?.data?.class;
+      if (serverClass) {
+        const serverSnapshot = { ...nextSnapshot, classes: nextSnapshot.classes.map((item) => item.id === classId ? { ...item, ...serverClass } : item) };
+        await saveSnapshot(teacherId, serverSnapshot);
+      }
+      await invalidateApiCache('/classes');
+      await invalidateApiCache(`/classes/${classId}`);
+      await syncSnapshot(teacherId, { force: true });
+      await load();
+      setSaveState('saved');
+    } catch {
+      await queueMutation(teacherId, { method: isEditing ? 'PATCH' : 'POST', url: isEditing ? `/classes/${classId}` : '/classes', data: payload });
+      setSaveState('queued');
+      await load();
+    } finally {
+      window.setTimeout(() => setSaveState('idle'), 2500);
+    }
   };
 
   const archiveClass = async (e, id) => {
@@ -232,9 +276,11 @@ export default function Dashboard() {
     if (!confirm('أرشفة هذا الصف؟ يمكن استعادته لاحقًا من قسم "الصفوف المؤرشفة".')) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
-    await saveSnapshot(teacherId, { ...snapshot, classes: (snapshot.classes || []).map((item) => item.id === id ? { ...item, archived: 1 } : item) });
+    await saveSnapshot(teacherId, { ...snapshot, classes: (snapshot.classes || []).map((item) => item.id === id ? { ...item, archived: 1, updated_at: new Date().toISOString() } : item) });
+    await invalidateApiCache('/classes');
+    await invalidateApiCache(`/classes/${id}`);
     await load();
-    try { await api.delete(`/classes/${id}`); void syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}` }); }
+    try { await api.delete(`/classes/${id}`); await syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}` }); }
   };
 
   const deleteClassPermanently = async (e, id) => {
@@ -260,9 +306,14 @@ export default function Dashboard() {
       attendance_records: (snapshot.attendance_records || []).filter((record) => !sessionIds.has(record.session_id) && !studentIds.has(record.student_id)),
     };
     await saveSnapshot(teacherId, nextSnapshot);
+    await invalidateApiCache('/classes');
+    await invalidateApiCache(`/classes/${id}`);
     await load();
-    try { await api.delete(`/classes/${id}?permanent=1`); void syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
+    try { await api.delete(`/classes/${id}?permanent=1`); await syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
   };
+
+  const initials = (teacher?.full_name || 'س').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const hasFilters = Boolean(searchTerm || subjectFilter !== 'all' || yearFilter !== 'all' || completionFilter !== 'all');
 
   return (
     <div className="dashboard-shell" dir="rtl">
@@ -281,8 +332,13 @@ export default function Dashboard() {
         </label>
         <div className="dashboard-utilities">
           <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? 'متصل' : 'وضع دون اتصال'}</span>
-          <button type="button" className="utility-icon" aria-label="مساعدة" title="مساعدة">؟</button>
           <span className="utility-date">{new Intl.DateTimeFormat('ar', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
+          <nav className="dashboard-nav-actions" aria-label="روابط الحساب">
+            <Link to="/subscription" className="topbar-nav-link"><Icon name="subscription" className="w-4 h-4" /><span>الاشتراك</span></Link>
+            <Link to="/settings" className="topbar-nav-link"><Icon name="settings" className="w-4 h-4" /><span>الإعدادات</span></Link>
+            <button type="button" className="topbar-nav-link topbar-nav-link--danger" onClick={logout}><Icon name="logout" className="w-4 h-4" /><span>تسجيل الخروج</span></button>
+          </nav>
+          <span className="teacher-avatar" title={teacher?.full_name || 'المعلم'}>{initials}</span>
         </div>
       </div>
 
@@ -307,10 +363,22 @@ export default function Dashboard() {
             <h2>{t('myClasses')}</h2>
           </div>
           <div className="dashboard-actions">
+            {saveState === 'saving' && <span className="save-feedback">جارِ تثبيت التعديل...</span>}
+            {saveState === 'saved' && <span className="save-feedback save-feedback--success">تم حفظ التعديل</span>}
+            {saveState === 'queued' && <span className="save-feedback">حُفظ محليًا بانتظار الاتصال</span>}
             <button className="btn-secondary action-button" onClick={() => setShowArchived(true)}><Icon name="archive" className="w-4 h-4" /> {t('archivedClasses')}</button>
             <button className="btn-primary action-button" onClick={startAdd}><span className="action-plus">+</span> {t('newClass')}</button>
           </div>
         </div>
+
+        <section className="dashboard-filters" aria-label="بحث وفلاتر الصفوف">
+          <div className="dashboard-filter-search"><Icon name="search" className="w-4 h-4" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="بحث سريع باسم الصف أو المادة..." /></div>
+          <label className="dashboard-filter-select"><span>المادة</span><select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">كل المواد</option>{subjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
+          <label className="dashboard-filter-select"><span>السنة</span><select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option value="all">كل السنوات</option>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
+          <label className="dashboard-filter-select"><span>حالة الرصد</span><select value={completionFilter} onChange={(event) => setCompletionFilter(event.target.value)}><option value="all">كل الحالات</option><option value="complete">مكتمل</option><option value="progress">قيد الرصد</option><option value="empty">لم يبدأ</option></select></label>
+          {hasFilters && <button type="button" className="filter-reset" onClick={() => { setSearchTerm(''); setSubjectFilter('all'); setYearFilter('all'); setCompletionFilter('all'); }}><Icon name="refresh" className="w-3.5 h-3.5" /> مسح</button>}
+          <span className="filter-result-count">{visibleClasses.length} من {classes.length} صف</span>
+        </section>
 
         {showForm && (
           <form onSubmit={submit} className="surface-panel create-class-form">
@@ -321,7 +389,7 @@ export default function Dashboard() {
               <div><label className="label">السنة الدراسية</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
               <div><label className="label">اللون المميز</label><div className="color-picker">{COLORS.map((c) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`اختيار اللون ${c}`} />)}</div></div>
             </div>
-            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit">{editingId ? 'حفظ التعديلات' : 'إنشاء الصف'}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>إلغاء</button></div>
+            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? 'جارِ الحفظ...' : editingId ? 'حفظ التعديلات' : 'إنشاء الصف'}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>إلغاء</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">تم الحفظ بنجاح</span>}{saveState === 'queued' && <span className="save-feedback">حُفظ محليًا وسيتم رفعه عند الاتصال</span>}</div>
           </form>
         )}
 
