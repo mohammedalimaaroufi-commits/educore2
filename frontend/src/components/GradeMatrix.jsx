@@ -244,20 +244,21 @@ export default function GradeMatrix({ classId, className }) {
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 print:hidden">
         <div>
           <h3 className="font-bold">جدول الدرجات الكامل</h3>
-          <p className="text-xs text-ink/50">قيمة كل تقييم من وزن فئته، والإجمالي النهائي يُحسب من 100%. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p>
+          <p className="text-xs text-ink/50">قيمة كل تقييم من وزن فئته، والإجمالي النهائي يُحسب من 100%. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p><span className="grade-matrix-hint">اسحب الجدول أفقيًا عند الحاجة — اسم الطالب ثابت</span>
         </div>
         <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تنزيل CSV</button><button className="btn-primary text-sm" onClick={() => window.print()}>تنزيل PDF (طباعة)</button></div>
       </div>
-      <div className="card overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+      <div className="card grade-matrix-card">
+        <div className="grade-matrix-scroll" role="region" aria-label="جدول الدرجات القابل للتمرير">
+        <table className="grade-matrix-table text-xs border-collapse">
           <thead>
             <tr>
-              <th className="sticky right-0 bg-white text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-10">الطالب</th>
+              <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-20">الطالب</th>
               {categories.map((category, index) => <th key={category.id} colSpan={itemsFor(category).length + 1} className="text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></th>)}
               <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">النهائية %</th>
             </tr>
             <tr>
-              <th className="sticky right-0 bg-surface text-right px-3 py-2 text-[11px] text-ink/50 font-medium">تفاصيل فرعية للفئة</th>
+              <th className="grade-matrix-sticky grade-matrix-sticky--subheader text-right px-3 py-2 text-[11px] text-ink/50 font-medium z-20">تفاصيل فرعية للفئة</th>
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
@@ -304,7 +305,7 @@ export default function GradeMatrix({ classId, className }) {
           <tbody>
             {students.map((student, rowIndex) => (
               <tr key={student.id} className={`border-t border-line ${rowIndex % 2 === 1 ? 'bg-surface/40' : ''}`}>
-                <td className="sticky right-0 bg-inherit px-3 py-2 font-medium">{student.full_name}</td>
+                <td className="grade-matrix-sticky grade-matrix-sticky--body px-3 py-2 font-medium z-10">{student.full_name}</td>
                 {categories.map((category, categoryIndex) => (
                   <React.Fragment key={category.id}>
                     {itemsFor(category).map((assessment) => {
@@ -332,6 +333,7 @@ export default function GradeMatrix({ classId, className }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

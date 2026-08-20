@@ -10,19 +10,21 @@ const AnalyticsTab = lazy(() => import('../components/AnalyticsTab.jsx'));
 const ReportsTab = lazy(() => import('../components/ReportsTab.jsx'));
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
+import Icon from '../components/Icon.jsx';
 
 const TABS = [
-  { id: 'students', label: 'الطلاب' },
-  { id: 'gradebook', label: 'دفتر الدرجات' },
-  { id: 'behavior', label: 'السلوك' },
-  { id: 'attendance', label: 'الحضور' },
-  { id: 'analytics', label: 'التحليلات' },
-  { id: 'reports', label: 'التقارير' },
+  { id: 'students', label: 'الطلاب', icon: 'user' },
+  { id: 'gradebook', label: 'دفتر الدرجات', icon: 'fileCheck' },
+  { id: 'behavior', label: 'السلوك', icon: 'heart' },
+  { id: 'attendance', label: 'الحضور', icon: 'check' },
+  { id: 'analytics', label: 'التحليلات', icon: 'analytics' },
+  { id: 'reports', label: 'التقارير', icon: 'reports' },
 ];
 
 export default function ClassDetail() {
   const { id } = useParams();
   const [cls, setCls] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
   const [tab, setTab] = useState('students');
   const [loading, setLoading] = useState(true);
 
@@ -31,6 +33,7 @@ export default function ClassDetail() {
     const load = async () => {
       const local = await getOrSyncSnapshot(getTeacherId());
       if (active) {
+        setSnapshot(local || null);
         setCls(local?.classes?.find((item) => item.id === id) || null);
         setLoading(false);
       }
@@ -45,21 +48,31 @@ export default function ClassDetail() {
     return () => { active = false; };
   }, [id]);
 
+  const studentsCount = (snapshot?.students || []).filter((student) => student.class_id === id && !student.archived).length;
+  const categoriesCount = (snapshot?.grade_categories || []).filter((category) => category.class_id === id).length;
+  const assessmentsCount = (snapshot?.assessments || []).filter((assessment) => (snapshot?.grade_categories || []).some((category) => category.id === assessment.category_id && category.class_id === id)).length;
+  const attendanceSessionsCount = (snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length;
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <Link to="/" className="text-primary text-sm">→ العودة للوحة التحكم</Link>
-      {loading && !cls && <p className="text-ink/50 mt-4">جارِ فتح الصف محليًا...</p>}
-      {cls && <div className="flex items-center gap-3 mt-3 mb-4"><div className="w-10 h-10 rounded-lg" style={{ background: cls.color }} /><div><h1 className="text-2xl font-bold">{cls.name}</h1><p className="text-ink/60 text-sm">{cls.subject} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div></div>}
+    <div className="class-page-shell">
+      <div className="class-page-topline"><Link to="/" className="class-page-back"><span>→</span> العودة إلى لوحة الصفوف</Link><span className="class-page-status"><span className="class-page-status__dot" /> بيانات محفوظة محليًا</span></div>
+      {loading && !cls && <div className="class-page-loading">جارِ فتح الصف محليًا...</div>}
+      {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>
+        <div className="class-page-header__visual"><span className="class-page-header__symbol">▦</span><span className="class-page-header__eyebrow">مساحة الصف</span><h1>{cls.name}</h1><p>{cls.subject || 'مادة غير محددة'} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
+        <div className="class-page-header__side"><span className="class-page-header__tag">إدارة يومية</span><p>تابع الطلاب والدرجات والحضور والسلوك في لوحة واحدة.</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>طالب</small></span><span><strong>{categoriesCount}</strong><small>فئة</small></span><span><strong>{assessmentsCount}</strong><small>تقييم</small></span><span><strong>{attendanceSessionsCount}</strong><small>جلسة حضور</small></span></div></div>
+      </header>}
       <TrialBanner />
-      <div className="flex gap-2 border-b border-line mb-6 overflow-x-auto">{TABS.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${tab === item.id ? 'border-primary text-primary' : 'border-transparent text-ink/60 hover:text-ink'}`}>{item.label}</button>)}</div>
-      <Suspense fallback={<p className="text-ink/50">جارِ تحميل التبويب...</p>}>
-        {tab === 'students' && <StudentsTab classId={id} />}
-        {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
-        {tab === 'behavior' && <BehaviorTab classId={id} />}
-        {tab === 'attendance' && <AttendanceTab classId={id} />}
-        {tab === 'analytics' && <AnalyticsTab classId={id} />}
-        {tab === 'reports' && <ReportsTab classId={id} className={cls?.name} />}
-      </Suspense>
+      <nav className="class-tabs" aria-label="أقسام الصف">{TABS.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{item.label}</span></button>)}</nav>
+      <main className={`class-tab-panel class-tab-panel--${tab}`}>
+        <Suspense fallback={<div className="class-page-loading">جارِ تحميل التبويب...</div>}>
+          {tab === 'students' && <StudentsTab classId={id} />}
+          {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
+          {tab === 'behavior' && <BehaviorTab classId={id} />}
+          {tab === 'attendance' && <AttendanceTab classId={id} />}
+          {tab === 'analytics' && <AnalyticsTab classId={id} />}
+          {tab === 'reports' && <ReportsTab classId={id} className={cls?.name} />}
+        </Suspense>
+      </main>
     </div>
   );
 }
