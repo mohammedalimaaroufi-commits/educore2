@@ -25,7 +25,19 @@ export function getCategoryAssessments(category) {
   const assessments = category?.assessments || [];
   const detailed = assessments.filter((assessment) => !Number(assessment.is_summary));
   const summaries = assessments.filter((assessment) => Number(assessment.is_summary));
+  // A direct category always exposes its one category-level assessment. Detailed
+  // rows are used only after the category has real detail entries.
+  if (category?.grading_mode !== 'detailed' && summaries.length) return summaries;
   return detailed.length ? detailed : summaries.length ? summaries : assessments;
+}
+
+export function getAssessmentMaxScore(category, assessment) {
+  const weight = Number(category?.weight_percent || 0);
+  const onlyCategoryAssessment = (category?.assessments || []).length <= 1;
+  if (weight > 0 && (Number(assessment?.is_summary) === 1 || onlyCategoryAssessment)) {
+    return weight;
+  }
+  return Number(assessment?.max_score || 0);
 }
 
 export function calculateCategoryPercent(studentId, category, gradeMap) {
@@ -36,7 +48,7 @@ export function calculateCategoryPercent(studentId, category, gradeMap) {
     const grade = gradeMap.get(`${assessment.id}:${studentId}`);
     if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '') {
       earned += Number(grade.score_numeric);
-      possible += Number(assessment.max_score || 0);
+      possible += getAssessmentMaxScore(category, assessment);
     }
   });
   return possible > 0 ? round((earned / possible) * 100) : null;
@@ -110,7 +122,7 @@ export function buildCategoryAverages(snapshot, classId) {
       students.forEach((student) => {
         const grade = gradeMap.get(`${assessment.id}:${student.id}`);
         if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined) {
-          rows.push((Number(grade.score_numeric) / Number(assessment.max_score || 1)) * 100);
+          rows.push((Number(grade.score_numeric) / Math.max(1, getAssessmentMaxScore(category, assessment))) * 100);
         }
       });
     });
@@ -135,7 +147,7 @@ export function buildGrowth(snapshot, studentId) {
         title: assessment.title,
         date: assessment.date,
         category: categoryMap.get(assessment.category_id)?.name,
-        percent: round((Number(grade.score_numeric) / Number(assessment.max_score || 1)) * 100),
+        percent: round((Number(grade.score_numeric) / Math.max(1, getAssessmentMaxScore(categoryMap.get(assessment.category_id), assessment))) * 100),
         is_summary: Number(assessment.is_summary) === 1,
       };
     })
@@ -151,7 +163,7 @@ export function buildStudentReport(snapshot, studentId) {
   const gradesByCategory = categories.map((category) => {
     const items = getCategoryAssessments(category).map((assessment) => {
       const grade = gradeMap.get(`${assessment.id}:${student.id}`);
-      return { title: assessment.title, max_score: assessment.max_score, score: grade?.score_numeric ?? null, comment: grade?.comment ?? null, is_summary: Number(assessment.is_summary) === 1 };
+      return { title: assessment.title, max_score: getAssessmentMaxScore(category, assessment), score: grade?.score_numeric ?? null, comment: grade?.comment ?? null, is_summary: Number(assessment.is_summary) === 1 };
     });
     return {
       category: category.name,

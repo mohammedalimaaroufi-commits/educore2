@@ -367,6 +367,14 @@ db.exec(`UPDATE grade_categories SET grading_mode = 'direct'
            SELECT 1 FROM assessments a
            WHERE a.category_id = grade_categories.id AND a.is_summary = 0
          )`);
+// Normalize every summary-only category, including older summaries whose max_score
+// was neither 100 nor the current category weight (for example, an old value of 3).
+db.exec(`UPDATE assessments SET max_score = (
+           SELECT gc.weight_percent FROM grade_categories gc WHERE gc.id = assessments.category_id
+         ) WHERE is_summary = 1 AND NOT EXISTS (
+           SELECT 1 FROM assessments detail
+           WHERE detail.category_id = assessments.category_id AND detail.is_summary = 0
+         )`);
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 

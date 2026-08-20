@@ -18,6 +18,22 @@ function detailTotal(categoryId) {
   return Number(db.prepare('SELECT COALESCE(SUM(max_score), 0) AS total FROM assessments WHERE category_id = ? AND is_summary = 0').get(categoryId).total || 0);
 }
 
+function effectiveAssessmentMax(assessment) {
+  const weight = Number(assessment?.weight_percent || 0);
+  const onlyCategoryAssessment = Number(assessment?.assessment_count || 0) <= 1;
+  if (weight > 0 && (Number(assessment?.is_summary) === 1 || onlyCategoryAssessment)) return weight;
+  return Number(assessment?.max_score || 0);
+}
+
+function validateScore(scoreValue, maxScore) {
+  if (scoreValue === null || scoreValue === undefined || scoreValue === '') return null;
+  const score = Number(scoreValue);
+  if (!Number.isFinite(score) || score < 0 || score > maxScore) {
+    return `الدرجة يجب أن تكون بين 0 و${maxScore}`;
+  }
+  return null;
+}
+
 function ensureSummaryAssessment(category) {
   let summary = db.prepare('SELECT * FROM assessments WHERE category_id = ? AND is_summary = 1 LIMIT 1').get(category.id);
   if (!summary) {
@@ -150,12 +166,16 @@ router.get('/grid', (req, res) => {
                                   JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?`).get(assessment_id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
 
+  const assessmentWithLimit = db.prepare(`SELECT a.*, gc.weight_percent, gc.grading_mode,
+      (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
+      (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
+    FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id WHERE a.id = ?`).get(assessment_id);
   const rows = db.prepare(`SELECT s.id as student_id, s.full_name, g.id as grade_id, g.score_numeric, g.score_letter, g.rubric_json, g.comment
                             FROM students s LEFT JOIN grades g ON g.student_id = s.id AND g.assessment_id = ?
                             WHERE s.class_id = ? AND s.archived = 0 ORDER BY s.full_name COLLATE NOCASE`)
     .all(assessment_id, assessment.class_id);
 
-  res.json({ assessment, rows });
+  res.json({ assessment: { ...assessmentWithLimit, max_score: effectiveAssessmentMax(assessmentWithLimit) }, rows });
 });
 
 // POST /api/grades/grid  { assessment_id, entries: [{student_id, score_numeric | score_letter | rubric_json, comment}] }
@@ -170,13 +190,24 @@ router.post('/grid', (req, res) => {
                               ON CONFLICT(assessment_id, student_id) DO UPDATE SET
                                 score_numeric=excluded.score_numeric, score_letter=excluded.score_letter,
                                 rubric_json=excluded.rubric_json, comment=excluded.comment, updated_at=datetime('now')`);
+  const assessmentLimit = db.prepare(`SELECT a.*, gc.weight_percent, gc.grading_mode,
+      (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
+      (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
+    FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id WHERE a.id = ?`).get(assessment_id);
+  const maxScore = effectiveAssessmentMax(assessmentLimit);
   const saveAll = db.transaction((items) => {
     for (const item of items) {
+      const validationError = validateScore(item.score_numeric, maxScore);
+      if (validationError) throw new Error(validationError);
       upsert.run(uuid(), assessment_id, item.student_id, item.score_numeric ?? null, item.score_letter ?? null,
         item.rubric_json ? JSON.stringify(item.rubric_json) : null, item.comment ?? null);
     }
   });
-  saveAll(entries || []);
+  try {
+    saveAll(entries || []);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'الدرجة غير صالحة' });
+  }
   res.json({ success: true, saved: (entries || []).length });
 });
 
@@ -223,10 +254,13 @@ router.post('/matrix', (req, res) => {
   // Verify every assessment referenced belongs to this teacher before writing anything
   const assessmentIds = [...new Set(entries.map((e) => e.assessment_id))];
   const placeholders = assessmentIds.map(() => '?').join(',');
-  const owned = db.prepare(`SELECT a.id FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
+  const owned = db.prepare(`SELECT a.id, a.max_score, a.is_summary, gc.weight_percent, gc.grading_mode,
+                               (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
+                               (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
+                             FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
                              JOIN classes c ON gc.class_id = c.id WHERE a.id IN (${placeholders}) AND c.teacher_id = ?`)
     .all(...assessmentIds, req.teacherId);
-  const ownedSet = new Set(owned.map((o) => o.id));
+  const ownedMap = new Map(owned.map((o) => [o.id, o]));
   if (owned.length !== assessmentIds.length) return res.status(403).json({ error: 'لا تملك صلاحية على أحد هذه التقييمات' });
 
   const upsert = db.prepare(`INSERT INTO grades (id, assessment_id, student_id, score_numeric, comment, updated_at)
@@ -236,13 +270,22 @@ router.post('/matrix', (req, res) => {
   const saveAll = db.transaction((items) => {
     let count = 0;
     for (const item of items) {
-      if (!ownedSet.has(item.assessment_id)) continue;
+      const assessment = ownedMap.get(item.assessment_id);
+      if (!assessment) continue;
+      const maxScore = effectiveAssessmentMax(assessment);
+      const validationError = validateScore(item.score_numeric, maxScore);
+      if (validationError) throw new Error(validationError);
       upsert.run(uuid(), item.assessment_id, item.student_id, item.score_numeric ?? null, item.comment ?? null);
       count += 1;
     }
     return count;
   });
-  const saved = saveAll(entries);
+  let saved;
+  try {
+    saved = saveAll(entries);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'الدرجة غير صالحة' });
+  }
   res.json({ success: true, saved });
 });
 

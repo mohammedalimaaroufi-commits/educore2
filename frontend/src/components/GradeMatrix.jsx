@@ -3,7 +3,7 @@ import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
-import { buildGradeMap, calculateFinalGrade, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
+import { buildGradeMap, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
@@ -236,7 +236,7 @@ export default function GradeMatrix({ classId, className }) {
                   {itemsFor(category).map((assessment) => (
                     <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex items-center justify-center gap-1">
-                        <span>{assessment.title} <span className="text-ink/40">/{assessment.max_score}</span></span>
+                        <span>{assessment.title} <span className="text-ink/40">/{getAssessmentMaxScore(category, assessment)}</span></span>
                         {!Number(assessment.is_summary) && <button className="text-danger print:hidden" title="حذف التقييم" onClick={() => deleteAssessment(assessment)}>×</button>}
                       </div>
                     </th>
@@ -268,7 +268,7 @@ export default function GradeMatrix({ classId, className }) {
                         <td key={assessment.id} className="px-1 py-1 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}>
                           <div className="flex flex-col gap-0.5 items-center">
                             <div className="relative">
-                              <input type="number" min="0" max={assessment.max_score} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onBlur={() => saveCell(assessment.id, student.id)} />
+                              <input type="number" min="0" max={getAssessmentMaxScore(category, assessment)} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onBlur={() => saveCell(assessment.id, student.id)} />
                               {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
                               {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
                             </div>
