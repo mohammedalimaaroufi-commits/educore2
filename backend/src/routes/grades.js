@@ -167,6 +167,30 @@ router.post('/assessments', (req, res) => {
   res.status(201).json({ assessment: db.prepare('SELECT * FROM assessments WHERE id = ?').get(id), detail_total: detailTotalAfter, warning });
 });
 
+// PATCH /api/grades/assessments/:id  -> edit a detail title, maximum, or date
+router.patch('/assessments/:id', (req, res) => {
+  const assessment = db.prepare(`SELECT a.*, gc.weight_percent, gc.id AS category_id
+    FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
+    JOIN classes c ON gc.class_id = c.id
+    WHERE a.id = ? AND c.teacher_id = ?`).get(req.params.id, req.teacherId);
+  if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
+  if (Number(assessment.is_summary)) return res.status(400).json({ error: 'لا يمكن تعديل خانة الفئة الأساسية من هنا' });
+  const title = req.body.title === undefined ? assessment.title : String(req.body.title || '').trim();
+  const max = req.body.max_score === undefined ? Number(assessment.max_score) : Number(req.body.max_score);
+  if (!title) return res.status(400).json({ error: 'عنوان التقييم مطلوب' });
+  if (!Number.isFinite(max) || max <= 0) return res.status(400).json({ error: 'قيمة التقييم يجب أن تكون أكبر من صفر' });
+  db.prepare('UPDATE assessments SET title = ?, max_score = ?, date = COALESCE(?, date) WHERE id = ?')
+    .run(title, max, req.body.date === undefined ? null : req.body.date, assessment.id);
+  const detailTotalAfter = detailTotal(assessment.category_id);
+  const weight = Number(assessment.weight_percent || 0);
+  const warning = detailTotalAfter > weight
+    ? `مجموع التقييمات يتجاوز وزن الفئة بمقدار ${(detailTotalAfter - weight).toFixed(2)}`
+    : detailTotalAfter < weight
+      ? `يتبقى ${(weight - detailTotalAfter).toFixed(2)} من وزن الفئة`
+      : 'مجموع التقييمات يساوي وزن الفئة';
+  res.json({ assessment: db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessment.id), detail_total: detailTotalAfter, warning });
+});
+
 router.delete('/assessments/:id', (req, res) => {
   const result = db.prepare(`DELETE FROM assessments WHERE id = ? AND category_id IN
     (SELECT gc.id FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE c.teacher_id = ?)`).run(req.params.id, req.teacherId);

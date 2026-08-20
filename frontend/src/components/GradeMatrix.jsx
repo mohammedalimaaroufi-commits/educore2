@@ -164,6 +164,28 @@ export default function GradeMatrix({ classId, className }) {
     }
   };
 
+  const updateAssessment = async (assessment, patch) => {
+    const nextAssessment = { ...assessment, ...patch };
+    setCategories((current) => current.map((category) => ({
+      ...category,
+      assessments: (category.assessments || []).map((item) => item.id === assessment.id ? nextAssessment : item),
+    })));
+    if (snapshot) {
+      const nextSnapshot = {
+        ...snapshot,
+        assessments: (snapshot.assessments || []).map((item) => item.id === assessment.id ? nextAssessment : item),
+      };
+      setSnapshot(nextSnapshot);
+      void saveSnapshot(teacherId, nextSnapshot);
+    }
+    try {
+      await api.patch(`/grades/assessments/${assessment.id}`, patch);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'PATCH', url: `/grades/assessments/${assessment.id}`, data: patch });
+    }
+  };
+
   const deleteAssessment = async (assessment) => {
     if (Number(assessment.is_summary)) {
       alert('لا يمكن حذف خانة الفئة الأساسية. يمكنك حذف التقييمات الإضافية فقط.');
@@ -238,9 +260,19 @@ export default function GradeMatrix({ classId, className }) {
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
                     <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
-                      <div className="flex items-center justify-center gap-1">
-                        <span>{assessment.title} <span className="text-ink/40">/{getAssessmentMaxScore(category, assessment)}</span></span>
-                        {!Number(assessment.is_summary) && <button className="text-danger print:hidden" title="حذف التقييم" onClick={() => deleteAssessment(assessment)}>×</button>}
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        {Number(assessment.is_summary) ? (
+                          <span>{assessment.title} <span className="text-ink/40">/{getAssessmentMaxScore(category, assessment)}</span></span>
+                        ) : (
+                          <>
+                            <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`عنوان ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
+                            <div className="flex items-center gap-1">
+                              <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`قيمة ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
+                              <span className="text-ink/40">/</span>
+                              <button className="text-danger print:hidden" title="حذف التقييم الفرعي" onClick={() => deleteAssessment(assessment)}>حذف</button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </th>
                   ))}
