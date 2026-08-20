@@ -348,6 +348,11 @@ db.exec(`UPDATE assessments SET is_summary = 1
            SELECT 1 FROM grade_categories gc
            WHERE gc.id = assessments.category_id AND gc.name = assessments.title
          )`);
+// Legacy summary columns used a 0–100 scale. Convert only the summary column to the
+// category-weight scale; detailed child assessments keep their original maximums.
+db.exec(`UPDATE assessments SET max_score = (
+           SELECT gc.weight_percent FROM grade_categories gc WHERE gc.id = assessments.category_id
+         ) WHERE is_summary = 1 AND max_score = 100`);
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 
