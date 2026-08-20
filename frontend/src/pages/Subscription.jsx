@@ -57,7 +57,7 @@ export default function Subscription() {
 
   useEffect(() => {
     api.get('/auth/plans').then(({ data }) => {
-      setPlans((data.plans || []).map((plan) => ({ ...plan, ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}) })));
+      setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
       setPhone(data.payment_phone || '');
       setTrialDays(Number(data.trial_days || 14));
     }).catch(() => setPlans(FALLBACK_PLANS));

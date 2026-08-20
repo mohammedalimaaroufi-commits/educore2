@@ -135,20 +135,28 @@ export function AuthProvider({ children }) {
     };
   }, [refreshMe]);
 
+  const resetSubscriptionState = () => {
+    setSubscription(null);
+    setTrialInfo(null);
+    setSubscriptionInfo(null);
+  };
+
   const login = async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password });
     localStorage.setItem('educore_token', data.token);
+    resetSubscriptionState();
     setTeacher(data.teacher);
     persistTeacher(data.teacher);
-    await refreshMe();
+    await refreshMe({ force: true });
   };
 
   const register = async (payload) => {
     const { data } = await api.post('/auth/register', payload);
     localStorage.setItem('educore_token', data.token);
+    resetSubscriptionState();
     setTeacher(data.teacher);
     persistTeacher(data.teacher);
-    await refreshMe();
+    await refreshMe({ force: true });
   };
 
   const updateLocalTeacher = useCallback((nextTeacher) => {
