@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, isPaidPlanId } = require('../utils/subscriptions');
 
 const router = express.Router();
 
@@ -156,21 +156,23 @@ router.post('/payment-requests/:id/approve', (req, res) => {
   if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
 
   const now = new Date().toISOString();
+  const canonicalPlan = normalizePlanId(request.plan);
+  if (!isPaidPlanId(canonicalPlan)) return res.status(400).json({ error: 'الباقة المرتبطة بالطلب غير موجودة أو غير صالحة للتفعيل' });
   const definitions = getPlanDefinitions();
-  const selectedPlan = definitions.find((plan) => plan.id === request.plan);
-  if (!selectedPlan) return res.status(400).json({ error: 'الباقة المرتبطة بالطلب غير موجودة' });
+  const selectedPlan = definitions.find((plan) => plan.id === canonicalPlan);
+  if (!selectedPlan) return res.status(400).json({ error: 'تعذر العثور على تعريف الباقة. أعد حفظ الباقات الأساسية من لوحة المسؤول ثم أعد المحاولة.' });
   const periodEnd = selectedPlan.duration_days === null ? null : addDays(now, selectedPlan.duration_days);
 
   const activate = db.transaction(() => {
     const updated = db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL,
                 current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE teacher_id = ?`)
-      .run(request.plan, now, periodEnd, request.reference_note || null, now, request.teacher_id);
+      .run(canonicalPlan, now, periodEnd, request.reference_note || null, now, request.teacher_id);
     if (!updated.changes) {
       db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference)
-                  VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), request.teacher_id, request.plan, now, periodEnd, request.reference_note || null);
+                  VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), request.teacher_id, canonicalPlan, now, periodEnd, request.reference_note || null);
     }
-    db.prepare(`UPDATE payment_requests SET status = 'approved', admin_note = ?, reviewed_at = ? WHERE id = ?`)
-      .run(req.body.admin_note || null, now, request.id);
+    db.prepare(`UPDATE payment_requests SET plan = ?, status = 'approved', admin_note = ?, reviewed_at = ? WHERE id = ?`)
+      .run(canonicalPlan, req.body.admin_note || null, now, request.id);
   });
   activate();
 

@@ -31,18 +31,21 @@ function readInitialSession() {
 }
 
 const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
+const PLAN_ALIASES = { annual: 'yearly', year: 'yearly', '12_months': 'yearly', '6_month': '6_months', '6months': '6_months', '6-months': '6_months', forever: 'lifetime', permanent: 'lifetime' };
 
 function normalizeSubscriptionSession(data) {
   const rawSubscription = data?.subscription || null;
-  const hasTrialShape = rawSubscription?.trial_end_date && !rawSubscription.current_period_start && !rawSubscription.current_period_end;
-  const shouldUseTrial = !rawSubscription
-    || !VALID_SUBSCRIPTION_PLANS.has(String(rawSubscription.plan || '').trim())
-    || (rawSubscription.plan === 'lifetime' && hasTrialShape);
+  const canonicalPlan = rawSubscription ? (PLAN_ALIASES[String(rawSubscription.plan || '').trim().toLowerCase()] || String(rawSubscription.plan || '').trim()) : null;
+  const normalizedRaw = rawSubscription && canonicalPlan !== rawSubscription.plan ? { ...rawSubscription, plan: canonicalPlan } : rawSubscription;
+  const hasTrialShape = normalizedRaw?.trial_end_date && !normalizedRaw.current_period_start && !normalizedRaw.current_period_end;
+  const shouldUseTrial = !normalizedRaw
+    || !VALID_SUBSCRIPTION_PLANS.has(String(normalizedRaw.plan || '').trim())
+    || (normalizedRaw.plan === 'lifetime' && hasTrialShape);
   const subscription = shouldUseTrial
-    ? { ...(rawSubscription || {}), plan: 'trial', status: rawSubscription?.status || 'active' }
-    : rawSubscription;
+    ? { ...(normalizedRaw || {}), plan: 'trial', status: normalizedRaw?.status || 'active' }
+    : normalizedRaw;
   const subscriptionInfo = data?.subscriptionInfo
-    ? { ...data.subscriptionInfo, plan: shouldUseTrial ? 'trial' : data.subscriptionInfo.plan, status: data.subscriptionInfo.status || subscription.status || 'active' }
+    ? { ...data.subscriptionInfo, plan: shouldUseTrial ? 'trial' : (PLAN_ALIASES[String(data.subscriptionInfo.plan || '').trim().toLowerCase()] || data.subscriptionInfo.plan), status: data.subscriptionInfo.status || subscription.status || 'active' }
     : { plan: subscription.plan, status: subscription.status || 'active', startDate: subscription.trial_start_date || null, endDate: subscription.trial_end_date || null, daysLeft: null, expired: false };
   const trialInfo = data?.trialInfo || (subscriptionInfo.plan === 'trial' && subscriptionInfo.endDate
     ? (() => {

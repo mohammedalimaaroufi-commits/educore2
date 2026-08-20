@@ -22,6 +22,24 @@ function downloadCSV(filename, rows, headers) {
   URL.revokeObjectURL(url);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function teacherProfile() {
+  try {
+    const raw = localStorage.getItem('educore_teacher');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
 function gradeColor(grade) {
   if (grade === null) return 'text-ink/30';
   if (grade >= 90) return 'text-primary';
@@ -218,6 +236,89 @@ export default function GradeMatrix({ classId, className }) {
 
   const finalGrade = (studentId) => calculateFinalGrade(studentId, categories, gradeMap);
 
+  const categoryScore = (studentId, category) => {
+    const items = itemsFor(category);
+    const detailed = items.filter((assessment) => !Number(assessment.is_summary));
+    if (detailed.length > 0) {
+      const maxTotal = detailed.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
+      const scoreTotal = detailed.reduce((sum, assessment) => sum + Number(gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric || 0), 0);
+      return maxTotal > 0 ? (scoreTotal / maxTotal) * Number(category.weight_percent || 0) : null;
+    }
+    const summary = items[0];
+    const score = gradeMap.get(cellKey(summary?.id, studentId))?.score_numeric;
+    return score === '' || score == null ? null : Number(score);
+  };
+
+  const downloadGradebookPDF = () => {
+    const profile = teacherProfile();
+    const generatedAt = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
+    const columns = categories.flatMap((category) => [
+      ...itemsFor(category).map((assessment) => ({
+        key: assessment.id,
+        label: assessment.title || (Number(assessment.is_summary) ? 'درجة الفئة' : 'تقييم فرعي'),
+        category: category.name,
+        max: getAssessmentMaxScore(category, assessment),
+      })),
+      { key: `${category.id}:total`, label: 'إجمالي الفئة', category: category.name, max: category.weight_percent },
+    ]);
+    const categoryHeader = categories.map((category) => `<th colspan="${itemsFor(category).length + 1}">${escapeHtml(category.name)}<small> (${escapeHtml(category.weight_percent)}%)</small></th>`).join('');
+    const assessmentHeader = columns.map((column) => `<th>${escapeHtml(column.label)}<small>${column.max != null ? `<br>من ${escapeHtml(column.max)}` : ''}</small></th>`).join('');
+    const body = students.map((student, index) => {
+      const cells = categories.flatMap((category) => [
+        ...itemsFor(category).map((assessment) => {
+          const value = gradeMap.get(cellKey(assessment.id, student.id))?.score_numeric;
+          const max = getAssessmentMaxScore(category, assessment);
+          return `<td>${value === '' || value == null ? '—' : `${escapeHtml(value)}<span class="muted"> / ${escapeHtml(max)}</span>`}</td>`;
+        }),
+        `<td class="category-total">${categoryScore(student.id, category) == null ? '—' : Number(categoryScore(student.id, category)).toFixed(2)}</td>`,
+      ]);
+      const final = finalGrade(student.id);
+      return `<tr><td class="student-number">${index + 1}</td><td class="student-name">${escapeHtml(student.full_name)}</td>${cells.join('')}<td class="final-grade">${final == null ? '—' : escapeHtml(Number(final).toFixed(2))}</td></tr>`;
+    }).join('');
+    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل درجات ${escapeHtml(className || 'الصف')}</title><style>
+      @page { size: A4 landscape; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { font-family: "Noto Sans Arabic", "Arial", sans-serif; color: #182b36; margin: 0; font-size: 9px; }
+      .masthead { border: 2px solid #2e7d6b; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; }
+      .brand { color: #2e7d6b; font-size: 18px; font-weight: 800; margin-bottom: 3px; }
+      h1 { font-size: 18px; margin: 0 0 10px; color: #152b36; }
+      .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px 18px; border-top: 1px solid #dbe5e2; padding-top: 9px; }
+      .meta span { color: #71818a; display: block; font-size: 8px; margin-bottom: 2px; }
+      .meta strong { font-size: 10px; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      th, td { border: 1px solid #b9cbc5; padding: 5px 4px; text-align: center; vertical-align: middle; word-break: break-word; }
+      thead tr:first-child th { background: #2e7d6b; color: #fff; font-size: 10px; }
+      thead tr:nth-child(2) th { background: #edf5f2; color: #23434a; font-weight: 700; }
+      th small { display: block; font-size: 7px; font-weight: 400; opacity: .8; }
+      tbody tr:nth-child(even) { background: #f7faf9; }
+      .student-number { width: 28px; color: #71818a; }
+      .student-name { width: 145px; text-align: right; font-weight: 700; }
+      .category-total { background: #f0f6f3; font-weight: 700; }
+      .final-grade { background: #e9f3ef; color: #176652; font-weight: 800; width: 60px; }
+      .muted { color: #829097; font-size: 7px; }
+      .footer { display: flex; justify-content: space-between; margin-top: 12px; color: #687a82; font-size: 8px; border-top: 1px solid #dbe5e2; padding-top: 7px; }
+      @media print { .no-print { display: none; } }
+    </style></head><body>
+      <section class="masthead"><div class="brand">EduCore Manager</div><h1>سجل الدرجات الرسمي</h1><div class="meta">
+        <div><span>اسم المدرسة</span><strong>${escapeHtml(profile.school_name || '—')}</strong></div>
+        <div><span>المعلم</span><strong>${escapeHtml(profile.full_name || '—')}</strong></div>
+        <div><span>المادة</span><strong>${escapeHtml(profile.subject || '—')}</strong></div>
+        <div><span>الصف</span><strong>${escapeHtml(className || '—')}</strong></div>
+        <div><span>المرحلة الدراسية</span><strong>${escapeHtml(profile.school_stage || '—')}</strong></div>
+        <div><span>عدد الطلاب</span><strong>${students.length}</strong></div>
+        <div><span>عدد الفئات</span><strong>${categories.length}</strong></div>
+        <div><span>تاريخ الإصدار</span><strong>${escapeHtml(generatedAt)}</strong></div>
+      </div></section>
+      <table><thead><tr><th rowspan="2">م</th><th rowspan="2">اسم الطالب</th>${categoryHeader}<th rowspan="2">النهائية<br>%</th></tr><tr>${assessmentHeader}</tr></thead><tbody>${body}</tbody></table>
+      <div class="footer"><span>تم إنشاء هذا السجل من EduCore Manager</span><span>توقيع المعلم: ____________________</span><span>اعتماد المدرسة: ____________________</span></div>
+      <script>window.addEventListener('load', () => setTimeout(() => { window.print(); }, 250));</script>
+    </body></html>`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   const exportCSV = () => {
     const headers = [
       'الاسم',
@@ -246,7 +347,7 @@ export default function GradeMatrix({ classId, className }) {
           <h3 className="font-bold">جدول الدرجات الكامل</h3>
           <p className="text-xs text-ink/50">قيمة كل تقييم من وزن فئته، والإجمالي النهائي يُحسب من 100%. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p><span className="grade-matrix-hint">اسحب الجدول أفقيًا عند الحاجة — اسم الطالب ثابت</span>
         </div>
-        <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تنزيل CSV</button><button className="btn-primary text-sm" onClick={() => window.print()}>تنزيل PDF (طباعة)</button></div>
+        <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تنزيل CSV</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>تنزيل PDF رسمي A4</button></div>
       </div>
       <div className="card grade-matrix-card">
         <div className="grade-matrix-scroll" role="region" aria-label="جدول الدرجات القابل للتمرير">

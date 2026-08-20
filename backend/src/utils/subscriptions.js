@@ -10,6 +10,45 @@ const PLAN_PRICES_OMR = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) =
 const PLAN_DURATIONS_DAYS = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.duration_days]));
 const PLAN_SETTINGS_KEY = 'subscription_plans';
 
+// Historical clients and imported rows used several aliases for the same plans.
+// Keep one canonical ID in storage and normalize at every request boundary.
+const PLAN_ID_ALIASES = {
+  trial: 'trial',
+  تجريبي: 'trial',
+  'فترة تجريبية': 'trial',
+  '6_months': '6_months',
+  '6_month': '6_months',
+  '6months': '6_months',
+  '6-months': '6_months',
+  six_months: '6_months',
+  'six-months': '6_months',
+  half_year: '6_months',
+  semiannual: '6_months',
+  '6 أشهر': '6_months',
+  '6 اشهر': '6_months',
+  yearly: 'yearly',
+  annual: 'yearly',
+  year: 'yearly',
+  '12_months': 'yearly',
+  '12months': 'yearly',
+  سنوية: 'yearly',
+  سنوي: 'yearly',
+  lifetime: 'lifetime',
+  forever: 'lifetime',
+  permanent: 'lifetime',
+  'مدى الحياة': 'lifetime',
+};
+
+function normalizePlanId(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return PLAN_ID_ALIASES[raw] || null;
+}
+
+function isPaidPlanId(value) {
+  return ['6_months', 'yearly', 'lifetime'].includes(normalizePlanId(value));
+}
+
+
 function getSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
   return row?.value ?? fallback;
@@ -106,6 +145,8 @@ module.exports = {
   PLAN_DURATIONS_DAYS,
   getSetting,
   getPlanDefinitions,
+  normalizePlanId,
+  isPaidPlanId,
   getPlanDefinition,
   savePlanDefinitions,
   getBasePrices,

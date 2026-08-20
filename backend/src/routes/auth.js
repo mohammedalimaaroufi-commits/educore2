@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, normalizePlanId, isPaidPlanId } = require('../utils/subscriptions');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -19,11 +19,21 @@ const VALID_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
 
 function ensureTrialSubscription(teacherId, rawSub = null) {
   const now = new Date().toISOString();
+  const canonicalPlan = normalizePlanId(rawSub?.plan);
   const trialStart = rawSub?.trial_start_date || now;
   const trialEnd = rawSub?.trial_end_date || addDays(trialStart, getTrialDays());
+  const hasLegacyTrialShape = rawSub?.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end;
+
+  // Repair paid aliases without destroying their paid period.
+  if (rawSub && isPaidPlanId(canonicalPlan) && canonicalPlan !== rawSub.plan && !hasLegacyTrialShape) {
+    db.prepare("UPDATE subscriptions SET plan = ?, updated_at = ? WHERE id = ?").run(canonicalPlan, now, rawSub.id);
+    return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(rawSub.id);
+  }
+
   const shouldRepair = !rawSub
-    || !VALID_PLANS.has(String(rawSub.plan || '').trim())
-    || (rawSub.plan === 'lifetime' && rawSub.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end);
+    || !VALID_PLANS.has(canonicalPlan)
+    || (canonicalPlan === 'trial' && !rawSub.trial_end_date)
+    || (canonicalPlan === 'lifetime' && hasLegacyTrialShape);
 
   if (!shouldRepair) return rawSub;
 
@@ -44,7 +54,7 @@ function ensureTrialSubscription(teacherId, rawSub = null) {
 
 // POST /api/auth/register  (email/password, or google/apple with provider token in real impl)
 router.post('/register', async (req, res) => {
-  const { full_name, email, password, subject, school_stage, school_name, auth_provider } = req.body;
+  const { full_name, email, password, subject, school_stage, school_name, locale, auth_provider } = req.body;
   if (!full_name || !email) return res.status(400).json({ error: 'الاسم والبريد الإلكتروني مطلوبان' });
 
   const existing = db.prepare('SELECT id FROM teachers WHERE email = ?').get(email);
@@ -53,9 +63,10 @@ router.post('/register', async (req, res) => {
   const id = uuid();
   const password_hash = password ? await bcrypt.hash(password, 10) : null;
 
-  db.prepare(`INSERT INTO teachers (id, full_name, email, password_hash, auth_provider, subject, school_stage, school_name)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, full_name, email, password_hash, auth_provider || 'email', subject || null, school_stage || null, school_name || null);
+  const normalizedLocale = locale === 'en' ? 'en' : 'ar';
+  db.prepare(`INSERT INTO teachers (id, full_name, email, password_hash, auth_provider, subject, school_stage, school_name, locale)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, full_name, email, password_hash, auth_provider || 'email', subject || null, school_stage || null, school_name || null, normalizedLocale);
 
   // Start the administrator-configured free trial automatically, with no card required.
   const now = new Date().toISOString();
@@ -182,17 +193,18 @@ router.get('/plans', (req, res) => {
 // Submits a bank-transfer receipt for manual review; does NOT activate the subscription immediately.
 router.post('/payment-requests', requireAuth, (req, res) => {
   const { plan, reference_note, receipt_image } = req.body;
+  const canonicalPlan = normalizePlanId(plan);
   const basePrices = getBasePrices();
-  if (!basePrices[plan]) return res.status(400).json({ error: 'باقة غير صالحة' });
-  const offer = getActiveOffer(plan);
-  const originalAmount = offer ? Number(offer.original_price_omr || basePrices[plan]) : basePrices[plan];
-  const amount = offer ? Number(offer.offer_price_omr) : basePrices[plan];
+  if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'باقة غير صالحة' });
+  const offer = getActiveOffer(canonicalPlan);
+  const originalAmount = offer ? Number(offer.original_price_omr || basePrices[canonicalPlan]) : basePrices[canonicalPlan];
+  const amount = offer ? Number(offer.offer_price_omr) : basePrices[canonicalPlan];
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });
 
   const id = uuid();
   db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, original_amount_omr, offer_id, reference_note, receipt_image, status)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
-    .run(id, req.teacherId, plan, amount, originalAmount, offer?.id || null, reference_note || null, receipt_image || null);
+    .run(id, req.teacherId, canonicalPlan, amount, originalAmount, offer?.id || null, reference_note || null, receipt_image || null);
 
   res.status(201).json({ request: db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(id) });
 });

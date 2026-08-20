@@ -11,18 +11,20 @@ const ReportsTab = lazy(() => import('../components/ReportsTab.jsx'));
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
 import Icon from '../components/Icon.jsx';
+import { useLocale } from '../context/LocaleContext.jsx';
 
-const TABS = [
-  { id: 'students', label: 'الطلاب', icon: 'user' },
-  { id: 'gradebook', label: 'دفتر الدرجات', icon: 'fileCheck' },
-  { id: 'behavior', label: 'السلوك', icon: 'heart' },
-  { id: 'attendance', label: 'الحضور', icon: 'check' },
-  { id: 'analytics', label: 'التحليلات', icon: 'analytics' },
-  { id: 'reports', label: 'التقارير', icon: 'reports' },
+const TAB_KEYS = [
+  { id: 'students', key: 'students', icon: 'user' },
+  { id: 'gradebook', key: 'gradebook', icon: 'fileCheck' },
+  { id: 'behavior', key: 'behavior', icon: 'heart' },
+  { id: 'attendance', key: 'attendance', icon: 'check' },
+  { id: 'analytics', key: 'analytics', icon: 'analytics' },
+  { id: 'reports', key: 'reports', icon: 'reports' },
 ];
 
 export default function ClassDetail() {
   const { id } = useParams();
+  const { t, locale } = useLocale();
   const [cls, setCls] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [tab, setTab] = useState('students');
@@ -52,19 +54,20 @@ export default function ClassDetail() {
   const categoriesCount = (snapshot?.grade_categories || []).filter((category) => category.class_id === id).length;
   const assessmentsCount = (snapshot?.assessments || []).filter((assessment) => (snapshot?.grade_categories || []).some((category) => category.id === assessment.category_id && category.class_id === id)).length;
   const attendanceSessionsCount = (snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length;
+  const isArabic = locale === 'ar';
 
   return (
     <div className="class-page-shell">
-      <div className="class-page-topline"><Link to="/" className="class-page-back"><span>→</span> العودة إلى لوحة الصفوف</Link><span className="class-page-status"><span className="class-page-status__dot" /> بيانات محفوظة محليًا</span></div>
-      {loading && !cls && <div className="class-page-loading">جارِ فتح الصف محليًا...</div>}
+      <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {isArabic ? 'العودة إلى لوحة الصفوف' : 'Back to classes'}</Link><span className="class-page-status"><span className="class-page-status__dot" /> {isArabic ? 'بيانات محفوظة محليًا' : 'Data saved locally'}</span></div>
+      {loading && !cls && <div className="class-page-loading">{isArabic ? 'جارِ فتح الصف محليًا...' : 'Opening class locally...'}</div>}
       {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>
-        <div className="class-page-header__visual"><span className="class-page-header__symbol">▦</span><span className="class-page-header__eyebrow">مساحة الصف</span><h1>{cls.name}</h1><p>{cls.subject || 'مادة غير محددة'} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
-        <div className="class-page-header__side"><span className="class-page-header__tag">إدارة يومية</span><p>تابع الطلاب والدرجات والحضور والسلوك في لوحة واحدة.</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>طالب</small></span><span><strong>{categoriesCount}</strong><small>فئة</small></span><span><strong>{assessmentsCount}</strong><small>تقييم</small></span><span><strong>{attendanceSessionsCount}</strong><small>جلسة حضور</small></span></div></div>
+        <div className="class-page-header__visual"><span className="class-page-header__symbol">▦</span><span className="class-page-header__eyebrow">{isArabic ? 'مساحة الصف' : 'Class workspace'}</span><h1>{cls.name}</h1><p>{cls.subject || (isArabic ? 'مادة غير محددة' : 'Subject not specified')} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
+        <div className="class-page-header__side"><span className="class-page-header__tag">{isArabic ? 'إدارة يومية' : 'Daily management'}</span><p>{isArabic ? 'تابع الطلاب والدرجات والحضور والسلوك في لوحة واحدة.' : 'Track students, grades, attendance, and behavior in one workspace.'}</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{isArabic ? 'طالب' : 'Students'}</small></span><span><strong>{categoriesCount}</strong><small>{isArabic ? 'فئة' : 'Categories'}</small></span><span><strong>{assessmentsCount}</strong><small>{isArabic ? 'تقييم' : 'Assessments'}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{isArabic ? 'جلسة حضور' : 'Attendance sessions'}</small></span></div></div>
       </header>}
       <TrialBanner />
-      <nav className="class-tabs" aria-label="أقسام الصف">{TABS.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{item.label}</span></button>)}</nav>
+      <nav className="class-tabs" aria-label={isArabic ? 'أقسام الصف' : 'Class sections'}>{TAB_KEYS.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{t(item.key)}</span></button>)}</nav>
       <main className={`class-tab-panel class-tab-panel--${tab}`}>
-        <Suspense fallback={<div className="class-page-loading">جارِ تحميل التبويب...</div>}>
+        <Suspense fallback={<div className="class-page-loading">{isArabic ? 'جارِ تحميل التبويب...' : 'Loading section...'}</div>}>
           {tab === 'students' && <StudentsTab classId={id} />}
           {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
           {tab === 'behavior' && <BehaviorTab classId={id} />}

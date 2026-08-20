@@ -61,19 +61,25 @@ function ProfileTab() {
 
   const saveProfile = async (e) => {
     e.preventDefault();
-    if (!teacher?.id || !profile.full_name.trim()) return;
+    if (!teacher?.id || !profile.full_name.trim()) {
+      setError(t('requiredFields'));
+      return;
+    }
     setSaving(true);
     setError('');
     setSavedMsg('');
-    const optimisticTeacher = { ...teacher, ...profile };
-    updateLocalTeacher(optimisticTeacher);
+    // Persist the complete draft before the network request so a refresh/offline transition cannot lose edits.
+    saveProfileDraft(teacher.id, profile);
+    updateLocalTeacher({ ...teacher, ...profile });
     try {
-      await api.patch('/settings/profile', profile);
+      const { data } = await api.patch('/settings/profile', profile);
+      const savedTeacher = data?.teacher || { ...teacher, ...profile };
+      updateLocalTeacher(savedTeacher);
       await invalidateApiCache('/auth/me');
       removeProfileDraft(teacher.id);
       setDraftDirty(false);
-      await refreshMe({ force: true });
-      setSavedMsg('تم حفظ الملف الشخصي ومزامنته');
+      setProfile({ full_name: savedTeacher.full_name || '', subject: savedTeacher.subject || '', school_stage: savedTeacher.school_stage || '', school_name: savedTeacher.school_name || '', locale: savedTeacher.locale || locale });
+      setSavedMsg(t('saved'));
     } catch {
       savePendingProfile(teacher.id, profile);
       setSavedMsg('تم حفظ التغييرات على هذا الجهاز، وستتم المزامنة عند عودة الاتصال');
