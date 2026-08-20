@@ -255,22 +255,22 @@ export default function GradeMatrix({ classId, className }) {
               <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">النهائية %</th>
             </tr>
             <tr>
-              <th className="sticky right-0 bg-surface"></th>
+              <th className="sticky right-0 bg-surface text-right px-3 py-2 text-[11px] text-ink/50 font-medium">تفاصيل فرعية للفئة</th>
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
                     <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
-                          <span>{assessment.title} <span className="text-ink/40">/{getAssessmentMaxScore(category, assessment)}</span></span>
+                          <span className="font-medium">درجة الفئة <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
                         ) : (
                           <>
-                            <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`عنوان ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
                             <div className="flex items-center gap-1">
-                              <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`قيمة ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
-                              <span className="text-ink/40">/</span>
-                              <button className="text-danger print:hidden" title="حذف التقييم الفرعي" onClick={() => deleteAssessment(assessment)}>حذف</button>
+                              <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`عنوان التقييم الفرعي ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
+                              <button className="text-danger text-base leading-none font-bold print:hidden" title="حذف التقييم الفرعي" aria-label={`حذف ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
                             </div>
+                            <div className="text-[10px] text-ink/50">تقييم فرعي ({assessment.max_score})</div>
+                            <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`وزن التقييم الفرعي ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
                           </>
                         )}
                       </div>
@@ -279,12 +279,16 @@ export default function GradeMatrix({ classId, className }) {
                   <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
                     {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>مجموع {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
                     {newAssessment === category.id ? (
-                      <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1">
-                        <input className="input text-xs py-0.5" placeholder="عنوان التقييم الفرعي" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
-                        <input className="input text-xs py-0.5" type="number" min="0.01" step="any" required placeholder="القيمة القصوى" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: event.target.value })} />
-                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة التقييم</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
+                      <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1 min-w-[130px]">
+                        <input className="input text-xs py-0.5" placeholder="اسم التقييم" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
+                        <input className="input text-xs py-0.5" type="number" min="0.01" step="any" required placeholder="وزن التقييم" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: event.target.value })} />
+                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
                       </form>
-                    ) : <button className="btn-secondary text-xs px-2 py-1" style={{ color: categoryColor(index) }} title="إضافة تقييم فرعي لهذه الفئة" onClick={() => startAdding(category)}>＋ إضافة تقييم فرعي</button>}
+                    ) : (() => {
+                      const remaining = Number(category.weight_percent || 0) - detailTotalFor(category);
+                      const remainingLabel = remaining >= 0 ? `بقية ${remaining.toFixed(2).replace(/\.00$/, '')}` : `متجاوز ${Math.abs(remaining).toFixed(2).replace(/\.00$/, '')}`;
+                      return <button className="btn-secondary text-xs px-2 py-1 leading-tight" style={{ color: categoryColor(index) }} title="إضافة تقييم فرعي لهذه الفئة" onClick={() => startAdding(category)}>تقييم فرعي ({remainingLabel}) +</button>;
+                    })()}
                   </th>
                 </React.Fragment>
               ))}
