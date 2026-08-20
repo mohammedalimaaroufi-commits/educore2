@@ -70,6 +70,16 @@ export default function GradeMatrix({ classId, className }) {
   const categoryColor = (index) => CATEGORY_COLORS[index % CATEGORY_COLORS.length];
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
   const itemsFor = (category) => getCategoryAssessments(category);
+  const detailTotalFor = (category) => (category.assessments || [])
+    .filter((assessment) => !Number(assessment.is_summary))
+    .reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
+  const detailStatusFor = (category) => {
+    const total = detailTotalFor(category);
+    const weight = Number(category.weight_percent || 0);
+    if (total > weight) return { tone: 'text-danger bg-danger/10', label: `متجاوز بـ ${(total - weight).toFixed(2)}` };
+    if (total < weight) return { tone: 'text-accent bg-accent/10', label: `متبقٍ ${(weight - total).toFixed(2)}` };
+    return { tone: 'text-primary bg-primary/10', label: 'متوازن' };
+  };
 
   const setCell = (assessmentId, studentId, field, value) => {
     setGrades((current) => ({
@@ -110,7 +120,7 @@ export default function GradeMatrix({ classId, className }) {
 
   const startAdding = (category) => {
     setNewAssessment(category.id);
-    setAssessmentForm({ title: '', max_score: Number(category.weight_percent || 1), date: '' });
+    setAssessmentForm({ title: '', max_score: 1, date: '' });
   };
 
   const addAssessment = async (event) => {
@@ -125,13 +135,6 @@ export default function GradeMatrix({ classId, className }) {
       is_summary: 0,
     };
     if (!category || !payload.title || maxScore <= 0) return;
-    const existingDetails = (category.assessments || []).filter((assessment) => !Number(assessment.is_summary));
-    const detailTotal = existingDetails.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
-    if (detailTotal + maxScore > Number(category.weight_percent || 0) + 0.0001) {
-      alert(`لا يمكن تجاوز وزن الفئة (${category.weight_percent}). المتبقي: ${Math.max(0, Number(category.weight_percent || 0) - detailTotal)}`);
-      return;
-    }
-
     const localAssessment = {
       id: `local-assessment-${Date.now()}`,
       ...payload,
@@ -242,10 +245,11 @@ export default function GradeMatrix({ classId, className }) {
                     </th>
                   ))}
                   <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
+                    {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>مجموع {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
                     {newAssessment === category.id ? (
                       <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1">
                         <input className="input text-xs py-0.5" placeholder="عنوان" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
-                        <input className="input text-xs py-0.5" type="number" min="0.01" max={category.weight_percent} placeholder={`من ${category.weight_percent}`} value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: Number(event.target.value) })} />
+                        <input className="input text-xs py-0.5" type="number" min="0.01" placeholder="القيمة القصوى" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: Number(event.target.value) })} />
                         <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
                       </form>
                     ) : <button className="font-medium hover:underline" style={{ color: categoryColor(index) }} onClick={() => startAdding(category)}>+ تقييم</button>}

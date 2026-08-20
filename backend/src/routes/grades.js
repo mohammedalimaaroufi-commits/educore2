@@ -46,7 +46,8 @@ function ensureSummaryAssessment(category) {
 }
 
 function weightedPercent(studentId, category) {
-  const detailRows = db.prepare(`SELECT a.max_score, g.score_numeric
+  const direct = category?.grading_mode !== 'detailed';
+  const detailRows = direct ? [] : db.prepare(`SELECT a.max_score, g.score_numeric
     FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
     WHERE a.category_id = ? AND a.is_summary = 0`).all(studentId, category.id);
   const rows = detailRows.length > 0 ? detailRows : db.prepare(`SELECT a.max_score, g.score_numeric
@@ -57,7 +58,7 @@ function weightedPercent(studentId, category) {
   rows.forEach((row) => {
     if (row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '') {
       earned += Number(row.score_numeric);
-      possible += Number(row.max_score || 0);
+      possible += direct ? Number(category.weight_percent || 0) : Number(row.max_score || 0);
     }
   });
   return possible > 0 ? (earned / possible) * 100 : null;
@@ -147,16 +148,23 @@ router.post('/assessments', (req, res) => {
   const summary = Boolean(is_summary);
   const max = Number(max_score || 0);
   if (max <= 0) return res.status(400).json({ error: 'الدرجة القصوى يجب أن تكون أكبر من صفر' });
-  if (!summary && detailTotal(category_id) + max > Number(cat.weight_percent || 0) + 0.0001) {
-    return res.status(400).json({ error: 'مجموع التقييمات التفصيلية لا يمكن أن يتجاوز وزن الفئة' });
-  }
+  // The teacher may design a rubric above or below the category weight.
+  // The UI shows a warning, but the API does not block the draft rubric.
+  const detailTotalBefore = detailTotal(category_id);
   const id = requestedId || uuid();
   const existing = db.prepare('SELECT a.* FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ assessment: existing, reused: true });
   db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary, date) VALUES (?, ?, ?, ?, ?, ?)`)
     .run(id, category_id, title, max, summary ? 1 : 0, date || null);
   if (!summary) db.prepare("UPDATE grade_categories SET grading_mode = 'detailed' WHERE id = ?").run(category_id);
-  res.status(201).json({ assessment: db.prepare('SELECT * FROM assessments WHERE id = ?').get(id) });
+  const detailTotalAfter = summary ? detailTotalBefore : detailTotal(category_id);
+  const weight = Number(cat.weight_percent || 0);
+  const warning = detailTotalAfter > weight
+    ? `مجموع التقييمات يتجاوز وزن الفئة بمقدار ${(detailTotalAfter - weight).toFixed(2)}`
+    : detailTotalAfter < weight
+      ? `يتبقى ${(weight - detailTotalAfter).toFixed(2)} من وزن الفئة`
+      : 'مجموع التقييمات يساوي وزن الفئة';
+  res.status(201).json({ assessment: db.prepare('SELECT * FROM assessments WHERE id = ?').get(id), detail_total: detailTotalAfter, warning });
 });
 
 router.delete('/assessments/:id', (req, res) => {

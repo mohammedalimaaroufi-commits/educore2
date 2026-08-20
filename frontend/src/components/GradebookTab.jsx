@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
 import GradeMatrix from './GradeMatrix.jsx';
 import CategoryManager from './CategoryManager.jsx';
-import SchemesManager from './SchemesManager.jsx';
-
 const SUBTABS = [
   { id: 'grid', label: 'جدول الدرجات' },
   { id: 'categories', label: 'فئات التقييم' },
-  { id: 'schemes', label: 'مخططات جاهزة' },
 ];
 
 export default function GradebookTab({ classId, className }) {
@@ -25,8 +22,7 @@ export default function GradebookTab({ classId, className }) {
       </div>
 
       {sub === 'grid' && <GradeMatrix classId={classId} className={className} key={refreshKey} />}
-      {sub === 'categories' && <CategoryManager classId={classId} onChange={() => setRefreshKey((k) => k + 1)} />}
-      {sub === 'schemes' && <SchemesManager classId={classId} onApplied={() => { setRefreshKey((k) => k + 1); setSub('grid'); }} />}
+      {sub === 'categories' && <CategoryManager classId={classId} refreshKey={refreshKey} onChange={() => setRefreshKey((k) => k + 1)} />}
     </div>
   );
 }
