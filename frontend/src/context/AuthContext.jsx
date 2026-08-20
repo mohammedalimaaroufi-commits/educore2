@@ -50,31 +50,32 @@ export function AuthProvider({ children }) {
     saveSessionCache(session);
   }, []);
 
-  const refreshMe = useCallback(async () => {
+  const refreshMe = useCallback(async ({ force = false } = {}) => {
     const token = localStorage.getItem('educore_token');
     if (!token) {
       setLoading(false);
       return;
     }
 
-    try {
-      const response = await getLocalFirst('/auth/me');
-      const { data } = response;
+    const applySession = (data) => {
+      if (!data?.teacher?.id) return;
       setTeacher(data.teacher);
-      setSubscription(data.subscription);
-      setTrialInfo(data.trialInfo);
-      setSubscriptionInfo(data.subscriptionInfo);
+      setSubscription(data.subscription || null);
+      setTrialInfo(data.trialInfo || null);
+      setSubscriptionInfo(data.subscriptionInfo || null);
       persistSession(data);
+    };
+
+    try {
+      const response = force ? await api.get('/auth/me') : await getLocalFirst('/auth/me');
+      const { data } = response;
+      applySession(data);
       const pendingProfile = readPendingProfile(data.teacher?.id);
       if (pendingProfile) {
         try {
           await api.patch('/settings/profile', pendingProfile);
-          const syncedData = {
-            ...data,
-            teacher: { ...data.teacher, ...pendingProfile },
-          };
-          setTeacher(syncedData.teacher);
-          persistSession(syncedData);
+          const syncedData = { ...data, teacher: { ...data.teacher, ...pendingProfile } };
+          applySession(syncedData);
           writeApiCache(buildRequestKey({
             baseURL: import.meta.env.VITE_API_URL || '/api',
             url: '/auth/me',
@@ -87,6 +88,12 @@ export function AuthProvider({ children }) {
       setOffline(Boolean(response.fromLocalCache));
       void flushOutbox(data.teacher?.id);
       void syncSnapshot(data.teacher?.id);
+      if (response.fromLocalCache && !force) {
+        void api.get('/auth/me').then(({ data: freshData }) => {
+          applySession(freshData);
+          setOffline(false);
+        }).catch(() => undefined);
+      }
     } catch {
       // Keep the locally cached session visible so the dashboard remains usable offline.
       setOffline(true);

@@ -5,6 +5,28 @@ import { connectSocket } from '../api/socket';
 
 const PLAN_LABELS = { '6_months': '6 أشهر', yearly: 'سنوية', lifetime: 'مدى الحياة' };
 const STATUS_LABELS = { pending: 'قيد المراجعة', approved: 'مُفعّل', rejected: 'مرفوض' };
+const EMPTY_OFFER = { plan: 'yearly', title: '', description: '', original_price_omr: 7, offer_price_omr: 5, starts_at: '', ends_at: '', enabled: true };
+
+function toDateTimeLocal(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function offerPayload(offer) {
+  return {
+    plan: offer.plan,
+    title: offer.title.trim(),
+    description: offer.description.trim(),
+    original_price_omr: Number(offer.original_price_omr),
+    offer_price_omr: Number(offer.offer_price_omr),
+    starts_at: offer.starts_at ? new Date(offer.starts_at).toISOString() : null,
+    ends_at: offer.ends_at ? new Date(offer.ends_at).toISOString() : null,
+    enabled: Boolean(offer.enabled),
+  };
+}
 
 function chatMessageKey(message) {
   return message?.client_message_id || message?.id;
@@ -129,7 +151,9 @@ function PaymentRequests() {
 function SubscriptionConfig() {
   const [config, setConfig] = useState({ trial_days: 14, plans: [], offers: [] });
   const [trialDays, setTrialDays] = useState(14);
-  const [offer, setOffer] = useState({ plan: 'yearly', title: '', description: '', original_price_omr: 7, offer_price_omr: 5, starts_at: '', ends_at: '', enabled: true });
+  const [offer, setOffer] = useState(EMPTY_OFFER);
+  const [editingOfferId, setEditingOfferId] = useState(null);
+  const [savedMessage, setSavedMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -143,18 +167,35 @@ function SubscriptionConfig() {
     setBusy(true);
     try { await adminApi.patch('/admin/subscription-config', { trial_days: Number(trialDays) }); await load(); } finally { setBusy(false); }
   };
-  const addOffer = async (event) => {
+  const saveOffer = async (event) => {
     event.preventDefault();
     setBusy(true);
-    try { await adminApi.post('/admin/offers', { ...offer, original_price_omr: Number(offer.original_price_omr), offer_price_omr: Number(offer.offer_price_omr) }); setOffer({ ...offer, title: '', description: '' }); await load(); } finally { setBusy(false); }
+    setSavedMessage('');
+    try {
+      const payload = offerPayload(offer);
+      if (!payload.title || !Number.isFinite(payload.original_price_omr) || !Number.isFinite(payload.offer_price_omr)) return;
+      if (editingOfferId) await adminApi.patch(`/admin/offers/${editingOfferId}`, payload);
+      else await adminApi.post('/admin/offers', payload);
+      setOffer(EMPTY_OFFER);
+      setEditingOfferId(null);
+      setSavedMessage(editingOfferId ? 'تم حفظ تعديل العرض وإظهاره حسب حالته' : 'تم إضافة العرض بنجاح');
+      await load();
+      window.setTimeout(() => setSavedMessage(''), 3500);
+    } finally { setBusy(false); }
   };
-  const toggleOffer = async (item) => { await adminApi.patch(`/admin/offers/${item.id}`, { enabled: !item.enabled }); load(); };
+  const startEditOffer = (item) => {
+    setEditingOfferId(item.id);
+    setOffer({ plan: item.plan, title: item.title || '', description: item.description || '', original_price_omr: item.original_price_omr, offer_price_omr: item.offer_price_omr, starts_at: toDateTimeLocal(item.starts_at), ends_at: toDateTimeLocal(item.ends_at), enabled: Boolean(item.enabled) });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const cancelEditOffer = () => { setEditingOfferId(null); setOffer(EMPTY_OFFER); };
+  const toggleOffer = async (item) => { setBusy(true); try { await adminApi.patch(`/admin/offers/${item.id}`, { enabled: !item.enabled }); await load(); } finally { setBusy(false); } };
   const removeOffer = async (id) => { if (!confirm('حذف هذا العرض؟')) return; await adminApi.delete(`/admin/offers/${id}`); load(); };
 
-  return <div className="space-y-4">
-    <div className="card p-4"><div className="flex flex-wrap items-end gap-3"><div className="flex-1 min-w-[180px]"><label className="label">مدة التجربة الافتراضية بالأيام</label><input className="input" type="number" min="1" max="365" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} /></div><button className="btn-primary" disabled={busy} onClick={saveTrial}>حفظ مدة التجربة</button><span className="text-xs text-ink/50">الحسابات الجديدة فقط تبدأ بهذه المدة.</span></div></div>
-    <div className="card p-4"><h3 className="font-bold mb-3">إضافة عرض اشتراك</h3><form onSubmit={addOffer} className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select className="input" value={offer.plan} onChange={(e) => setOffer({ ...offer, plan: e.target.value })}>{Object.entries(PLAN_LABELS).filter(([id]) => id !== 'trial').map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><input className="input" placeholder="عنوان العرض" value={offer.title} onChange={(e) => setOffer({ ...offer, title: e.target.value })} required /><input className="input" placeholder="وصف العرض" value={offer.description} onChange={(e) => setOffer({ ...offer, description: e.target.value })} /><input className="input" type="number" step="0.01" placeholder="السعر الأصلي" value={offer.original_price_omr} onChange={(e) => setOffer({ ...offer, original_price_omr: e.target.value })} required /><input className="input" type="number" step="0.01" placeholder="سعر العرض" value={offer.offer_price_omr} onChange={(e) => setOffer({ ...offer, offer_price_omr: e.target.value })} required /><div className="flex gap-2"><input className="input" type="datetime-local" value={offer.starts_at} onChange={(e) => setOffer({ ...offer, starts_at: e.target.value ? new Date(e.target.value).toISOString() : '' })} /><input className="input" type="datetime-local" value={offer.ends_at} onChange={(e) => setOffer({ ...offer, ends_at: e.target.value ? new Date(e.target.value).toISOString() : '' })} /></div><button className="btn-primary sm:col-span-2" disabled={busy} type="submit">إضافة العرض</button></form></div>
-    <div className="card p-4"><h3 className="font-bold mb-3">العروض الحالية</h3><div className="space-y-2">{(config.offers || []).map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2"><div><p className="font-medium">{item.title} — {PLAN_LABELS[item.plan] || item.plan}</p><p className="text-xs text-ink/60">{item.original_price_omr} ر.ع ← {item.offer_price_omr} ر.ع {item.enabled ? '— ظاهر' : '— متوقف'}</p></div><div className="flex gap-2"><button className="text-primary text-xs" onClick={() => toggleOffer(item)}>{item.enabled ? 'إيقاف' : 'تفعيل'}</button><button className="text-danger text-xs" onClick={() => removeOffer(item.id)}>حذف</button></div></div>)}{config.offers?.length === 0 && <p className="text-sm text-ink/50">لا توجد عروض مضافة.</p>}</div></div>
+  return <div className="admin-subscription-config">
+    <div className="admin-config-card admin-config-card--trial"><div className="admin-config-icon">◷</div><div className="flex-1"><span className="admin-config-eyebrow">سياسة الحسابات الجديدة</span><h3>مدة الفترة التجريبية</h3><p>تُطبّق على الحسابات الجديدة فقط، ويمكن تعديلها دون تغيير اشتراكات المعلمين الحاليين.</p></div><div className="admin-inline-edit"><input className="input" type="number" min="1" max="365" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} /><span>يومًا</span><button className="btn-primary" disabled={busy} onClick={saveTrial}>حفظ المدة</button></div></div>
+    <div className="admin-config-card admin-config-card--offer"><div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">{editingOfferId ? 'تحرير عرض محفوظ' : 'إنشاء عرض جديد'}</span><h3>{editingOfferId ? 'تعديل تفاصيل العرض' : 'أضف عرضًا يظهر للمعلمين'}</h3><p>يظهر العرض الفعّال في بطاقات الاشتراك مع السعر الأصلي المشطوب وسعر العرض والوصف والفترة المحددة.</p></div>{editingOfferId && <button className="btn-secondary text-sm" type="button" onClick={cancelEditOffer}>إلغاء التحرير</button>}</div><form onSubmit={saveOffer} className="offer-editor-grid"><label className="label">الباقة<select className="input" value={offer.plan} onChange={(e) => setOffer({ ...offer, plan: e.target.value })}>{Object.entries(PLAN_LABELS).filter(([id]) => id !== 'trial').map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="label">عنوان العرض<input className="input" placeholder="مثال: عرض العودة للمدارس" value={offer.title} onChange={(e) => setOffer({ ...offer, title: e.target.value })} required /></label><label className="label offer-editor-grid__wide">الوصف الذي سيظهر للمعلم<input className="input" placeholder="مثال: خصم محدود حتى نهاية الشهر" value={offer.description} onChange={(e) => setOffer({ ...offer, description: e.target.value })} /></label><label className="label">السعر الأصلي<input className="input" type="number" min="0.01" step="0.01" value={offer.original_price_omr} onChange={(e) => setOffer({ ...offer, original_price_omr: e.target.value })} required /></label><label className="label">سعر العرض<input className="input" type="number" min="0.01" step="0.01" value={offer.offer_price_omr} onChange={(e) => setOffer({ ...offer, offer_price_omr: e.target.value })} required /></label><label className="label">يبدأ في<input className="input" type="datetime-local" value={offer.starts_at} onChange={(e) => setOffer({ ...offer, starts_at: e.target.value })} /></label><label className="label">ينتهي في<input className="input" type="datetime-local" value={offer.ends_at} onChange={(e) => setOffer({ ...offer, ends_at: e.target.value })} /></label><label className="offer-enabled-toggle"><input type="checkbox" checked={offer.enabled} onChange={(e) => setOffer({ ...offer, enabled: e.target.checked })} /><span>إظهار العرض للمعلمين فورًا إذا كان ضمن الفترة</span></label><div className="offer-editor-actions"><button className="btn-primary" disabled={busy} type="submit">{busy ? 'جارِ الحفظ...' : editingOfferId ? 'حفظ تعديل العرض' : 'إضافة العرض'}</button>{savedMessage && <span className="save-feedback save-feedback--success">{savedMessage}</span>}</div></form></div>
+    <div className="admin-offers-list"><div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">المكتبة الحالية</span><h3>العروض المحفوظة</h3><p>راجع حالة كل عرض وعدّل السعر والوصف والفترة من زر التحرير.</p></div><span className="admin-offer-count">{config.offers?.length || 0} عروض</span></div><div className="admin-offers-grid">{(config.offers || []).map((item) => <article key={item.id} className={`admin-offer-row ${item.enabled ? 'is-enabled' : 'is-disabled'}`}><div className="admin-offer-row__status"><span className="admin-offer-status-dot" />{item.enabled ? 'مفعّل' : 'متوقف'}</div><div className="admin-offer-row__body"><div className="flex items-center gap-2 flex-wrap"><h4>{item.title || 'عرض بلا عنوان'}</h4><span className="admin-plan-pill">{PLAN_LABELS[item.plan] || item.plan}</span></div><p>{item.description || 'لا يوجد وصف للعرض بعد.'}</p><div className="admin-offer-row__meta"><strong><del>{item.original_price_omr} ر.ع</del> {item.offer_price_omr} ر.ع</strong><span>{item.starts_at ? `من ${new Date(item.starts_at).toLocaleDateString('ar')}` : 'فوري'} · {item.ends_at ? `حتى ${new Date(item.ends_at).toLocaleDateString('ar')}` : 'دون انتهاء'}</span></div></div><div className="admin-offer-row__actions"><button className="text-primary text-xs" disabled={busy} onClick={() => startEditOffer(item)}>تحرير</button><button className="text-ink/60 text-xs" disabled={busy} onClick={() => toggleOffer(item)}>{item.enabled ? 'إيقاف' : 'تفعيل'}</button><button className="text-danger text-xs" disabled={busy} onClick={() => removeOffer(item.id)}>حذف</button></div></article>)}{config.offers?.length === 0 && <div className="admin-empty-offers">لا توجد عروض محفوظة. أضف أول عرض ليظهر للمعلمين.</div>}</div></div>
   </div>;
 }
 
@@ -405,19 +446,16 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">لوحة تحكم المسؤول</h1>
-        <button className="btn-secondary text-sm" onClick={logout}>تسجيل الخروج</button>
-      </div>
+    <div className="admin-page-shell">
+      <header className="admin-page-hero"><div><span className="admin-eyebrow">مركز التشغيل</span><h1>لوحة تحكم المسؤول</h1><p>أدر طلبات التفعيل، العروض، المعلمين، الدعم، وإعدادات التجربة من مساحة واحدة.</p></div><div className="admin-hero-stamp"><span>ADMIN</span><small>EduCore control room</small></div><button className="btn-secondary text-sm admin-logout" onClick={logout}>تسجيل الخروج</button></header>
 
-      <div className="flex gap-2 mb-5">
-        <button onClick={() => setTab('requests')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'requests' ? 'bg-primary text-white border-primary' : 'border-line'}`}>طلبات التفعيل</button>
-        <button onClick={() => setTab('teachers')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'teachers' ? 'bg-primary text-white border-primary' : 'border-line'}`}>كل المعلمين</button>
-        <button onClick={() => setTab('subscriptions')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'subscriptions' ? 'bg-primary text-white border-primary' : 'border-line'}`}>الاشتراكات والعروض</button>
-        <button onClick={() => setTab('passwords')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'passwords' ? 'bg-primary text-white border-primary' : 'border-line'}`}>طلبات كلمات المرور</button>
-        <button onClick={() => setTab('chat')} className={`px-3 py-1.5 rounded-full text-sm border ${tab === 'chat' ? 'bg-primary text-white border-primary' : 'border-line'}`}>الدردشة مع المعلمين</button>
-      </div>
+      <nav className="admin-tabs" aria-label="أقسام لوحة المسؤول">
+        <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>طلبات التفعيل</button>
+        <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>كل المعلمين</button>
+        <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>03</span>الاشتراكات والعروض</button>
+        <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>04</span>طلبات كلمات المرور</button>
+        <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>05</span>الدردشة مع المعلمين</button>
+      </nav>
 
       {tab === 'requests' && <PaymentRequests />}
       {tab === 'teachers' && <TeachersList onMessage={goToChat} />}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api/client';
+import api, { invalidateApiCache } from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { readProfileDraft, removeProfileDraft, savePendingProfile, saveProfileDraft } from '../utils/localCache.js';
@@ -69,9 +69,10 @@ function ProfileTab() {
     updateLocalTeacher(optimisticTeacher);
     try {
       await api.patch('/settings/profile', profile);
+      await invalidateApiCache('/auth/me');
       removeProfileDraft(teacher.id);
       setDraftDirty(false);
-      await refreshMe();
+      await refreshMe({ force: true });
       setSavedMsg('تم حفظ الملف الشخصي ومزامنته');
     } catch {
       savePendingProfile(teacher.id, profile);
@@ -84,8 +85,8 @@ function ProfileTab() {
   };
 
   return (
-    <div className="card p-5">
-      <h3 className="font-bold mb-3">{t('profile')}</h3>
+    <div className="settings-panel settings-panel--profile">
+      <div className="settings-panel__heading"><div><span className="settings-eyebrow">هوية الحساب</span><h3>{t('profile')}</h3><p>عدّل بياناتك العامة وستُحفظ محليًا ثم تُزامن عند توفر الاتصال.</p></div><span className="settings-panel__icon">◎</span></div>
       <form onSubmit={saveProfile} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div><label className="label">{t('fullName')}</label><input className="input" value={profile.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></div>
         <div><label className="label">{t('subject')}</label><input className="input" value={profile.subject} onChange={(e) => updateProfileField('subject', e.target.value)} /></div>
@@ -233,19 +234,18 @@ export default function Settings() {
   const [tab, setTab] = useState('profile');
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <Link to="/" className="text-primary text-sm">→ العودة للوحة التحكم</Link>
-      <h1 className="text-2xl font-bold mt-3 mb-1">الإعدادات العامة</h1>
-      <p className="text-ink/60 text-sm mb-6">كل الإعدادات المسبقة في مكان واحد — القيم هنا تُطبّق تلقائيًا عند إنشاء أي صف جديد.</p>
+    <div className="settings-page-shell">
+      <div className="settings-page-topline"><Link to="/" className="settings-back">← العودة للوحة التحكم</Link><span className="settings-local-badge">يحفظ محليًا · يزامن تلقائيًا</span></div>
+      <header className="settings-page-hero"><div><span className="settings-eyebrow">مساحة التخصيص</span><h1>الإعدادات العامة</h1><p>اجعل EduCore يعمل بالطريقة التي تناسبك، من ملفك الشخصي إلى قوالب الدرجات والسلوك والنسخ الاحتياطية.</p></div><div className="settings-hero-grid"><span>01<small>الملف</small></span><span>02<small>القوالب</small></span><span>03<small>الحماية</small></span></div></header>
 
-      <div className="flex gap-2 border-b border-line mb-6 overflow-x-auto">
+      <nav className="settings-tabs" aria-label="إعدادات المعلم">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${tab === t.id ? 'border-primary text-primary' : 'border-transparent text-ink/60 hover:text-ink'}`}>
-            {t.label}
+          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+            className={`settings-tab ${tab === t.id ? 'is-active' : ''}`}>
+            <span>{String(TABS.findIndex((item) => item.id === t.id) + 1).padStart(2, '0')}</span>{t.label}
           </button>
         ))}
-      </div>
+      </nav>
 
       {tab === 'profile' && <ProfileTab />}
       {tab === 'schemes' && <SchemesManager />}

@@ -6,11 +6,11 @@ import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
 
 const FALLBACK_PLANS = [
-  { id: '6_months', title: 'باقة 6 أشهر' },
-  { id: 'yearly', title: 'الباقة السنوية', highlight: true, note: 'الأكثر توفيرًا' },
-  { id: 'lifetime', title: 'مدى الحياة', note: 'دفعة واحدة، وصول دائم' },
+  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, price_omr: 4, original_price_omr: 4, duration_days: 182 },
+  { id: 'yearly', title: 'الباقة السنوية', highlight: true, note: 'الأكثر توفيرًا', base_price_omr: 7, price_omr: 7, original_price_omr: 7, duration_days: 365 },
+  { id: 'lifetime', title: 'مدى الحياة', note: 'دفعة واحدة، وصول دائم', base_price_omr: 18, price_omr: 18, original_price_omr: 18, duration_days: null },
 ];
-const STATUS_LABELS = { pending: 'قيد المراجعة', approved: 'مُفعّل ✓', rejected: 'مرفوض' };
+const STATUS_LABELS = { active: 'مفعّل', pending: 'قيد المراجعة', approved: 'مُفعّل ✓', rejected: 'مرفوض', expired: 'منتهي' };
 const PLAN_LABELS = { trial: 'فترة تجريبية', '6_months': 'باقة 6 أشهر', yearly: 'الباقة السنوية', lifetime: 'مدى الحياة' };
 
 function formatDate(iso) {
@@ -22,17 +22,18 @@ function SubscriptionDetailsCard() {
   const { subscriptionInfo } = useAuth();
   if (!subscriptionInfo) return null;
   const { plan, status, startDate, endDate, daysLeft, expired } = subscriptionInfo;
+  const statusLabel = expired ? 'منتهي' : (STATUS_LABELS[status] || status || 'غير محدد');
   return (
-    <div className="card p-5 mb-6">
-      <h3 className="font-bold text-sm mb-3">تفاصيل الاشتراك الحالي</h3>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-        <div><p className="text-ink/50 text-xs mb-1">الباقة</p><p className="font-medium">{PLAN_LABELS[plan] || plan}</p></div>
-        <div><p className="text-ink/50 text-xs mb-1">تاريخ التفعيل</p><p className="font-medium">{formatDate(startDate)}</p></div>
-        <div><p className="text-ink/50 text-xs mb-1">تاريخ الانتهاء</p><p className="font-medium">{endDate ? formatDate(endDate) : 'مدى الحياة'}</p></div>
-        <div><p className="text-ink/50 text-xs mb-1">متبقي حتى الانتهاء</p><p className={`font-bold ${expired ? 'text-danger' : daysLeft !== null && daysLeft <= 4 ? 'text-accent' : 'text-primary'}`}>{daysLeft === null ? 'غير محدود' : expired ? 'منتهي' : `${daysLeft} يوم`}</p></div>
+    <section className="subscription-current-card">
+      <div className="subscription-current-card__heading"><div><span className="subscription-eyebrow">الحساب الحالي</span><h3>تفاصيل الاشتراك الحالي</h3></div><span className={`subscription-status-badge ${expired ? 'is-expired' : status === 'active' ? 'is-active' : 'is-pending'}`}>{statusLabel}</span></div>
+      <div className="subscription-details-grid">
+        <div><p>الباقة</p><strong>{PLAN_LABELS[plan] || plan || 'غير محددة'}</strong></div>
+        <div><p>تاريخ التفعيل</p><strong>{formatDate(startDate)}</strong></div>
+        <div><p>تاريخ الانتهاء</p><strong>{endDate ? formatDate(endDate) : 'مدى الحياة'}</strong></div>
+        <div><p>المتبقي</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? 'غير محدود' : expired ? 'منتهي' : `${daysLeft} يوم`}</strong></div>
       </div>
-      {status !== 'active' && <p className="text-xs text-accent mt-3">حالة الاشتراك الحالية: {status}</p>}
-    </div>
+      {status !== 'active' && !expired && <p className="subscription-current-card__note">حالة الاشتراك الحالية: {statusLabel}. يمكنك إرسال طلب تفعيل جديد من الباقات أدناه.</p>}
+    </section>
   );
 }
 
@@ -88,7 +89,7 @@ export default function Subscription() {
       setReferenceNote('');
       setReceiptImage('');
       await loadRequests();
-      refreshMe();
+      refreshMe({ force: true });
     } finally {
       setBusy(false);
     }
@@ -97,40 +98,39 @@ export default function Subscription() {
   const visiblePlans = plans.length ? plans : FALLBACK_PLANS;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
-      <Link to="/" className="text-primary text-sm">→ العودة للوحة التحكم</Link>
-      <h1 className="text-3xl font-bold mt-4 mb-2">إدارة الاشتراك</h1>
-      <p className="text-ink/60 mb-2">الحالة الحالية: <span className="font-medium">{PLAN_LABELS[subscription?.plan] || subscription?.plan}</span></p>
-      <p className="text-xs text-ink/50 mb-6">الفترة التجريبية الافتراضية للحسابات الجديدة: <strong>{trialDays} يومًا</strong>، ويمكن للمسؤول تغييرها.</p>
+    <div className="subscription-page-shell">
+      <div className="subscription-page-topline"><Link to="/" className="subscription-back">← العودة للوحة التحكم</Link><span className="subscription-local-note">تفعيل يدوي آمن · بياناتك محفوظة محليًا</span></div>
+      <header className="subscription-page-hero"><div><span className="subscription-eyebrow">الخطوة التالية في رحلتك التعليمية</span><h1>إدارة الاشتراك</h1><p>اختر الباقة المناسبة، راجع تفاصيل حسابك، واستفد من العروض الفعّالة التي يحددها المسؤول.</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
+      <div className="subscription-current-summary"><span>الحالة الحالية</span><strong>{STATUS_LABELS[subscription?.status] || PLAN_LABELS[subscription?.plan] || 'فترة تجريبية'}</strong><small>الفترة التجريبية الافتراضية للحسابات الجديدة: {trialDays} يومًا</small></div>
 
       <SubscriptionDetailsCard />
 
-      {myRequests.length > 0 && <div className="card p-4 mb-6"><h3 className="font-bold text-sm mb-2">طلبات التفعيل السابقة</h3><div className="space-y-1">{myRequests.map((request) => <div key={request.id} className="flex justify-between text-sm border-b border-line pb-1"><span>{PLAN_LABELS[request.plan] || request.plan} — {request.amount_omr} ر.ع {request.original_amount_omr && Number(request.original_amount_omr) > Number(request.amount_omr) ? <del className="text-ink/40 mr-1">{request.original_amount_omr}</del> : null}</span><span className={request.status === 'approved' ? 'text-primary' : request.status === 'rejected' ? 'text-danger' : 'text-accent'}>{STATUS_LABELS[request.status]}</span></div>)}</div></div>}
+      {myRequests.length > 0 && <section className="subscription-requests-card"><div className="subscription-section-heading"><div><span className="subscription-eyebrow">سجل الطلبات</span><h3>طلبات التفعيل السابقة</h3></div><span>{myRequests.length} طلب</span></div><div className="subscription-requests-list">{myRequests.map((request) => <div key={request.id} className="subscription-request-row"><span><strong>{PLAN_LABELS[request.plan] || request.plan}</strong><small>{request.amount_omr} ر.ع {request.original_amount_omr && Number(request.original_amount_omr) > Number(request.amount_omr) ? <del>{request.original_amount_omr} ر.ع</del> : null}</small></span><span className={request.status === 'approved' ? 'is-good' : request.status === 'rejected' ? 'is-danger' : 'is-warning'}>{STATUS_LABELS[request.status]}</span></div>)}</div></section>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="subscription-section-heading subscription-plans-heading"><div><span className="subscription-eyebrow">خطط مرنة</span><h2>اختر الباقة المناسبة</h2><p>العروض المفعّلة تظهر هنا تلقائيًا مع السعر الأصلي والسعر المخفّض.</p></div></div><div className="subscription-plans-grid">
         {visiblePlans.map((plan) => {
           const price = priceFor(plan);
           const original = originalPriceFor(plan);
           const hasOffer = Boolean(plan.offer && original > price);
-          return <div key={plan.id} className={`card p-6 flex flex-col ${plan.highlight ? 'ring-2 ring-primary' : ''} ${selectedPlan === plan.id ? 'ring-2 ring-accent' : ''}`}>
-            {plan.highlight && <span className="text-xs text-accent font-bold mb-2">الأكثر جاذبية</span>}
-            {hasOffer && <span className="inline-flex self-start text-xs bg-danger/10 text-danger px-2 py-1 rounded-full font-bold mb-2">{plan.offer.title || 'عرض خاص'}</span>}
-            <h3 className="text-xl font-bold mb-1">{plan.title || PLAN_LABELS[plan.id] || plan.id}</h3>
-            {hasOffer && <p className="text-sm text-ink/40 line-through mb-1">{omrWithEquivalent(original)}</p>}
-            <p className="text-2xl font-bold text-primary mb-1">{price ? omrWithEquivalent(price) : '...'}</p>
-            {hasOffer && plan.offer.description && <p className="text-sm text-danger mb-2">{plan.offer.description}</p>}
-            {plan.note && <p className="text-sm text-ink/60 mb-4">{plan.note}</p>}
-            <button className="btn-primary mt-auto" onClick={() => setSelectedPlan(plan.id)}>اختيار هذه الباقة</button>
-          </div>;
+          return <article key={plan.id} className={`subscription-plan-card ${plan.highlight ? 'is-highlighted' : ''} ${selectedPlan === plan.id ? 'is-selected' : ''}`}>
+            {plan.highlight && <span className="subscription-plan-ribbon">الأكثر جاذبية</span>}
+            {hasOffer && <span className="subscription-offer-badge">{plan.offer.title || 'عرض خاص'}</span>}
+            <h3>{plan.title || PLAN_LABELS[plan.id] || plan.id}</h3>
+            {hasOffer && <p className="subscription-original-price">{omrWithEquivalent(original)}</p>}
+            <p className="subscription-plan-price">{price ? omrWithEquivalent(price) : '...'}</p>
+            {hasOffer && plan.offer.description && <p className="subscription-offer-description">{plan.offer.description}</p>}
+            {plan.note && <p className="subscription-plan-note">{plan.note}</p>}
+            <button className="btn-primary" onClick={() => setSelectedPlan(plan.id)}>اختيار هذه الباقة</button>
+          </article>;
         })}
       </div>
 
-      {selected && <div ref={activationRef} className="card p-6 scroll-mt-6">
+      {selected && <section ref={activationRef} className="subscription-activation-card scroll-mt-6">
         <h3 className="font-bold mb-3">إتمام التفعيل عبر التحويل البنكي / المحفظة الرقمية</h3>
         <ol className="list-decimal list-inside text-sm text-ink/80 space-y-2 mb-5"><li>حوّل مبلغ <span className="font-bold text-primary">{omrWithEquivalent(priceFor(selected))}</span> إلى الرقم: <span className="font-bold">{phone}</span></li><li>أرفق لقطة شاشة لوصل التحويل أو اكتب رقم العملية.</li><li>يراجع المسؤول الطلب يدويًا، ثم يفعّل الاشتراك بعد التأكد من التحويل.</li></ol>
         {submitted ? <p className="text-primary font-medium">تم إرسال طلبك بنجاح ✓ سيتم تفعيل الاشتراك بعد مراجعة التحويل.</p> : <form onSubmit={submitRequest} className="space-y-3"><div><label className="label">رقم/مرجع عملية التحويل أو اسم المُحوِّل</label><input className="input" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} placeholder="مثال: تحويل باسم أحمد - 123456" /></div><div><label className="label">صورة وصل التحويل (اختياري)</label><input type="file" accept="image/*" onChange={handleReceipt} className="text-sm" />{receiptImage && <img src={receiptImage} alt="وصل" className="mt-2 max-h-40 rounded-lg border border-line" />}</div><div className="flex gap-2"><button className="btn-primary" disabled={busy} type="submit">{busy ? '...' : 'إرسال طلب التفعيل'}</button><button className="btn-secondary" type="button" onClick={() => setSelectedPlan(null)}>إلغاء</button></div></form>}
-      </div>}
-      <p className="text-xs text-ink/40 mt-6">التفعيل يتم يدويًا بعد التأكد من استلام التحويل.</p>
+      </section>}
+      <p className="subscription-footnote">التفعيل يتم يدويًا بعد التأكد من استلام التحويل.</p>
     </div>
   );
 }
