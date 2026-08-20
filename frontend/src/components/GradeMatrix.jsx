@@ -44,7 +44,7 @@ export default function GradeMatrix({ classId, className }) {
   const [loading, setLoading] = useState(true);
   const [openComment, setOpenComment] = useState(null);
   const [newAssessment, setNewAssessment] = useState(null);
-  const [assessmentForm, setAssessmentForm] = useState({ title: '', max_score: 1, date: '' });
+  const [assessmentForm, setAssessmentForm] = useState({ title: '', max_score: '', date: '' });
   const [savingKey, setSavingKey] = useState(null);
   const [savedKey, setSavedKey] = useState(null);
   const teacherId = getTeacherId();
@@ -120,7 +120,7 @@ export default function GradeMatrix({ classId, className }) {
 
   const startAdding = (category) => {
     setNewAssessment(category.id);
-    setAssessmentForm({ title: '', max_score: 1, date: '' });
+    setAssessmentForm({ title: '', max_score: '', date: '' });
   };
 
   const addAssessment = async (event) => {
@@ -154,7 +154,7 @@ export default function GradeMatrix({ classId, className }) {
       setSnapshot(nextSnapshot);
       void saveSnapshot(teacherId, nextSnapshot);
     }
-    setAssessmentForm({ title: '', max_score: 1, date: '' });
+    setAssessmentForm({ title: '', max_score: '', date: '' });
     setNewAssessment(null);
     try {
       await api.post('/grades/assessments', payload);
@@ -280,11 +280,11 @@ export default function GradeMatrix({ classId, className }) {
                     {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>مجموع {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
                     {newAssessment === category.id ? (
                       <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1">
-                        <input className="input text-xs py-0.5" placeholder="عنوان" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
-                        <input className="input text-xs py-0.5" type="number" min="0.01" placeholder="القيمة القصوى" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: Number(event.target.value) })} />
-                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
+                        <input className="input text-xs py-0.5" placeholder="عنوان التقييم الفرعي" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
+                        <input className="input text-xs py-0.5" type="number" min="0.01" step="any" required placeholder="القيمة القصوى" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: event.target.value })} />
+                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة التقييم</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
                       </form>
-                    ) : <button className="font-medium hover:underline" style={{ color: categoryColor(index) }} onClick={() => startAdding(category)}>+ تقييم</button>}
+                    ) : <button className="btn-secondary text-xs px-2 py-1" style={{ color: categoryColor(index) }} title="إضافة تقييم فرعي لهذه الفئة" onClick={() => startAdding(category)}>＋ إضافة تقييم فرعي</button>}
                   </th>
                 </React.Fragment>
               ))}
