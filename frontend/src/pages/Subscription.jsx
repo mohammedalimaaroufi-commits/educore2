@@ -22,16 +22,17 @@ function SubscriptionDetailsCard() {
   const { subscriptionInfo } = useAuth();
   if (!subscriptionInfo) return null;
   const { plan, status, startDate, endDate, daysLeft, expired } = subscriptionInfo;
-  const isTrial = plan === 'trial';
-  const statusLabel = expired ? 'منتهي' : (STATUS_LABELS[status] || status || 'غير محدد');
+  const normalizedPlan = PLAN_LABELS[plan] ? plan : 'trial';
+  const isTrial = normalizedPlan === 'trial';
+  const statusLabel = expired ? 'منتهي' : (STATUS_LABELS[status] || (isTrial ? 'مفعّل' : 'غير محدد'));
   return (
     <section className="subscription-current-card">
       <div className="subscription-current-card__heading"><div><span className="subscription-eyebrow">الحساب الحالي</span><h3>تفاصيل الاشتراك الحالي</h3></div><span className={`subscription-status-badge ${expired ? 'is-expired' : status === 'active' ? 'is-active' : 'is-pending'}`}>{statusLabel}</span></div>
       <div className="subscription-details-grid">
-        <div><p>الباقة</p><strong>{PLAN_LABELS[plan] || plan || 'غير محددة'}</strong></div>
+        <div><p>الباقة</p><strong>{PLAN_LABELS[normalizedPlan]}</strong></div>
         <div><p>تاريخ التفعيل</p><strong>{formatDate(startDate)}</strong></div>
-        <div><p>تاريخ الانتهاء</p><strong>{endDate ? formatDate(endDate) : isTrial ? 'غير متاح' : 'مدى الحياة'}</strong></div>
-        <div><p>المتبقي</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isTrial ? 'غير محدد' : 'غير محدود') : expired ? 'منتهي' : `${daysLeft} يوم`}</strong></div>
+        <div><p>تاريخ الانتهاء</p><strong>{endDate ? formatDate(endDate) : isTrial ? 'سيظهر بعد تهيئة التجربة' : 'مدى الحياة'}</strong></div>
+        <div><p>المتبقي</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isTrial ? 'قيد التحديد' : 'غير محدود') : expired ? 'منتهي' : `${daysLeft} يوم`}</strong></div>
       </div>
       {status !== 'active' && !expired && <p className="subscription-current-card__note">حالة الاشتراك الحالية: {statusLabel}. يمكنك إرسال طلب تفعيل جديد من الباقات أدناه.</p>}
     </section>
@@ -102,7 +103,7 @@ export default function Subscription() {
     <div className="subscription-page-shell">
       <div className="subscription-page-topline"><Link to="/" className="subscription-back">← العودة للوحة التحكم</Link><span className="subscription-local-note">تفعيل يدوي آمن · بياناتك محفوظة محليًا</span></div>
       <header className="subscription-page-hero"><div><span className="subscription-eyebrow">الخطوة التالية في رحلتك التعليمية</span><h1>إدارة الاشتراك</h1><p>اختر الباقة المناسبة، راجع تفاصيل حسابك، واستفد من العروض الفعّالة التي يحددها المسؤول.</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
-      <div className="subscription-current-summary"><span>الحالة الحالية</span><strong>{STATUS_LABELS[subscription?.status] || PLAN_LABELS[subscription?.plan] || 'فترة تجريبية'}</strong><small>الفترة التجريبية الافتراضية للحسابات الجديدة: {trialDays} يومًا</small></div>
+      <div className="subscription-current-summary"><span>الحالة الحالية</span><strong>{subscription?.plan && PLAN_LABELS[subscription.plan] ? (STATUS_LABELS[subscription.status] || PLAN_LABELS[subscription.plan]) : 'فترة تجريبية'}</strong><small>الفترة التجريبية الافتراضية للحسابات الجديدة: {trialDays} يومًا</small></div>
 
       <SubscriptionDetailsCard />
 

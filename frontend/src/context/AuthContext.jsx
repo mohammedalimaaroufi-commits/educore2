@@ -30,6 +30,29 @@ function readInitialSession() {
   return readSessionCache(storedTeacher.id) || { teacher: storedTeacher };
 }
 
+const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
+
+function normalizeSubscriptionSession(data) {
+  const rawSubscription = data?.subscription || null;
+  const hasTrialShape = rawSubscription?.trial_end_date && !rawSubscription.current_period_start && !rawSubscription.current_period_end;
+  const shouldUseTrial = !rawSubscription
+    || !VALID_SUBSCRIPTION_PLANS.has(String(rawSubscription.plan || '').trim())
+    || (rawSubscription.plan === 'lifetime' && hasTrialShape);
+  const subscription = shouldUseTrial
+    ? { ...(rawSubscription || {}), plan: 'trial', status: rawSubscription?.status || 'active' }
+    : rawSubscription;
+  const subscriptionInfo = data?.subscriptionInfo
+    ? { ...data.subscriptionInfo, plan: shouldUseTrial ? 'trial' : data.subscriptionInfo.plan, status: data.subscriptionInfo.status || subscription.status || 'active' }
+    : { plan: subscription.plan, status: subscription.status || 'active', startDate: subscription.trial_start_date || null, endDate: subscription.trial_end_date || null, daysLeft: null, expired: false };
+  const trialInfo = data?.trialInfo || (subscriptionInfo.plan === 'trial' && subscriptionInfo.endDate
+    ? (() => {
+        const daysLeft = Math.ceil((new Date(subscriptionInfo.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+        return { daysLeft, expired: daysLeft <= 0, alertLevel: daysLeft <= 1 ? 'critical' : daysLeft <= 4 ? 'warning' : 'none' };
+      })()
+    : null);
+  return { ...data, subscription, trialInfo, subscriptionInfo };
+}
+
 function persistTeacher(teacher) {
   if (!teacher?.id) return;
   localStorage.setItem('educore_teacher', JSON.stringify(teacher));
@@ -59,11 +82,12 @@ export function AuthProvider({ children }) {
 
     const applySession = (data) => {
       if (!data?.teacher?.id) return;
-      setTeacher(data.teacher);
-      setSubscription(data.subscription || null);
-      setTrialInfo(data.trialInfo || null);
-      setSubscriptionInfo(data.subscriptionInfo || null);
-      persistSession(data);
+      const normalized = normalizeSubscriptionSession(data);
+      setTeacher(normalized.teacher);
+      setSubscription(normalized.subscription);
+      setTrialInfo(normalized.trialInfo || null);
+      setSubscriptionInfo(normalized.subscriptionInfo || null);
+      persistSession(normalized);
     };
 
     try {

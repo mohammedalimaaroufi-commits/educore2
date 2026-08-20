@@ -108,10 +108,14 @@ export function calculateFinalGrade(studentId, categories, gradeMap) {
 }
 
 export function calculateBehaviorScore(studentId, snapshot) {
-  const pointsByType = new Map((snapshot?.behavior_types || []).map((item) => [item.id, Number(item.points || 0)]));
+  const typeMap = new Map((snapshot?.behavior_types || []).map((item) => [item.id, item]));
   return (snapshot?.behavior_logs || [])
     .filter((log) => log.student_id === studentId)
-    .reduce((sum, log) => sum + (pointsByType.get(log.behavior_type_id) || 0), 0);
+    .reduce((sum, log) => {
+      const behavior = typeMap.get(log.behavior_type_id);
+      const points = Math.abs(Number(behavior?.points || 0));
+      return sum + (behavior?.polarity === 'negative' ? -points : points);
+    }, 0);
 }
 
 export function calculateAttendanceRate(studentId, snapshot) {

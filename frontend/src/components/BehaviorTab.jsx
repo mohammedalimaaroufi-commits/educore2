@@ -18,6 +18,15 @@ function formatWhen(value) {
   return new Date(value).toLocaleDateString('ar', { month: 'short', day: 'numeric' });
 }
 
+const BEHAVIOR_FILTERS = [
+  { id: 'all', label: 'كل الطلاب' },
+  { id: 'positive', label: 'لديهم إيجابيات' },
+  { id: 'negative', label: 'لديهم سلبيات' },
+  { id: 'notes', label: 'لديهم ملاحظات' },
+  { id: 'positive-notes', label: 'ملاحظات إيجابية' },
+  { id: 'negative-notes', label: 'ملاحظات سلبية' },
+];
+
 function buildSummary(snapshot, classId) {
   const roster = buildClassRoster(snapshot, classId);
   const typeMap = new Map((snapshot?.behavior_types || []).map((type) => [type.id, type]));
@@ -33,6 +42,17 @@ function buildSummary(snapshot, classId) {
       behavior_score: roster.find((row) => row.student_id === student.id)?.behaviorScore || 0,
       positive_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'positive').length,
       negative_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'negative').length,
+      positive_points: logs.reduce((sum, log) => {
+        const behavior = typeMap.get(log.behavior_type_id);
+        return sum + (behavior?.polarity === 'positive' ? Math.abs(Number(behavior.points || 0)) : 0);
+      }, 0),
+      negative_points: logs.reduce((sum, log) => {
+        const behavior = typeMap.get(log.behavior_type_id);
+        return sum + (behavior?.polarity === 'negative' ? Math.abs(Number(behavior.points || 0)) : 0);
+      }, 0),
+      note_count: logs.filter((log) => String(log.note_text || '').trim()).length,
+      positive_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'positive' && String(log.note_text || '').trim()).length,
+      negative_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'negative' && String(log.note_text || '').trim()).length,
       latest_logs: enrichedLogs.slice(0, 3),
     };
   });
@@ -43,6 +63,8 @@ export default function BehaviorTab({ classId }) {
   const [students, setStudents] = useState([]);
   const [types, setTypes] = useState([]);
   const [query, setQuery] = useState('');
+  const [behaviorFilter, setBehaviorFilter] = useState('all');
+  const [behaviorSort, setBehaviorSort] = useState('score-desc');
   const [openStudent, setOpenStudent] = useState(null);
   const [noteDrafts, setNoteDrafts] = useState({});
   const [summary, setSummary] = useState([]);
@@ -67,8 +89,27 @@ export default function BehaviorTab({ classId }) {
 
   const filteredStudents = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return value ? students.filter((student) => student.full_name.toLowerCase().includes(value)) : students;
-  }, [students, query]);
+    const rows = students
+      .map((student) => ({ student, row: summary.find((item) => item.student_id === student.id) || {} }))
+      .filter(({ student, row }) => {
+        const matchesSearch = !value || student.full_name.toLowerCase().includes(value);
+        const matchesFilter = behaviorFilter === 'all'
+          || (behaviorFilter === 'positive' && row.positive_points > 0)
+          || (behaviorFilter === 'negative' && row.negative_points > 0)
+          || (behaviorFilter === 'notes' && row.note_count > 0)
+          || (behaviorFilter === 'positive-notes' && row.positive_note_count > 0)
+          || (behaviorFilter === 'negative-notes' && row.negative_note_count > 0);
+        return matchesSearch && matchesFilter;
+      });
+    rows.sort((a, b) => {
+      if (behaviorSort === 'positive-desc') return (b.row.positive_points || 0) - (a.row.positive_points || 0);
+      if (behaviorSort === 'negative-desc') return (b.row.negative_points || 0) - (a.row.negative_points || 0);
+      if (behaviorSort === 'notes-desc') return (b.row.note_count || 0) - (a.row.note_count || 0);
+      if (behaviorSort === 'name') return a.student.full_name.localeCompare(b.student.full_name, 'ar');
+      return (b.row.behavior_score || 0) - (a.row.behavior_score || 0);
+    });
+    return rows.map(({ student }) => student);
+  }, [students, query, summary, behaviorFilter, behaviorSort]);
 
   const applySnapshot = (next) => {
     setSnapshot(next);
@@ -95,7 +136,8 @@ export default function BehaviorTab({ classId }) {
 
   const addType = async (event) => {
     event.preventDefault();
-    const entry = { id: localId('behavior-type'), class_id: classId, ...newType };
+    const points = Math.abs(Number(newType.points || 0));
+    const entry = { id: localId('behavior-type'), class_id: classId, ...newType, points: newType.polarity === 'negative' ? -points : points };
     const next = { ...snapshot, behavior_types: [...(snapshot?.behavior_types || []), entry] };
     applySnapshot(next);
     setNewType({ label: '', polarity: 'positive', points: 1, icon: 'star' });
@@ -118,15 +160,27 @@ export default function BehaviorTab({ classId }) {
           <div><h3 className="font-bold">رصد سلوك بنقرة واحدة</h3><p className="text-xs text-ink/50 mt-1">تظهر النقاط وآخر التفاصيل بجانب اسم الطالب مباشرة.</p></div>
           {feedback && <span className="text-primary text-sm">{feedback}</span>}
         </div>
-        <div className="relative mb-3"><input className="input text-sm pr-9" placeholder="بحث سريع عن طالب..." value={query} onChange={(event) => setQuery(event.target.value)} /><Icon name="search" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" /></div>
+          <div className="relative mb-3"><input className="input text-sm pr-9" placeholder="بحث سريع عن طالب..." value={query} onChange={(event) => setQuery(event.target.value)} /><Icon name="search" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" /></div>
+          <div className="flex flex-wrap items-center gap-2 mb-3" aria-label="فلاتر السلوك">
+            <span className="text-xs text-ink/50">فرز وتصفية سريعة:</span>
+            {BEHAVIOR_FILTERS.map((filter) => <button key={filter.id} type="button" onClick={() => setBehaviorFilter(filter.id)} className={`px-2.5 py-1 rounded-full border text-xs transition ${behaviorFilter === filter.id ? 'bg-primary text-white border-primary' : 'border-line text-ink/65 hover:border-primary/50'}`}>{filter.label}</button>)}
+            <select className="input text-xs w-44" value={behaviorSort} onChange={(event) => setBehaviorSort(event.target.value)} aria-label="ترتيب الطلاب سلوكيًا">
+              <option value="score-desc">الأعلى في صافي النقاط</option>
+              <option value="positive-desc">الأكثر نقاطًا إيجابية</option>
+              <option value="negative-desc">الأكثر نقاطًا سلبية</option>
+              <option value="notes-desc">الأكثر ملاحظات</option>
+              <option value="name">ترتيب أبجدي</option>
+            </select>
+          </div>
+          <p className="text-xs text-ink/45 mb-2">عرض {filteredStudents.length} من {students.length} طالبًا · النقاط السلبية محسوبة بقيمتها المطلقة، والصافي يظهر بجانب اسم الطالب.</p>
         <div className="space-y-2">
           {filteredStudents.map((student) => {
-            const row = summary.find((item) => item.student_id === student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, latest_logs: [] };
+              const row = summary.find((item) => item.student_id === student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, latest_logs: [] };
             return (
               <div key={student.id} className="border border-line rounded-xl2 overflow-hidden">
                 <button onClick={() => setOpenStudent((current) => (current === student.id ? null : student.id))} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-right hover:bg-surface ${openStudent === student.id ? 'bg-surface' : ''}`}>
                   <StudentAvatar name={student.full_name} photoUrl={student.photo_url} size={26} />
-                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>النقاط {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">إيجابي {row.positive_count}</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">سلبي {row.negative_count}</span>{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">آخرًا: {row.latest_logs[0].behavior.label}</span>}</span></span>
+                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>الصافي {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">إيجابي +{row.positive_points || 0} ({row.positive_count})</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">سلبي -{row.negative_points || 0} ({row.negative_count})</span>{row.note_count > 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700">ملاحظات {row.note_count}</span>}{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">آخرًا: {row.latest_logs[0].behavior.label}</span>}</span></span>
                   <Icon name={openStudent === student.id ? 'chevronUp' : 'chevronDown'} className="w-4 h-4 text-ink/40 shrink-0" />
                 </button>
                 {openStudent === student.id && (

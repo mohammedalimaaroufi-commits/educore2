@@ -15,6 +15,33 @@ function addDays(date, days) {
   return d.toISOString();
 }
 
+const VALID_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
+
+function ensureTrialSubscription(teacherId, rawSub = null) {
+  const now = new Date().toISOString();
+  const trialStart = rawSub?.trial_start_date || now;
+  const trialEnd = rawSub?.trial_end_date || addDays(trialStart, getTrialDays());
+  const shouldRepair = !rawSub
+    || !VALID_PLANS.has(String(rawSub.plan || '').trim())
+    || (rawSub.plan === 'lifetime' && rawSub.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end);
+
+  if (!shouldRepair) return rawSub;
+
+  if (!rawSub) {
+    const id = uuid();
+    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, trial_start_date, trial_end_date)
+                VALUES (?, ?, 'trial', 'active', ?, ?)`).run(id, teacherId, trialStart, trialEnd);
+    return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
+  }
+
+  db.prepare(`UPDATE subscriptions
+              SET plan = 'trial', status = CASE WHEN status IN ('canceled', 'expired') THEN status ELSE 'active' END,
+                  trial_start_date = ?, trial_end_date = ?, current_period_start = NULL, current_period_end = NULL,
+                  updated_at = ?
+              WHERE id = ?`).run(trialStart, trialEnd, now, rawSub.id);
+  return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(rawSub.id);
+}
+
 // POST /api/auth/register  (email/password, or google/apple with provider token in real impl)
 router.post('/register', async (req, res) => {
   const { full_name, email, password, subject, school_stage, school_name, auth_provider } = req.body;
@@ -107,11 +134,9 @@ router.post('/reset-password', async (req, res) => {
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
   const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(req.teacherId);
-  // Repair legacy rows created by the old default-lifetime bug: a row with trial dates and
-  // no paid period is a trial, even if its plan value was accidentally stored as lifetime.
-  const sub = rawSub && rawSub.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end && rawSub.plan === 'lifetime'
-    ? { ...rawSub, plan: 'trial' }
-    : rawSub;
+  // Always return a concrete subscription. Empty/unknown legacy rows are repaired in-place
+  // as the administrator-configured trial so the UI can never display an undefined package.
+  const sub = ensureTrialSubscription(req.teacherId, rawSub);
 
   let trialInfo = null;
   if (sub && sub.plan === 'trial') {
