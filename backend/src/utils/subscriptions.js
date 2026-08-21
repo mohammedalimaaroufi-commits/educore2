@@ -184,12 +184,18 @@ function getTrialDays() {
 }
 
 function getActiveOffers(plan = null) {
-  const now = new Date().toISOString();
-  const rows = db.prepare(`SELECT * FROM subscription_offers
-    WHERE enabled = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
-    ORDER BY updated_at DESC, created_at DESC`).all(now, now);
+  const now = Date.now();
+  const rows = db.prepare('SELECT * FROM subscription_offers ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC').all();
   const wanted = plan ? normalizePlanId(plan) : null;
-  return rows.filter((offer) => !wanted || normalizePlanId(offer.plan) === wanted);
+  return rows.filter((offer) => {
+    const enabled = offer.enabled === 1 || offer.enabled === '1' || offer.enabled === true || String(offer.enabled).toLowerCase() === 'true';
+    if (!enabled) return false;
+    const startsAt = offer.starts_at ? new Date(offer.starts_at).getTime() : null;
+    const endsAt = offer.ends_at ? new Date(offer.ends_at).getTime() : null;
+    if (Number.isFinite(startsAt) && now < startsAt) return false;
+    if (Number.isFinite(endsAt) && now > endsAt) return false;
+    return !wanted || normalizePlanId(offer.plan) === wanted;
+  });
 }
 
 function getActiveOffer(plan) {
@@ -207,8 +213,11 @@ function getPublicPlans() {
         id: offer.id,
         title: offer.title,
         description: offer.description,
+        original_price_omr: Number(offer.original_price_omr || definition.base_price_omr),
+        offer_price_omr: Number(offer.offer_price_omr),
         starts_at: offer.starts_at,
         ends_at: offer.ends_at,
+        enabled: true,
       } : null,
     };
   });

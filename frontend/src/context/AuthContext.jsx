@@ -51,22 +51,26 @@ function normalizeSubscriptionSession(data) {
   const rawSubscription = data?.subscription || null;
   const rawPlan = canonicalPlan(rawSubscription?.plan);
   const infoPlan = canonicalPlan(data?.subscriptionInfo?.plan);
-  const selectedPlan = VALID_SUBSCRIPTION_PLANS.has(rawPlan) ? rawPlan : infoPlan;
-  const normalizedRaw = rawSubscription ? { ...rawSubscription, plan: selectedPlan || rawSubscription.plan } : null;
-  const hasTrialShape = normalizedRaw?.trial_end_date && !normalizedRaw.current_period_start && !normalizedRaw.current_period_end;
-  const shouldUseTrial = !normalizedRaw
-    || !VALID_SUBSCRIPTION_PLANS.has(String(normalizedRaw.plan || '').trim())
-    || (normalizedRaw.plan === 'lifetime' && hasTrialShape);
-  const subscription = shouldUseTrial
-    ? { ...(normalizedRaw || {}), plan: 'trial', status: normalizedRaw?.status || 'active' }
-    : normalizedRaw;
+  const rawLooksLikeTrial = rawPlan === 'trial' && Boolean(rawSubscription?.trial_end_date) && !rawSubscription?.current_period_start && !rawSubscription?.current_period_end;
+  // A paid presentation from the server is stronger than a legacy trial row. This is
+  // essential for accounts whose original trial row was updated asynchronously.
+  const selectedPlan = infoPlan && infoPlan !== 'trial' && (rawLooksLikeTrial || !rawPlan) ? infoPlan : (rawPlan || infoPlan);
   const suppliedInfo = data?.subscriptionInfo || {};
-  const startDate = suppliedInfo.startDate || (subscription.plan === 'trial' ? subscription.trial_start_date : subscription.current_period_start) || null;
-  const endDate = suppliedInfo.endDate || (subscription.plan === 'trial' ? subscription.trial_end_date : subscription.current_period_end) || null;
+  const startDate = suppliedInfo.startDate || (selectedPlan === 'trial' ? rawSubscription?.trial_start_date : rawSubscription?.current_period_start) || null;
+  const endDate = suppliedInfo.endDate || (selectedPlan === 'trial' ? rawSubscription?.trial_end_date : rawSubscription?.current_period_end) || null;
   const calculatedDaysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+  const hasPaidPresentation = Boolean(infoPlan && infoPlan !== 'trial' && suppliedInfo.startDate);
+  const shouldUseTrial = !selectedPlan || !VALID_SUBSCRIPTION_PLANS.has(selectedPlan) || (!hasPaidPresentation && selectedPlan === 'trial' && !endDate);
+  const effectivePlan = shouldUseTrial ? 'trial' : selectedPlan;
+  const subscription = {
+    ...(rawSubscription || {}),
+    plan: effectivePlan,
+    status: suppliedInfo.status || rawSubscription?.status || 'active',
+    ...(effectivePlan !== 'trial' && startDate ? { current_period_start: startDate, current_period_end: endDate, trial_start_date: null, trial_end_date: null } : {}),
+  };
   const subscriptionInfo = {
     ...suppliedInfo,
-    plan: shouldUseTrial ? 'trial' : (selectedPlan || subscription.plan),
+    plan: effectivePlan,
     status: suppliedInfo.status || subscription.status || 'active',
     startDate,
     endDate,
@@ -120,7 +124,7 @@ export function AuthProvider({ children }) {
     };
 
     try {
-      const response = force ? await api.get('/auth/me') : await getLocalFirst('/auth/me');
+      const response = force ? await api.get('/auth/me', { params: { fresh: Date.now() } }) : await getLocalFirst('/auth/me');
       const { data } = response;
       applySession(data);
       const pendingProfile = readPendingProfile(data.teacher?.id);

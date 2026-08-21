@@ -168,31 +168,40 @@ function getSubscriptionPresentation(teacherId, sub) {
 }
 
 function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
-  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY reviewed_at DESC, created_at DESC LIMIT 1").get(teacherId);
+  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY datetime(COALESCE(reviewed_at, created_at)) DESC, created_at DESC LIMIT 1").get(teacherId);
   if (!approved) return rawSub;
   const definitions = getPlanDefinitions();
   const canonicalPlan = resolvePlanId(approved.plan, { definitions, offerId: approved.offer_id, amount: approved.amount_omr, originalAmount: approved.original_amount_omr });
   const selectedPlan = definitions.find((plan) => plan.id === canonicalPlan);
+  if (!selectedPlan || !isPaidPlanId(canonicalPlan)) return rawSub;
+  const approvedAt = approved.reviewed_at || approved.created_at || new Date().toISOString();
+  const subscriptionUpdatedAt = rawSub?.updated_at ? new Date(rawSub.updated_at).getTime() : 0;
+  const approvedTimestamp = new Date(approvedAt).getTime();
   const currentPlan = normalizePlanId(rawSub?.plan);
-  const needsRepair = !rawSub || !isPaidPlanId(currentPlan) || !rawSub.current_period_start;
-  if (!selectedPlan || !isPaidPlanId(canonicalPlan) || !needsRepair) return rawSub;
-  const start = approved.reviewed_at || approved.created_at || new Date().toISOString();
-  const end = selectedPlan.duration_days === null ? null : addDays(start, selectedPlan.duration_days);
+  const alreadyMatches = currentPlan === canonicalPlan
+    && rawSub?.status === 'active'
+    && rawSub?.current_period_start
+    && (selectedPlan.duration_days === null || rawSub?.current_period_end);
+  const isNewerApprovedRequest = Number.isFinite(approvedTimestamp) && approvedTimestamp > subscriptionUpdatedAt;
+  if (alreadyMatches && !isNewerApprovedRequest) return rawSub;
+  const end = selectedPlan.duration_days === null ? null : addDays(approvedAt, selectedPlan.duration_days);
+  const now = new Date().toISOString();
+  const values = [canonicalPlan, approvedAt, end, approved.reference_note || null, now];
   if (rawSub) {
-    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL, current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`).run(canonicalPlan, start, end, approved.reference_note || null, new Date().toISOString(), rawSub.id);
+    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL, current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`).run(...values, rawSub.id);
   } else {
-    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), teacherId, canonicalPlan, start, end, approved.reference_note || null);
+    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference, updated_at) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?, ?)`).run(uuid(), teacherId, canonicalPlan, approvedAt, end, approved.reference_note || null, now);
   }
-  return db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(teacherId);
+  return db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1').get(teacherId);
 }
 
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
-  const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(req.teacherId);
+  const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1').get(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
-  // Always return a concrete subscription. Empty/unknown legacy rows are repaired in-place
-  // as the administrator-configured trial so the UI can never display an undefined package.
+  // Always return a concrete subscription, but only fall back to trial when there is no
+  // valid paid subscription and no approved paid request to reconcile.
   const sub = ensureTrialSubscription(req.teacherId, repairedSub);
 
   let trialInfo = null;

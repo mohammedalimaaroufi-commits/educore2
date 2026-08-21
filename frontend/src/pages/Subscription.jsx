@@ -123,7 +123,7 @@ function RequestHistory({ requests, t, locale }) {
 }
 
 export default function Subscription() {
-  const { subscription, refreshMe } = useAuth();
+  const { subscription, subscriptionInfo, refreshMe } = useAuth();
   const { t, locale } = useLocale();
   const [plans, setPlans] = useState([]);
   const [phone, setPhone] = useState('');
@@ -189,7 +189,7 @@ export default function Subscription() {
     <div className="subscription-page-shell">
       <div className="subscription-page-topline"><Link to="/" className="subscription-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="subscription-local-note">{locale === 'ar' ? 'تفعيل يدوي آمن · بياناتك محفوظة محليًا' : 'Secure manual activation · data saved locally'}</span></div>
       <header className="subscription-page-hero"><div><span className="subscription-eyebrow">{t('subscriptionJourney')}</span><h1>{t('subscription')}</h1><p>{t('subscriptionDescription')}</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
-      <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscription?.plan ? planLabel(subscription.plan, t) : t('planTrial')}</strong><small>{subscription?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscription?.status, t)}</small></div>
+      <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscriptionInfo?.plan ? planLabel(subscriptionInfo.plan, t) : subscription?.plan ? planLabel(subscription.plan, t) : t('planTrial')}</strong><small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small></div>
       <SubscriptionDetailsCard />
       <RequestHistory requests={myRequests} t={t} locale={locale} />
 
@@ -199,7 +199,7 @@ export default function Subscription() {
           const price = priceFor(plan);
           const original = originalPriceFor(plan);
           const discount = discountPercent(original, price);
-          const hasOffer = discount > 0 || Boolean(plan.offer);
+          const hasOffer = discount > 0 || Boolean(plan.offer?.id || plan.offer?.title);
           return <article key={plan.id} className={`subscription-plan-card ${plan.highlight ? 'is-highlighted' : ''} ${hasOffer ? 'has-offer' : ''} ${selectedPlan === plan.id ? 'is-selected' : ''}`}>
             {hasOffer && <div className="subscription-plan-offer-top"><span>{plan.offer?.title || t('specialOffer')}</span>{discount > 0 && <b>{discount}% {t('discount', 'خصم')}</b>}</div>}
             {plan.highlight && !hasOffer && <span className="subscription-plan-ribbon">{t('mostAttractive')}</span>}
