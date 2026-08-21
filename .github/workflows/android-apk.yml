@@ -1,0 +1,76 @@
+name: Build EduCore Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write
+
+env:
+  VITE_API_URL: https://educore-qvxl.onrender.com/api
+  VITE_ANDROID_APK_URL: https://github.com/mohammedalimaaroufi-commits/educore2/releases/download/educore-android-latest/EduCore.apk
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build web assets for Render API
+        working-directory: frontend
+        run: npm run build
+
+      - name: Sync Capacitor Android project
+        working-directory: frontend
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: frontend/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Copy APK with stable name
+        run: cp frontend/android/app/build/outputs/apk/debug/app-debug.apk EduCore.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EduCore-Android-debug
+          path: EduCore.apk
+          retention-days: 30
+
+      - name: Publish latest APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete educore-android-latest --yes --cleanup-tag || true
+          gh release create educore-android-latest EduCore.apk \
+            --target "$GITHUB_SHA" \
+            --title "EduCore Android APK (latest)" \
+            --notes "آخر نسخة Android من EduCore. API: https://educore-qvxl.onrender.com"

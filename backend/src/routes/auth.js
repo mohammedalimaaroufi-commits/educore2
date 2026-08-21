@@ -145,25 +145,34 @@ router.post('/reset-password', async (req, res) => {
 
 function getSubscriptionPresentation(teacherId, sub) {
   const definitions = getPlanDefinitions();
-  const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY reviewed_at DESC, created_at DESC").all(teacherId);
-  const request = requests[0] || null;
-  const plan = resolvePlanId(request?.plan || sub?.plan, {
+  const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY datetime(COALESCE(reviewed_at, created_at)) DESC, created_at DESC").all(teacherId);
+  const activePlan = resolvePlanId(sub?.plan, { definitions });
+  const requestWithMatchingPlan = requests.find((candidate) => resolvePlanId(candidate.plan, {
     definitions,
-    offerId: request?.offer_id,
-    amount: request?.amount_omr,
-    originalAmount: request?.original_amount_omr,
-  }) || normalizePlanId(sub?.plan) || sub?.plan || 'trial';
+    offerId: candidate.offer_id,
+    amount: candidate.amount_omr,
+    originalAmount: candidate.original_amount_omr,
+  }) === activePlan);
+  const request = requestWithMatchingPlan || requests[0] || null;
+  const requestedPlan = request ? resolvePlanId(request.plan, {
+    definitions,
+    offerId: request.offer_id,
+    amount: request.amount_omr,
+    originalAmount: request.original_amount_omr,
+  }) : null;
+  const plan = isPaidPlanId(activePlan) ? activePlan : requestedPlan || activePlan || 'trial';
   const definition = definitions.find((item) => item.id === plan) || null;
   const offer = request?.offer_id ? db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(request.offer_id) : null;
+  const isMatchingRequest = requestedPlan === plan;
   return {
     plan,
     planTitle: definition?.title || plan,
-    offerId: request?.offer_id || null,
-    offerTitle: offer?.title || null,
-    amount: request?.amount_omr ?? null,
-    originalAmount: request?.original_amount_omr ?? null,
-    requestId: request?.id || null,
-    approvedAt: request?.reviewed_at || null,
+    offerId: isMatchingRequest ? request?.offer_id || null : null,
+    offerTitle: isMatchingRequest ? offer?.title || null : null,
+    amount: isMatchingRequest ? request?.amount_omr ?? null : null,
+    originalAmount: isMatchingRequest ? request?.original_amount_omr ?? null : null,
+    requestId: isMatchingRequest ? request?.id || null : null,
+    approvedAt: isMatchingRequest ? request?.reviewed_at || null : null,
   };
 }
 

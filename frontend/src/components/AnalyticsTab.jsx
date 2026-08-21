@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend, Cell, LabelList } from 'recharts';
 import StudentAvatar from './StudentAvatar.jsx';
 import StudentDetailModal from './StudentDetailModal.jsx';
 import { getTeacherId } from '../utils/localCache.js';
@@ -154,12 +154,12 @@ export default function AnalyticsTab({ classId }) {
         <p className="text-xs text-ink/50 mb-3">يوضح عدد الطلاب داخل كل نطاق من الدرجة النهائية.</p>
         <ChartKey label="النطاقات" items={distribution.map((item) => ({ id: item.range, label: item.range, meta: `${item.count} طالب` }))} />
         <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={distribution}>
+          <BarChart data={distribution} margin={{ top: 22, right: 14, left: 4, bottom: 12 }} barCategoryGap="22%">
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
             <XAxis dataKey="range" tick={{ fontSize: 12 }} />
             <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
             <Tooltip />
-            <Bar dataKey="count" fill="#2E7D6B" radius={[6, 6, 0, 0]} name="عدد الطلاب" />
+            <Bar dataKey="count" fill="#2E7D6B" radius={[6, 6, 0, 0]} name="عدد الطلاب"><LabelList dataKey="count" position="top" formatter={(value) => `${value}`} fill="#1B2430" fontSize={12} fontWeight={700} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -169,7 +169,7 @@ export default function AnalyticsTab({ classId }) {
         <p className="text-xs text-ink/50 mb-3">يُحسب محليًا من آخر snapshot محفوظ على جهاز المعلم.</p>
         <ChartKey label="الفئات" items={categoryKey} />
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={categoryAverages} layout="vertical" margin={{ left: 10 }}>
+          <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 42, left: 10, bottom: 12 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
             <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} />
             <YAxis type="category" dataKey="category" width={110} tick={{ fontSize: 12 }} />
@@ -178,6 +178,7 @@ export default function AnalyticsTab({ classId }) {
               {categoryAverages.map((category, index) => (
                 <Cell key={category.category || index} fill={category.averagePercent === null ? '#E4E1D8' : category.averagePercent >= 70 ? '#2E7D6B' : category.averagePercent >= 50 ? '#E0A548' : '#C1553D'} />
               ))}
+              <LabelList dataKey="averagePercent" position="right" formatter={(value) => value === null ? '—' : `${value}%`} fill="#1B2430" fontSize={11} fontWeight={700} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -197,13 +198,13 @@ export default function AnalyticsTab({ classId }) {
           <>
           <ChartKey label="الفئات الظاهرة" items={growthCategories} />
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={growth}>
+            <LineChart data={growth} margin={{ top: 22, right: 22, left: 8, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
               <XAxis dataKey="index" tick={{ fontSize: 12 }} label={{ value: 'التقييمات', position: 'insideBottom', offset: -2, fontSize: 11 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
               <Tooltip formatter={(value, name, payload) => [`${value}%`, payload.payload.title]} />
               <Legend />
-              <Line type="monotone" dataKey="percent" stroke="#E0A548" strokeWidth={3} dot={{ r: 4 }} name="النسبة %" />
+              <Line type="monotone" dataKey="percent" stroke="#E0A548" strokeWidth={3} dot={{ r: 4 }} name="النسبة %"><LabelList dataKey="percent" position="top" formatter={(value) => `${value}%`} fill="#1B2430" fontSize={10} fontWeight={700} /></Line>
             </LineChart>
           </ResponsiveContainer>
           </>

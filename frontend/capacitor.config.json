@@ -1,0 +1,18 @@
+{
+  "appId": "com.dalimospace.educore",
+  "appName": "EduCore",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#1B2430",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    }
+  }
+}

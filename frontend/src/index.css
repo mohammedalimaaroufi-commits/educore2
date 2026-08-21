@@ -420,3 +420,40 @@ h1, h2, h3, h4 {
 @media (max-width: 680px) { .settings-follow-up-rule { align-items: flex-start; flex-direction: column; } .settings-follow-up-rule > div { width: 100%; } }
 .analytics-kpi button { font-family: inherit; }
 button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointer; }
+
+
+/* Chart readability: keep value labels outside bars/slices and prevent clipping in responsive cards. */
+.analytics-kpi-grid + .card,
+.class-tab-panel .card:has(.recharts-wrapper),
+.recharts-wrapper,
+.recharts-surface { overflow: visible !important; }
+.recharts-text { paint-order: stroke; stroke: rgba(255,255,255,.72); stroke-width: 3px; stroke-linejoin: round; }
+.recharts-cartesian-axis-tick-value { fill: #40535b; }
+.recharts-default-tooltip { border: 1px solid rgba(46,125,107,.18) !important; border-radius: .7rem !important; box-shadow: 0 12px 26px rgba(27,36,48,.12) !important; }
+@media (max-width: 760px) {
+  .recharts-cartesian-axis-tick-value { font-size: 10px; }
+  .recharts-wrapper { min-width: 0; }
+}
+
+
+/* Small UI polish for analytics and subscription control rooms. */
+.class-tab-panel .card:has(.recharts-wrapper),
+.subscription-plan-card,
+.subscription-current-card,
+.subscription-activation-card { transition: transform 180ms cubic-bezier(.23,1,.32,1), box-shadow 180ms cubic-bezier(.23,1,.32,1), border-color 180ms ease; }
+.class-tab-panel .card:has(.recharts-wrapper):hover,
+.subscription-plan-card:hover,
+.subscription-current-card:hover,
+.subscription-activation-card:hover { box-shadow: 0 16px 34px rgba(27,36,48,.09); }
+.subscription-plan-card.has-offer::before { content: ''; position: absolute; inset: 0 0 auto; height: .22rem; background: linear-gradient(90deg, #e0a548, #2e7d6b); }
+.subscription-plan-card.is-selected::after { content: '✓'; position: absolute; top: .8rem; inset-inline-end: .8rem; display: grid; place-items: center; width: 1.65rem; height: 1.65rem; color: #fff; background: #2e7d6b; border-radius: 50%; font-size: .75rem; font-weight: 900; }
+@media (max-width: 760px) {
+  .subscription-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-kpi strong, .report-kpi-grid strong { font-size: 1.35rem; }
+}
+@media (max-width: 460px) {
+  .subscription-details-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
