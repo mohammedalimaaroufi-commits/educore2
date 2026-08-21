@@ -37,6 +37,7 @@ function buildSummary(snapshot, classId) {
       .filter((log) => log.student_id === student.id)
       .sort((a, b) => String(b.occurred_at || '').localeCompare(String(a.occurred_at || '')));
     const enrichedLogs = logs.map((log) => ({ ...log, behavior: typeMap.get(log.behavior_type_id) }));
+    const latestNoteLog = enrichedLogs.find((log) => String(log.note_text || '').trim());
     return {
       student_id: student.id,
       full_name: student.full_name,
@@ -55,6 +56,8 @@ function buildSummary(snapshot, classId) {
       positive_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'positive' && String(log.note_text || '').trim()).length,
       negative_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'negative' && String(log.note_text || '').trim()).length,
       latest_logs: enrichedLogs.slice(0, 3),
+      latest_note: latestNoteLog?.note_text || '',
+      latest_note_label: latestNoteLog?.behavior?.label || '',
     };
   });
 }
@@ -182,14 +185,14 @@ export default function BehaviorTab({ classId }) {
               <div key={student.id} className="border border-line rounded-xl2 overflow-hidden">
                 <button onClick={() => setOpenStudent((current) => (current === student.id ? null : student.id))} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-right hover:bg-surface ${openStudent === student.id ? 'bg-surface' : ''}`}>
                   <StudentAvatar name={student.full_name} photoUrl={student.photo_url} size={26} />
-                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>{t('net')} {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{t('positive')} +{row.positive_points || 0} ({row.positive_count})</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">{t('negative')} -{row.negative_points || 0} ({row.negative_count})</span>{row.note_count > 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700">{t('notes')} {row.note_count}</span>}{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">{t('latest')}: {row.latest_logs[0].behavior.label}</span>}</span></span>
+                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>{t('net')} {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{t('positive')} +{row.positive_points || 0} ({row.positive_count})</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">{t('negative')} -{row.negative_points || 0} ({row.negative_count})</span>{row.note_count > 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700">{t('notes')} {row.note_count}</span>}{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">{t('latest')}: {row.latest_logs[0].behavior.label}</span>}{row.latest_note && <span className="behavior-latest-note" title={row.latest_note}>ملاحظة: {row.latest_note_label ? `${row.latest_note_label} — ` : ''}{row.latest_note}</span>}</span></span>
                   <Icon name={openStudent === student.id ? 'chevronUp' : 'chevronDown'} className="w-4 h-4 text-ink/40 shrink-0" />
                 </button>
                 {openStudent === student.id && (
                   <div className="px-3 pb-3 pt-1 border-t border-line bg-surface/50">
                     <p className="text-xs text-ink/50 mb-2">{t('clickBehavior', '', { name: student.full_name })}</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">{types.map((type) => <button key={type.id} onClick={() => logBehavior(student.id, type.id)} className={`px-3 py-2 rounded-xl2 text-sm font-medium border flex items-center justify-center gap-2 ${type.polarity === 'positive' ? 'border-primary/40 text-primary hover:bg-primary/10' : 'border-danger/40 text-danger hover:bg-danger/10'}`}><Icon name={type.icon} className="w-4 h-4" />{type.label} ({type.points > 0 ? '+' : ''}{type.points})</button>)}</div>
-                    <input className="input text-xs" placeholder={t('quickNote')} value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
+                    <textarea className="input text-xs behavior-note-input" rows={2} placeholder={t('quickNote')} value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
                     {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">{t('latestDetails')}</p>{row.latest_logs.map((log) => <div key={log.id} className="flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || t('noTextNote')}</span><span className="text-ink/30">{formatWhen(log.occurred_at, locale)}</span></div>)}</div>}
                     <button className="text-primary text-xs mt-2" onClick={() => setDetailStudentId(student.id)}>{t('fullBehaviorRecord')}</button>
                   </div>

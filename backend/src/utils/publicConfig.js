@@ -22,6 +22,8 @@ const PUBLIC_CONFIG_KEYS = [
   'announcement_ends_at',
 ];
 
+const NOTIFICATIONS_KEY = 'announcement_notifications';
+
 function getSetting(key, fallback = '') {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
   return row?.value ?? fallback;
@@ -32,9 +34,20 @@ function setSetting(key, value) {
     .run(key, value === null || value === undefined ? '' : String(value));
 }
 
+function readNotifications() {
+  const raw = getSetting(NOTIFICATIONS_KEY, '[]');
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item) => item && (item.id || item.title_ar || item.title_en || item.message_ar || item.message_en)) : [];
+  } catch {
+    return [];
+  }
+}
+
 function getAdminPublicConfig() {
   const config = {};
   for (const key of PUBLIC_CONFIG_KEYS) config[key] = getSetting(key, '');
+  config.announcement_notifications = readNotifications();
   if (!config.payment_phone) config.payment_phone = DEFAULT_PAYMENT_PHONE;
   if (!config.announcement_type) config.announcement_type = 'maintenance';
   if (!config.announcement_enabled) config.announcement_enabled = '0';
@@ -73,6 +86,9 @@ function getPublicConfig() {
       ends_at: config.announcement_ends_at,
     }
     : null;
+  const notifications = config.announcement_notifications
+    .filter((item) => item.enabled !== false && item.enabled !== '0' && item.enabled !== 0 && isWithinWindow(new Date(), item.starts_at, item.ends_at))
+    .map((item) => ({ ...item, enabled: true }));
   return {
     payment: {
       phone: config.payment_phone || DEFAULT_PAYMENT_PHONE,
@@ -83,12 +99,17 @@ function getPublicConfig() {
       note_en: config.payment_note_en,
     },
     announcement,
+    notifications,
   };
 }
 
 function savePublicConfig(input = {}) {
   for (const key of PUBLIC_CONFIG_KEYS) {
     if (Object.prototype.hasOwnProperty.call(input, key)) setSetting(key, input[key]);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'announcement_notifications')) {
+    const notifications = Array.isArray(input.announcement_notifications) ? input.announcement_notifications : [];
+    setSetting(NOTIFICATIONS_KEY, JSON.stringify(notifications.slice(0, 50)));
   }
   return getAdminPublicConfig();
 }

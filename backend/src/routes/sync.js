@@ -5,6 +5,10 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
+function purgeExpiredMessages() {
+  db.prepare("DELETE FROM messages WHERE datetime(created_at) < datetime('now', '-24 hours')").run();
+}
+
 function parseJson(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   try {
@@ -17,6 +21,7 @@ function parseJson(value, fallback) {
 // One round trip for the teacher-owned data. The local-first client stores this
 // snapshot in IndexedDB and uses it for analytics/reports while the network is slow.
 router.get('/snapshot', (req, res) => {
+  purgeExpiredMessages();
   const row = db.prepare(`
     WITH context AS (SELECT ? AS teacher_id),
     owned_classes AS (
@@ -115,7 +120,7 @@ router.get('/snapshot', (req, res) => {
       (SELECT COALESCE(json_group_array(json_object(
         'id', m.id, 'teacher_id', m.teacher_id, 'sender', m.sender, 'text', m.text,
         'read_by_teacher', m.read_by_teacher, 'read_by_admin', m.read_by_admin, 'client_message_id', m.client_message_id, 'created_at', m.created_at
-      )), '[]') FROM messages m, context WHERE m.teacher_id = context.teacher_id) AS messages
+      )), '[]') FROM messages m, context WHERE m.teacher_id = context.teacher_id AND datetime(m.created_at) >= datetime('now', '-24 hours')) AS messages
   `).get(req.teacherId);
 
   if (!row || !row.teacher) return res.status(404).json({ error: 'بيانات المعلم غير موجودة' });

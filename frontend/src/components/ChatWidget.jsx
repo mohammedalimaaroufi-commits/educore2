@@ -6,12 +6,23 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation } from '../utils/snapshotSync.js';
 import { saveSnapshot } from '../utils/localDb.js';
 
+const MESSAGE_RETENTION_MS = 24 * 60 * 60 * 1000;
+
 function messageKey(message) {
   return message?.client_message_id || message?.id;
 }
 
+function isFreshMessage(message) {
+  const createdAt = new Date(message?.created_at || 0).getTime();
+  return Number.isFinite(createdAt) && Date.now() - createdAt < MESSAGE_RETENTION_MS;
+}
+
+function freshMessages(items) {
+  return (Array.isArray(items) ? items : []).filter(isFreshMessage);
+}
+
 function mergeMessageList(current, incoming) {
-  if (!incoming) return current;
+  if (!incoming || !isFreshMessage(incoming)) return current;
   const incomingKey = messageKey(incoming);
   const existingIndex = current.findIndex((message) => messageKey(message) === incomingKey || (message.client_message_id && message.client_message_id === incoming.client_message_id) || (message.id === incoming.id));
   if (existingIndex < 0) return [...current, incoming].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
@@ -36,10 +47,10 @@ export default function ChatWidget() {
   const loadHistory = useCallback(async () => {
     try {
       const local = await getOrSyncSnapshot(teacherId);
-      if (local?.messages) setMessages(local.messages);
+      if (local?.messages) setMessages(freshMessages(local.messages));
       if (openRef.current) setUnread(0);
       // Refresh the conversation without blocking the local first paint.
-      api.get('/messages').then(({ data }) => setMessages(data.messages || [])).catch(() => undefined);
+      api.get('/messages').then(({ data }) => setMessages(freshMessages(data.messages))).catch(() => undefined);
     } catch {
       setStatus('تعمل الدردشة من النسخة المحلية مؤقتًا');
     }
@@ -70,6 +81,11 @@ export default function ChatWidget() {
     if (next) void loadHistory();
     return next;
   });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setMessages((current) => freshMessages(current)), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, open]);
 

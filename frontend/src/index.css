@@ -457,3 +457,31 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+
+/* Compact gradebook sub-assessment headers: the title and weight stay visible, editing opens on click. */
+.grade-subassessment-head { vertical-align: top; }
+.grade-subassessment-chip { display: inline-flex; align-items: center; justify-content: center; gap: .18rem; max-width: 7rem; min-height: 1.8rem; padding: .28rem .42rem; color: #1b2430; background: rgba(255,255,255,.92); border: 1px solid rgba(27,36,48,.12); border-radius: .55rem; font-size: .68rem; line-height: 1.25; white-space: normal; cursor: pointer; transition: 160ms ease-out; }
+.grade-subassessment-chip:hover, .grade-subassessment-chip:focus-visible { color: #2e7d6b; border-color: rgba(46,125,107,.5); box-shadow: 0 0 0 3px rgba(46,125,107,.1); outline: none; }
+.grade-subassessment-chip span { overflow: hidden; text-overflow: ellipsis; }
+.grade-subassessment-chip b { color: #2e7d6b; font-weight: 800; white-space: nowrap; }
+.grade-subassessment-editor { display: grid; justify-items: center; gap: .25rem; min-width: 8.2rem; padding: .25rem; background: rgba(255,255,255,.8); border: 1px solid rgba(46,125,107,.18); border-radius: .6rem; }
+.grade-subassessment-editor .input { max-width: 100%; }
+.behavior-note-input { min-height: 4.1rem; resize: vertical; line-height: 1.6; }
+.behavior-latest-note { display: inline-block; max-width: min(100%, 28rem); color: rgba(27,36,48,.62); overflow-wrap: anywhere; white-space: normal; line-height: 1.5; }
+.public-announcement-stack { display: grid; gap: .6rem; }
+.public-announcement-stack .public-announcement { margin-block: .55rem; }
+.admin-control-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; padding: .35rem; background: rgba(247,245,240,.8); border: 1px solid rgba(27,36,48,.08); border-radius: .85rem; }
+.admin-control-tab { padding: .55rem .8rem; color: rgba(27,36,48,.58); border-radius: .6rem; font-size: .72rem; font-weight: 800; }
+.admin-control-tab.is-active { color: #fff; background: #2e7d6b; }
+.admin-notification-row { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; padding: .75rem; background: rgba(247,245,240,.72); border: 1px solid rgba(27,36,48,.08); border-radius: .75rem; }
+.admin-notification-row__body { min-width: 0; display: grid; gap: .25rem; }
+.admin-notification-row__body p { margin: 0; color: rgba(27,36,48,.58); font-size: .7rem; line-height: 1.6; }
+@media (max-width: 560px) { .admin-control-tabs { display: grid; grid-template-columns: 1fr 1fr; }.admin-control-tab { width: 100%; }.admin-notification-row { flex-direction: column; }.admin-notification-row .text-danger { align-self: flex-end; } }
+
+.grade-subassessment-add-cell { min-width: 2.8rem; text-align: center; }
+.grade-subassessment-add { display: inline-flex; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border: 1px solid currentColor; border-radius: 999px; background: rgba(255,255,255,.78); font-size: 1.25rem; font-weight: 800; line-height: 1; cursor: pointer; transition: 160ms ease-out; }
+.grade-subassessment-add:hover, .grade-subassessment-add:focus-visible { background: currentColor; color: #fff !important; transform: scale(1.04); outline: none; }
+
+.subscription-active-notice { margin: 0 0 1rem; padding: .85rem 1rem; color: #1f5d50; background: rgba(46,125,107,.09); border: 1px solid rgba(46,125,107,.2); border-radius: .85rem; font-size: .82rem; line-height: 1.7; }
+.subscription-form-error { margin: .45rem 0 0; padding: .55rem .7rem; color: #a53f2d; background: rgba(193,85,61,.08); border: 1px solid rgba(193,85,61,.18); border-radius: .65rem; font-size: .78rem; }

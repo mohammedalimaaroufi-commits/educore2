@@ -23,14 +23,6 @@ const SORT_OPTIONS = {
   attendance: (a, b) => (b.attendanceRate ?? -1) - (a.attendanceRate ?? -1),
 };
 
-function ChartKey({ items, label }) {
-  if (!items?.length) return null;
-  return <div className="flex flex-wrap items-center gap-2 mb-3" aria-label={label}>
-    <span className="text-xs text-ink/50">{label}:</span>
-    {items.map((item) => <span key={item.id || item.label} className="px-2.5 py-1 rounded-full bg-surface border border-line text-xs text-ink/70">{item.label}{item.meta ? ` · ${item.meta}` : ''}</span>)}
-  </div>;
-}
-
 function FollowUpReason({ reason, locale }) {
   const details = reason.details || [];
   return <div className="rounded-lg border border-line bg-white/70 p-2">
@@ -98,7 +90,6 @@ export default function AnalyticsTab({ classId }) {
   const roster = useMemo(() => buildClassRoster(snapshot, classId), [snapshot, classId]);
   const distribution = useMemo(() => Object.entries(buildDistribution(roster)).map(([range, count]) => ({ range, count })), [roster]);
   const categoryAverages = useMemo(() => buildCategoryAverages(snapshot, classId), [snapshot, classId]);
-  const categoryKey = useMemo(() => categoryAverages.map((item) => ({ id: item.category, label: item.category, meta: `وزن ${item.weight_percent}% · ${item.averagePercent === null ? 'لا توجد درجات' : `متوسط ${item.averagePercent}%`}` })), [categoryAverages]);
   const students = useMemo(() => (snapshot?.students || []).filter((student) => student.class_id === classId && !student.archived), [snapshot, classId]);
   const filteredRoster = useMemo(() => {
     const needle = studentSearch.trim().toLocaleLowerCase();
@@ -125,8 +116,6 @@ export default function AnalyticsTab({ classId }) {
     };
   }, [roster, followUpRows]);
 
-  const growthCategories = useMemo(() => [...new Set(growth.map((item) => item.category).filter(Boolean))].map((label) => ({ id: label, label })), [growth]);
-
   const loadGrowth = (studentId) => {
     setSelectedStudent(studentId);
     if (!studentId) { setGrowth([]); return; }
@@ -152,7 +141,6 @@ export default function AnalyticsTab({ classId }) {
       <div className="card p-4">
         <h3 className="font-bold mb-1">توزيع درجات الفصل</h3>
         <p className="text-xs text-ink/50 mb-3">يوضح عدد الطلاب داخل كل نطاق من الدرجة النهائية.</p>
-        <ChartKey label="النطاقات" items={distribution.map((item) => ({ id: item.range, label: item.range, meta: `${item.count} طالب` }))} />
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={distribution} margin={{ top: 22, right: 14, left: 4, bottom: 12 }} barCategoryGap="22%">
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
@@ -167,7 +155,6 @@ export default function AnalyticsTab({ classId }) {
       <div className="card p-4">
         <h3 className="font-bold mb-1">متوسط الأداء حسب فئة التقييم</h3>
         <p className="text-xs text-ink/50 mb-3">يُحسب محليًا من آخر snapshot محفوظ على جهاز المعلم.</p>
-        <ChartKey label="الفئات" items={categoryKey} />
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 42, left: 10, bottom: 12 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
@@ -196,7 +183,6 @@ export default function AnalyticsTab({ classId }) {
           <p className="text-ink/50 text-sm">اختر طالبًا لعرض تطور درجاته عبر الفصل الدراسي.</p>
         ) : (
           <>
-          <ChartKey label="الفئات الظاهرة" items={growthCategories} />
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={growth} margin={{ top: 22, right: 22, left: 8, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />

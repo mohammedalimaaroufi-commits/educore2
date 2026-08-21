@@ -40,12 +40,21 @@ function offerPayload(offer) {
   };
 }
 
+const MESSAGE_RETENTION_MS = 24 * 60 * 60 * 1000;
+function isFreshChatMessage(message) {
+  const createdAt = new Date(message?.created_at || 0).getTime();
+  return Number.isFinite(createdAt) && Date.now() - createdAt < MESSAGE_RETENTION_MS;
+}
+function freshChatMessages(items) {
+  return (Array.isArray(items) ? items : []).filter(isFreshChatMessage);
+}
+
 function chatMessageKey(message) {
   return message?.client_message_id || message?.id;
 }
 
 function mergeChatMessage(current, incoming) {
-  if (!incoming) return current;
+  if (!incoming || !isFreshChatMessage(incoming)) return current;
   const key = chatMessageKey(incoming);
   const index = current.findIndex((message) => chatMessageKey(message) === key || (message.client_message_id && message.client_message_id === incoming.client_message_id));
   if (index < 0) return [...current, incoming].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
@@ -62,6 +71,7 @@ function PaymentRequests() {
   const [viewReceipt, setViewReceipt] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [actionMessage, setActionMessage] = useState('');
+  const [search, setSearch] = useState('');
 
   const load = async () => {
     const { data } = await adminApi.get('/admin/payment-requests', {
@@ -70,6 +80,11 @@ function PaymentRequests() {
     setRequests(data.requests);
   };
   useEffect(() => { load(); }, [statusFilter, showArchived]);
+  const filteredRequests = requests.filter((request) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [request.full_name, request.email, request.plan, request.reference_note].some((value) => String(value || '').toLowerCase().includes(term));
+  });
 
   const approve = async (id) => {
     if (!confirm(t('confirmActivation'))) return;
@@ -122,8 +137,9 @@ function PaymentRequests() {
         </button>
       </div>
 
+      <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث سريع بالاسم أو البريد أو الباقة أو المرجع" aria-label="بحث في طلبات التفعيل" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
       <div className="space-y-3">
-        {requests.map((r) => (
+        {filteredRequests.map((r) => (
           <div key={r.id} className="card p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {r.receipt_image ? (
@@ -135,7 +151,7 @@ function PaymentRequests() {
               )}
               <div>
                 <p className="font-bold">{r.full_name} <span className="text-ink/50 text-xs">({r.email})</span></p>
-                <p className="text-sm text-ink/70">{t('plan')}: {planLabel(t, r.plan)} {r.plan && !PLAN_LABELS[r.plan] && <small>({t('rawPlan')}: {r.plan})</small>} · {t('amountLabel')}: <strong>{r.amount_omr} {t('currencyOMR')}</strong>{r.original_amount_omr && Number(r.original_amount_omr) !== Number(r.amount_omr) ? ` · ${t('originalPrice')}: ${r.original_amount_omr} ${t('currencyOMR')}` : ''}</p>
+                <p className="text-sm text-ink/70">{t('plan')}: {r.plan_title || planLabel(t, r.plan)} {!r.plan_title && r.plan && !PLAN_LABELS[r.plan] && <small>({t('rawPlan')}: {r.plan})</small>} · {t('amountLabel')}: <strong>{r.amount_omr} {t('currencyOMR')}</strong>{r.original_amount_omr && Number(r.original_amount_omr) !== Number(r.amount_omr) ? ` · ${t('originalPrice')}: ${r.original_amount_omr} ${t('currencyOMR')}` : ''}</p>
                 {r.offer_id && <p className="text-xs text-primary/70">{t('offerLabel')}: {r.offer_id}</p>}
                 {r.reference_note && <p className="text-xs text-ink/50">{t('teacherNote')}: {r.reference_note}</p>}
                 <p className="text-xs text-ink/40">{new Date(r.created_at).toLocaleString(locale === 'ar' ? 'ar' : 'en-US')}</p>
@@ -162,7 +178,7 @@ function PaymentRequests() {
             </div>
           </div>
         ))}
-        {requests.length === 0 && <p className="text-ink/50 text-sm">{t('noRequests')}</p>}
+        {filteredRequests.length === 0 && <p className="text-ink/50 text-sm">{requests.length ? 'لا توجد نتائج مطابقة للبحث.' : t('noRequests')}</p>}
       </div>
 
       {viewReceipt && (
@@ -280,10 +296,18 @@ function PasswordResetRequests() {
 
 function TeachersList({ onMessage }) {
   const [teachers, setTeachers] = useState([]);
+  const [search, setSearch] = useState('');
   useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers)); }, []);
+  const filteredTeachers = teachers.filter((teacher) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [teacher.full_name, teacher.email, teacher.school_name, teacher.plan, teacher.status].some((value) => String(value || '').toLowerCase().includes(term));
+  });
 
   return (
-    <div className="card overflow-x-auto">
+    <div>
+      <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث سريع باسم المعلم أو البريد أو المدرسة" aria-label="بحث في المعلمين" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
+      <div className="card overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-surface"><tr>
           <th className="text-right px-4 py-2">الاسم</th>
@@ -293,17 +317,19 @@ function TeachersList({ onMessage }) {
           <th className="px-4 py-2"></th>
         </tr></thead>
         <tbody>
-          {teachers.map((t) => (
+          {filteredTeachers.map((t) => (
             <tr key={t.id} className="border-t border-line">
               <td className="px-4 py-2">{t.full_name}</td>
               <td className="px-4 py-2 text-ink/60">{t.email}</td>
-              <td className="px-4 py-2">{PLAN_LABELS[t.plan] || t.plan}</td>
+              <td className="px-4 py-2">{t.plan_title || PLAN_LABELS[t.plan] || t.plan || '—'}</td>
               <td className="px-4 py-2">{t.status}</td>
               <td className="px-4 py-2 text-left"><button className="text-primary text-xs" onClick={() => onMessage(t)}>مراسلة</button></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {filteredTeachers.length === 0 && <p className="p-4 text-sm text-ink/50">{teachers.length ? 'لا توجد نتائج مطابقة للبحث.' : 'لا يوجد معلمون بعد.'}</p>}
+      </div>
     </div>
   );
 }
@@ -405,7 +431,7 @@ function ChatPanel({ initialTeacher }) {
 
   useEffect(() => {
     if (!active) return;
-    adminApi.get(`/admin/messages/${active.teacher_id}`).then(({ data }) => setMessages(data.messages || []));
+    adminApi.get(`/admin/messages/${active.teacher_id}`).then(({ data }) => setMessages(freshChatMessages(data.messages)));
     socketRef.current?.emit('join_conversation', active.teacher_id);
     setConversations((prev) => prev.map((conversation) => (
       conversation.teacher_id === active.teacher_id
@@ -413,6 +439,11 @@ function ChatPanel({ initialTeacher }) {
         : conversation
     )));
   }, [active]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setMessages((current) => freshChatMessages(current)), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });

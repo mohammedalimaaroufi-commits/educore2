@@ -66,6 +66,7 @@ export default function GradeMatrix({ classId, className }) {
   const [loading, setLoading] = useState(true);
   const [openComment, setOpenComment] = useState(null);
   const [newAssessment, setNewAssessment] = useState(null);
+  const [editingAssessmentId, setEditingAssessmentId] = useState(null);
   const [assessmentForm, setAssessmentForm] = useState({ title: '', max_score: '', date: '' });
   const [savingKey, setSavingKey] = useState(null);
   const [savedKey, setSavedKey] = useState(null);
@@ -354,29 +355,32 @@ export default function GradeMatrix({ classId, className }) {
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
-                    <th key={assessment.id} className="px-2 py-1.5 border-b border-line font-normal min-w-[85px]" style={{ background: `${categoryColor(index)}14` }}>
+                    <th key={assessment.id} className="grade-subassessment-head px-2 py-1.5 border-b border-line font-normal min-w-[82px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
                           <>
                             <span className="font-medium">{t('categoryScore')} <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
                             <span className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</span>
                           </>
-                        ) : (
-                          <>
+                        ) : editingAssessmentId === assessment.id ? (
+                          <div className="grade-subassessment-editor">
                             <div className="flex items-center gap-1">
-                              <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`${t('subAssessmentTitle')} ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
-                              <button className="text-danger text-base leading-none font-bold print:hidden" title={t('deleteSubAssessment')} aria-label={`${t('deleteClass')} ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
+                              <input autoFocus className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`${t('subAssessmentTitle')} ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
+                              <button type="button" className="text-danger text-base leading-none font-bold print:hidden" title={t('deleteSubAssessment')} aria-label={`${t('deleteClass')} ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
                             </div>
-                            <div className="text-[10px] text-ink/50">{t('subAssessment')} ({assessment.max_score})</div>
                             <div className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</div>
                             <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`${t('subAssessmentWeight')} ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
-                          </>
+                            <button type="button" className="text-[10px] text-primary" onClick={() => setEditingAssessmentId(null)}>{t('saveNote')}</button>
+                          </div>
+                        ) : (
+                          <button type="button" className="grade-subassessment-chip" title={`${assessment.title} · ${assessment.max_score}`} onClick={() => setEditingAssessmentId(assessment.id)}>
+                            <span>{assessment.title}</span><b>({assessment.max_score})</b>
+                          </button>
                         )}
                       </div>
                     </th>
                   ))}
-                  <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
-                    {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>{t('sum')} {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
+                  <th className="grade-subassessment-add-cell px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
                     {newAssessment === category.id ? (
                       <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1 min-w-[130px]">
                         <input className="input text-xs py-0.5" placeholder={t('addAssessmentName')} required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
@@ -386,7 +390,7 @@ export default function GradeMatrix({ classId, className }) {
                     ) : (() => {
                       const remaining = Number(category.weight_percent || 0) - detailTotalFor(category);
                       const remainingLabel = remaining >= 0 ? t('remainingBy', '', { value: remaining.toFixed(2).replace(/\.00$/, '') }) : t('overBy', '', { value: Math.abs(remaining).toFixed(2).replace(/\.00$/, '') });
-                      return <button className="btn-secondary text-xs px-2 py-1 leading-tight" style={{ color: categoryColor(index) }} title={`${t('add')} ${t('subAssessment')}`} onClick={() => startAdding(category)}>{t('subAssessment')} ({remainingLabel}) +</button>;
+                      return <button type="button" className="grade-subassessment-add" style={{ color: categoryColor(index) }} aria-label={`${t('add')} ${t('subAssessment')}`} title={`${t('add')} ${t('subAssessment')} · ${remainingLabel}`} onClick={() => startAdding(category)}>+</button>;
                     })()}
                   </th>
                 </React.Fragment>

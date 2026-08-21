@@ -6,15 +6,22 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
+const MESSAGE_RETENTION_HOURS = 24;
+function purgeExpiredMessages() {
+  db.prepare("DELETE FROM messages WHERE datetime(created_at) < datetime('now', ?)").run(`-${MESSAGE_RETENTION_HOURS} hours`);
+}
+
 // GET /api/messages  -> this teacher's full conversation with the admin console
 router.get('/', (req, res) => {
-  const messages = db.prepare('SELECT * FROM messages WHERE teacher_id = ? ORDER BY created_at ASC').all(req.teacherId);
+  purgeExpiredMessages();
+  const messages = db.prepare("SELECT * FROM messages WHERE teacher_id = ? AND datetime(created_at) >= datetime('now', '-24 hours') ORDER BY created_at ASC").all(req.teacherId);
   db.prepare("UPDATE messages SET read_by_teacher = 1 WHERE teacher_id = ? AND sender = 'admin' AND read_by_teacher = 0").run(req.teacherId);
   res.json({ messages });
 });
 
 // POST /api/messages  { text }  -> teacher sends a message to the admin
 router.post('/', (req, res) => {
+  purgeExpiredMessages();
   const { text, client_message_id } = req.body;
   if (!text || !text.trim()) return res.status(400).json({ error: 'الرسالة لا يمكن أن تكون فارغة' });
   if (client_message_id) {

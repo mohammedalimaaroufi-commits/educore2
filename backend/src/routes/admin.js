@@ -8,6 +8,11 @@ const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfi
 
 const router = express.Router();
 
+const MESSAGE_RETENTION_HOURS = 24;
+function purgeExpiredMessages() {
+  db.prepare("DELETE FROM messages WHERE datetime(created_at) < datetime('now', ?)").run(`-${MESSAGE_RETENTION_HOURS} hours`);
+}
+
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change_this_admin_password';
 
 function addDays(date, days) {
@@ -38,6 +43,13 @@ router.patch('/public-config', (req, res) => {
   if (input.announcement_starts_at && Number.isNaN(new Date(input.announcement_starts_at).getTime())) return res.status(400).json({ error: 'تاريخ بداية الإعلان غير صالح' });
   if (input.announcement_ends_at && Number.isNaN(new Date(input.announcement_ends_at).getTime())) return res.status(400).json({ error: 'تاريخ نهاية الإعلان غير صالح' });
   if (input.announcement_starts_at && input.announcement_ends_at && new Date(input.announcement_ends_at) < new Date(input.announcement_starts_at)) return res.status(400).json({ error: 'تاريخ نهاية الإعلان يجب أن يأتي بعد تاريخ البداية' });
+  if (Array.isArray(input.announcement_notifications)) {
+    for (const notification of input.announcement_notifications) {
+      if (notification?.starts_at && Number.isNaN(new Date(notification.starts_at).getTime())) return res.status(400).json({ error: 'تاريخ بداية الإشعار غير صالح' });
+      if (notification?.ends_at && Number.isNaN(new Date(notification.ends_at).getTime())) return res.status(400).json({ error: 'تاريخ نهاية الإشعار غير صالح' });
+      if (notification?.starts_at && notification?.ends_at && new Date(notification.ends_at) < new Date(notification.starts_at)) return res.status(400).json({ error: 'تاريخ نهاية الإشعار يجب أن يأتي بعد تاريخ البداية' });
+    }
+  }
   const config = savePublicConfig(input);
   res.json({ config });
 });
@@ -193,13 +205,21 @@ router.post('/payment-requests/:id/approve', (req, res) => {
   const periodEnd = selectedPlan.duration_days === null ? null : addDays(now, selectedPlan.duration_days);
 
   const activate = db.transaction(() => {
-    const updated = db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL,
-                current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE teacher_id = ?`)
-      .run(canonicalPlan, now, periodEnd, request.reference_note || null, now, request.teacher_id);
-    if (!updated.changes) {
-      db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference)
-                  VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), request.teacher_id, canonicalPlan, now, periodEnd, request.reference_note || null);
+    const current = db.prepare(`SELECT id FROM subscriptions WHERE teacher_id = ? AND status = 'active' ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1`).get(request.teacher_id);
+    let subscriptionId = current?.id;
+    if (current?.id) {
+      db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'`).run(now, request.teacher_id, current.id);
+      db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL,
+                  current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`)
+        .run(canonicalPlan, now, periodEnd, request.reference_note || null, now, current.id);
+    } else {
+      subscriptionId = uuid();
+      db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, trial_start_date, trial_end_date, current_period_start, current_period_end, payment_provider, payment_reference, updated_at)
+                  VALUES (?, ?, ?, 'active', NULL, NULL, ?, ?, 'bank_transfer', ?, ?)`)
+        .run(subscriptionId, request.teacher_id, canonicalPlan, now, periodEnd, request.reference_note || null, now);
     }
+    // A teacher can have only one active subscription, even if legacy duplicate rows exist.
+    db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'`).run(now, request.teacher_id, subscriptionId);
     db.prepare(`UPDATE payment_requests SET plan = ?, status = 'approved', admin_note = ?, reviewed_at = ? WHERE id = ?`)
       .run(canonicalPlan, req.body.admin_note || null, now, request.id);
   });
@@ -220,10 +240,21 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 
 // GET /api/admin/teachers  -> quick overview of all registered teachers + their subscription state
 router.get('/teachers', (req, res) => {
+  const definitions = getPlanDefinitions();
   const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
                               s.plan, s.status, s.trial_end_date, s.current_period_end
-                            FROM teachers t LEFT JOIN subscriptions s ON s.teacher_id = t.id
-                            ORDER BY t.created_at DESC`).all();
+                            FROM teachers t
+                            LEFT JOIN subscriptions s ON s.id = (
+                              SELECT s2.id FROM subscriptions s2
+                              WHERE s2.teacher_id = t.id
+                              ORDER BY CASE WHEN s2.status = 'active' THEN 0 ELSE 1 END,
+                                       datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
+                              LIMIT 1
+                            )
+                            ORDER BY t.created_at DESC`).all().map((row) => ({
+                              ...row,
+                              plan_title: definitions.find((plan) => plan.id === resolvePlanId(row.plan, { definitions }))?.title || null,
+                            }));
   res.json({ teachers: rows });
 });
 
@@ -231,6 +262,7 @@ router.get('/teachers', (req, res) => {
 
 // GET /api/admin/conversations  -> one row per teacher who has exchanged messages, with last message + unread count
 router.get('/conversations', (req, res) => {
+  purgeExpiredMessages();
   const rows = db.prepare(`
     WITH ranked_messages AS (
       SELECT
@@ -244,6 +276,7 @@ router.get('/conversations', (req, res) => {
         SUM(CASE WHEN m.sender = 'teacher' AND m.read_by_admin = 0 THEN 1 ELSE 0 END)
           OVER (PARTITION BY m.teacher_id) AS unread_count
       FROM messages m
+      WHERE datetime(m.created_at) >= datetime('now', '-24 hours')
     )
     SELECT
       t.id AS teacher_id,
@@ -262,13 +295,15 @@ router.get('/conversations', (req, res) => {
 
 // GET /api/admin/messages/:teacherId  -> full conversation history with one teacher
 router.get('/messages/:teacherId', (req, res) => {
-  const messages = db.prepare('SELECT * FROM messages WHERE teacher_id = ? ORDER BY created_at ASC').all(req.params.teacherId);
+  purgeExpiredMessages();
+  const messages = db.prepare("SELECT * FROM messages WHERE teacher_id = ? AND datetime(created_at) >= datetime('now', '-24 hours') ORDER BY created_at ASC").all(req.params.teacherId);
   db.prepare("UPDATE messages SET read_by_admin = 1 WHERE teacher_id = ? AND sender = 'teacher' AND read_by_admin = 0").run(req.params.teacherId);
   res.json({ messages });
 });
 
 // POST /api/admin/messages/:teacherId  { text }  -> admin replies to a specific teacher
 router.post('/messages/:teacherId', (req, res) => {
+  purgeExpiredMessages();
   const { text, client_message_id } = req.body;
   if (!text || !text.trim()) return res.status(400).json({ error: 'الرسالة لا يمكن أن تكون فارغة' });
   const teacher = db.prepare('SELECT id FROM teachers WHERE id = ?').get(req.params.teacherId);
@@ -294,6 +329,7 @@ router.post('/messages/:teacherId', (req, res) => {
 
 // POST /api/admin/broadcast  { text }  -> sends one message to every registered teacher's conversation
 router.post('/broadcast', (req, res) => {
+  purgeExpiredMessages();
   const { text } = req.body;
   if (!text || !text.trim()) return res.status(400).json({ error: 'الرسالة لا يمكن أن تكون فارغة' });
 

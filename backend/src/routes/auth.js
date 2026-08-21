@@ -192,22 +192,28 @@ function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
     && rawSub?.current_period_start
     && (selectedPlan.duration_days === null || rawSub?.current_period_end);
   const isNewerApprovedRequest = Number.isFinite(approvedTimestamp) && approvedTimestamp > subscriptionUpdatedAt;
-  if (alreadyMatches && !isNewerApprovedRequest) return rawSub;
+  if (alreadyMatches && !isNewerApprovedRequest) {
+    db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'").run(new Date().toISOString(), teacherId, rawSub.id);
+    return rawSub;
+  }
   const end = selectedPlan.duration_days === null ? null : addDays(approvedAt, selectedPlan.duration_days);
   const now = new Date().toISOString();
   const values = [canonicalPlan, approvedAt, end, approved.reference_note || null, now];
+  let subscriptionId = rawSub?.id;
   if (rawSub) {
     db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL, current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`).run(...values, rawSub.id);
   } else {
-    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference, updated_at) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?, ?)`).run(uuid(), teacherId, canonicalPlan, approvedAt, end, approved.reference_note || null, now);
+    subscriptionId = uuid();
+    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference, updated_at) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?, ?)`).run(subscriptionId, teacherId, canonicalPlan, approvedAt, end, approved.reference_note || null, now);
   }
-  return db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1').get(teacherId);
+  db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'").run(now, teacherId, subscriptionId);
+  return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscriptionId);
 }
 
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
-  const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1').get(req.teacherId);
+  const rawSub = db.prepare("SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1").get(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
   // Always return a concrete subscription, but only fall back to trial when there is no
   // valid paid subscription and no approved paid request to reconcile.
@@ -279,6 +285,8 @@ router.post('/payment-requests', requireAuth, (req, res) => {
   const originalAmount = offer ? Number(offer.original_price_omr || basePrices[canonicalPlan]) : basePrices[canonicalPlan];
   const amount = offer ? Number(offer.offer_price_omr) : basePrices[canonicalPlan];
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });
+  const pending = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'pending' ORDER BY datetime(created_at) DESC LIMIT 1").get(req.teacherId);
+  if (pending) return res.status(409).json({ error: 'لديك طلب تفعيل قيد المراجعة. انتظر قرار المسؤول قبل إرسال طلب جديد.', request: pending });
 
   const id = uuid();
   db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, original_amount_omr, offer_id, reference_note, receipt_image, status)
