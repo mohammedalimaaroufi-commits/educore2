@@ -34,13 +34,13 @@ function ProtectedRoute({ children }) {
   if (loading) return <LoadingScreen />;
   if (!teacher) return <Navigate to="/login" replace />;
   return (
-    <>
+    <div className="protected-app-shell">
       <OfflineBanner />
       <Suspense fallback={null}><PublicAnnouncement placement="global" /></Suspense>
-      {children}
+      <div className="protected-app-content">{children}</div>
       <Suspense fallback={null}><ChatWidget /></Suspense>
       <Suspense fallback={null}><OnboardingTutorial /></Suspense>
-    </>
+    </div>
   );
 }
 

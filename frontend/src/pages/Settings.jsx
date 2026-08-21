@@ -285,29 +285,31 @@ export default function Settings() {
 
   return (
     <div className="settings-page-shell">
-      <div className="settings-page-topline"><Link to="/" className="settings-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
-      <header className="settings-page-hero"><div><span className="settings-eyebrow">{t('settingsCustomization')}</span><h1>{t('generalSettings')}</h1><p>{t('settingsDescription')}</p></div><div className="settings-hero-grid"><span>01<small>{t('profile')}</small></span><span>02<small>{t('gradeTemplates')}</small></span><span>03<small>{t('backup')}</small></span></div></header>
-
-      <nav className="settings-tabs" aria-label={t('settings')}>
-        {TABS.map((tabItem) => (
-          <button key={tabItem.id} type="button" onClick={() => setTab(tabItem.id)}
-            className={`settings-tab ${tab === tabItem.id ? 'is-active' : ''}`}>
-            <span>{String(TABS.findIndex((item) => item.id === tabItem.id) + 1).padStart(2, '0')}</span>{t(tabItem.key)}
-          </button>
-        ))}
-      </nav>
-
-      {tab === 'profile' && <ProfileTab />}
-      {tab === 'schemes' && <SchemesManager />}
-      {tab === 'behavior' && <BehaviorTemplateManager />}
-      {tab === 'recommendations' && <RecommendationsTab />}
-      {tab === 'templates' && <TemplatesTab />}
-      {tab === 'backup' && (
-        <>
-          <BackupManager />
-          <LocalStorageManager />
-        </>
-      )}
+      <div className="settings-page-fixed-header">
+        <div className="settings-page-topline"><Link to="/" className="settings-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
+        <header className="settings-page-hero"><div><span className="settings-eyebrow">{t('settingsCustomization')}</span><h1>{t('generalSettings')}</h1><p>{t('settingsDescription')}</p></div><div className="settings-hero-grid"><span>01<small>{t('profile')}</small></span><span>02<small>{t('gradeTemplates')}</small></span><span>03<small>{t('backup')}</small></span></div></header>
+        <nav className="settings-tabs" aria-label={t('settings')}>
+          {TABS.map((tabItem) => (
+            <button key={tabItem.id} type="button" onClick={() => setTab(tabItem.id)}
+              className={`settings-tab ${tab === tabItem.id ? 'is-active' : ''}`}>
+              <span>{String(TABS.findIndex((item) => item.id === tabItem.id) + 1).padStart(2, '0')}</span>{t(tabItem.key)}
+            </button>
+          ))}
+        </nav>
+      </div>
+      <main className="settings-page-content">
+        {tab === 'profile' && <ProfileTab />}
+        {tab === 'schemes' && <SchemesManager />}
+        {tab === 'behavior' && <BehaviorTemplateManager />}
+        {tab === 'recommendations' && <RecommendationsTab />}
+        {tab === 'templates' && <TemplatesTab />}
+        {tab === 'backup' && (
+          <>
+            <BackupManager />
+            <LocalStorageManager />
+          </>
+        )}
+      </main>
     </div>
   );
 }

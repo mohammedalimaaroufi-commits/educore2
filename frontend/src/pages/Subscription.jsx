@@ -187,14 +187,16 @@ export default function Subscription() {
 
   return (
     <div className="subscription-page-shell">
-      <div className="subscription-page-topline"><Link to="/" className="subscription-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="subscription-local-note">{locale === 'ar' ? 'تفعيل يدوي آمن · بياناتك محفوظة محليًا' : 'Secure manual activation · data saved locally'}</span></div>
-      <header className="subscription-page-hero"><div><span className="subscription-eyebrow">{t('subscriptionJourney')}</span><h1>{t('subscription')}</h1><p>{t('subscriptionDescription')}</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
-      <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscriptionInfo?.plan ? planLabel(subscriptionInfo.plan, t) : subscription?.plan ? planLabel(subscription.plan, t) : t('planTrial')}</strong><small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small></div>
-      <SubscriptionDetailsCard />
-      <RequestHistory requests={myRequests} t={t} locale={locale} />
-
-      <div className="subscription-section-heading subscription-plans-heading"><div><span className="subscription-eyebrow">{t('flexiblePlans')}</span><h2>{t('choosePlan')}</h2><p>{t('plansDescription')}</p></div></div>
-      <div className="subscription-plans-grid">
+      <div className="subscription-page-fixed-header">
+        <div className="subscription-page-topline"><Link to="/" className="subscription-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="subscription-local-note">{locale === 'ar' ? 'تفعيل يدوي آمن · بياناتك محفوظة محليًا' : 'Secure manual activation · data saved locally'}</span></div>
+        <header className="subscription-page-hero"><div><span className="subscription-eyebrow">{t('subscriptionJourney')}</span><h1>{t('subscription')}</h1><p>{t('subscriptionDescription')}</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
+        <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscriptionInfo?.plan ? planLabel(subscriptionInfo.plan, t) : subscription?.plan ? planLabel(subscription.plan, t) : t('planTrial')}</strong><small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small></div>
+      </div>
+      <main className="subscription-page-content">
+        <SubscriptionDetailsCard />
+        <RequestHistory requests={myRequests} t={t} locale={locale} />
+        <div className="subscription-section-heading subscription-plans-heading"><div><span className="subscription-eyebrow">{t('flexiblePlans')}</span><h2>{t('choosePlan')}</h2><p>{t('plansDescription')}</p></div></div>
+        <div className="subscription-plans-grid">
         {visiblePlans.map((plan) => {
           const price = priceFor(plan);
           const original = originalPriceFor(plan);
@@ -215,7 +217,8 @@ export default function Subscription() {
       </div>
 
       {selected && <section ref={activationRef} className="subscription-activation-card scroll-mt-6"><div className="subscription-activation-card__heading"><div><span className="subscription-eyebrow">{t('activationTitle')}</span><h3>{planLabel(selected.id, t)}</h3></div><strong>{omrWithEquivalent(priceFor(selected))}</strong></div><div className="subscription-payment-details"><div><span>{locale === 'ar' ? 'رقم التحويل' : 'Transfer number'}</span><strong>{payment.phone || phone}</strong></div>{payment.recipient && <div><span>{locale === 'ar' ? 'المستلم' : 'Recipient'}</span><strong>{payment.recipient}</strong></div>}{payment.method && <div><span>{locale === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span><strong>{payment.method}</strong></div>}{payment.account && <div><span>{locale === 'ar' ? 'الحساب / IBAN' : 'Account / IBAN'}</span><strong>{payment.account}</strong></div>}</div><ol className="list-decimal list-inside text-sm text-ink/80 space-y-2 mb-5"><li>{t('activationStep1')} <span className="font-bold text-primary">{omrWithEquivalent(priceFor(selected))}</span> — <span className="font-bold">{payment.phone || phone}</span></li><li>{t('activationStep2')}</li><li>{t('activationStep3')}</li></ol>{(payment.note_ar || payment.note_en) && <p className="subscription-payment-note">{locale === 'ar' ? payment.note_ar || payment.note_en : payment.note_en || payment.note_ar}</p>}{submitted ? <p className="text-primary font-medium">{t('requestSent')}</p> : <form onSubmit={submitRequest} className="space-y-3"><div><label className="label">{t('transferReference')}</label><input className="input" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} placeholder={locale === 'ar' ? 'مثال: تحويل باسم أحمد - 123456' : 'e.g. Transfer by Ahmed - 123456'} /></div><div><label className="label">{t('receiptOptional')}</label><input type="file" accept="image/*" onChange={handleReceipt} className="text-sm" />{receiptImage && <img src={receiptImage} alt={t('receiptOptional')} className="mt-2 max-h-40 rounded-lg border border-line" />}</div><div className="flex gap-2"><button className="btn-primary" disabled={busy} type="submit">{busy ? '...' : t('submitActivation')}</button><button className="btn-secondary" type="button" onClick={() => setSelectedPlan(null)}>{t('cancel')}</button></div></form>}</section>}
-      <p className="subscription-footnote">{t('manualActivationNote')}</p>
+        <p className="subscription-footnote">{t('manualActivationNote')}</p>
+      </main>
     </div>
   );
 }
