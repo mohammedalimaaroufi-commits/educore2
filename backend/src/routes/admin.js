@@ -161,6 +161,7 @@ router.post('/payment-requests/:id/approve', (req, res) => {
     definitions,
     offerId: request.offer_id,
     amount: request.amount_omr,
+    originalAmount: request.original_amount_omr,
   });
   if (!isPaidPlanId(canonicalPlan)) {
     return res.status(400).json({

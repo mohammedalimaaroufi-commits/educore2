@@ -77,6 +77,10 @@ function isPaidPlanId(value) {
 // Requests created by older frontends sometimes stored the visible plan title or
 // an offer id instead of the canonical plan id. Resolve those values at the
 // server boundary so approval remains safe and deterministic.
+function toWesternDigits(value) {
+  return String(value ?? '').replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
+}
+
 function resolvePlanId(value, options = {}) {
   const canonical = normalizePlanId(value);
   if (canonical) return canonical;
@@ -97,8 +101,11 @@ function resolvePlanId(value, options = {}) {
     if (isPaidPlanId(offerPlan)) return offerPlan;
   }
 
-  const amount = Number(options.amount);
-  if (Number.isFinite(amount) && amount > 0) {
+  const rawNumeric = Number(toWesternDigits(raw).replace(/[^0-9.]+/g, ''));
+  const amounts = [options.amount, options.originalAmount, ...(Array.isArray(options.amounts) ? options.amounts : []), rawNumeric]
+    .map((amount) => Number(toWesternDigits(amount)))
+    .filter((amount) => Number.isFinite(amount) && amount > 0);
+  for (const amount of amounts) {
     const candidates = definitions.filter((plan) => {
       const base = Number(plan.base_price_omr);
       const activeOffer = getActiveOffer(plan.id);

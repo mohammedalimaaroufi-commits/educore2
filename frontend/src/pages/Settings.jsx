@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import api, { invalidateApiCache } from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
-import { readProfileDraft, removeProfileDraft, savePendingProfile, saveProfileDraft } from '../utils/localCache.js';
+import { getTeacherId, readProfileDraft, removeProfileDraft, savePendingProfile, saveProfileDraft } from '../utils/localCache.js';
+import { queueMutation } from '../utils/snapshotSync.js';
+import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import SchemesManager from '../components/SchemesManager.jsx';
 import BehaviorTemplateManager from '../components/BehaviorTemplateManager.jsx';
 import BackupManager from '../components/BackupManager.jsx';
@@ -48,7 +50,7 @@ function ProfileTab() {
     if (draftMatchesServer) removeProfileDraft(teacher.id);
     setProfile(draftMatchesServer ? serverProfile : (localDraft || serverProfile));
     setDraftDirty(Boolean(localDraft && !draftMatchesServer));
-  }, [teacher, locale]);
+  }, [teacher?.id]);
 
   useEffect(() => {
     if (teacher?.id && draftDirty && profile.full_name) saveProfileDraft(teacher.id, profile);
@@ -111,33 +113,55 @@ function ProfileTab() {
 
 function RecommendationsTab() {
   const { t } = useLocale();
-  const [rules, setRules] = useState([]);
+  const teacherId = getTeacherId();
+  const [rules, setRules] = useState(() => readSettingsCache(teacherId, 'grade-recommendations', []));
   const [newRule, setNewRule] = useState({ min_score: '', max_score: '', text: '' });
 
+  const persistRules = (next) => { setRules(next); writeSettingsCache(teacherId, 'grade-recommendations', next); };
   const loadRules = async () => {
-    const { data } = await api.get('/settings/grade-recommendations');
-    setRules(data.rules);
+    try {
+      const { data } = await api.get('/settings/grade-recommendations');
+      persistRules(data.rules || []);
+    } catch {
+      if (!rules.length) setRules([]);
+    }
   };
   useEffect(() => { loadRules(); }, []);
 
   const addRule = async (e) => {
     e.preventDefault();
-    await api.post('/settings/grade-recommendations', {
-      min_score: Number(newRule.min_score), max_score: Number(newRule.max_score), text: newRule.text,
-    });
+    const payload = { min_score: Number(newRule.min_score), max_score: Number(newRule.max_score), text: newRule.text };
+    const optimistic = { id: `local-rule-${Date.now()}`, ...payload };
+    persistRules([...rules, optimistic]);
     setNewRule({ min_score: '', max_score: '', text: '' });
-    loadRules();
+    try {
+      const { data } = await api.post('/settings/grade-recommendations', payload);
+      persistRules([...rules, optimistic].map((item) => item.id === optimistic.id ? data.rule : item));
+    } catch {
+      await queueMutation(teacherId, { method: 'POST', url: '/settings/grade-recommendations', data: payload });
+    }
   };
 
   const updateRule = async (id, field, value) => {
-    await api.patch(`/settings/grade-recommendations/${id}`, { [field]: value });
-    loadRules();
+    const next = rules.map((item) => item.id === id ? { ...item, [field]: value } : item);
+    persistRules(next);
+    try {
+      const { data } = await api.patch(`/settings/grade-recommendations/${id}`, { [field]: value });
+      persistRules(next.map((item) => item.id === id ? data.rule : item));
+    } catch {
+      if (!String(id).startsWith('local-')) await queueMutation(teacherId, { method: 'PATCH', url: `/settings/grade-recommendations/${id}`, data: { [field]: value } });
+    }
   };
 
   const deleteRule = async (id) => {
     if (!confirm(t('deleteRuleConfirm'))) return;
-    await api.delete(`/settings/grade-recommendations/${id}`);
-    loadRules();
+    const next = rules.filter((item) => item.id !== id);
+    persistRules(next);
+    try {
+      if (!String(id).startsWith('local-')) await api.delete(`/settings/grade-recommendations/${id}`);
+    } catch {
+      await queueMutation(teacherId, { method: 'DELETE', url: `/settings/grade-recommendations/${id}` });
+    }
   };
 
   return (
@@ -177,25 +201,43 @@ function RecommendationsTab() {
 
 function TemplatesTab() {
   const { t } = useLocale();
-  const [templates, setTemplates] = useState([]);
+  const teacherId = getTeacherId();
+  const [templates, setTemplates] = useState(() => readSettingsCache(teacherId, 'comment-templates', []));
   const [newTemplate, setNewTemplate] = useState({ text: '', category: 'grade' });
 
+  const persistTemplates = (next) => { setTemplates(next); writeSettingsCache(teacherId, 'comment-templates', next); };
   const loadTemplates = async () => {
-    const { data } = await api.get('/settings/comment-templates');
-    setTemplates(data.templates);
+    try {
+      const { data } = await api.get('/settings/comment-templates');
+      persistTemplates(data.templates || []);
+    } catch {
+      if (!templates.length) setTemplates([]);
+    }
   };
   useEffect(() => { loadTemplates(); }, []);
 
   const addTemplate = async (e) => {
     e.preventDefault();
-    await api.post('/settings/comment-templates', newTemplate);
+    const payload = { ...newTemplate };
+    const optimistic = { id: `local-template-${Date.now()}`, ...payload };
+    persistTemplates([...templates, optimistic]);
     setNewTemplate({ text: '', category: 'grade' });
-    loadTemplates();
+    try {
+      const { data } = await api.post('/settings/comment-templates', payload);
+      persistTemplates([...templates, optimistic].map((item) => item.id === optimistic.id ? data.template : item));
+    } catch {
+      await queueMutation(teacherId, { method: 'POST', url: '/settings/comment-templates', data: payload });
+    }
   };
 
   const deleteTemplate = async (id) => {
-    await api.delete(`/settings/comment-templates/${id}`);
-    loadTemplates();
+    const next = templates.filter((item) => item.id !== id);
+    persistTemplates(next);
+    try {
+      if (!String(id).startsWith('local-')) await api.delete(`/settings/comment-templates/${id}`);
+    } catch {
+      await queueMutation(teacherId, { method: 'DELETE', url: `/settings/comment-templates/${id}` });
+    }
   };
 
   return (

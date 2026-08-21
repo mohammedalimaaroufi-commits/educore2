@@ -254,26 +254,12 @@ export default function GradeMatrix({ classId, className }) {
   const downloadGradebookPDF = () => {
     const profile = teacherProfile();
     const generatedAt = new Date().toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const columns = categories.flatMap((category) => [
-      ...itemsFor(category).map((assessment) => ({
-        key: assessment.id,
-          label: assessment.title || (Number(assessment.is_summary) ? t('categoryScore') : t('subAssessment')),
-        category: category.name,
-        max: getAssessmentMaxScore(category, assessment),
-      })),
-      { key: `${category.id}:total`, label: t('categoryTotal'), category: category.name, max: category.weight_percent },
-    ]);
-    const categoryHeader = categories.map((category) => `<th colspan="${itemsFor(category).length + 1}">${escapeHtml(category.name)}<small> (${escapeHtml(category.weight_percent)}%)</small></th>`).join('');
-    const assessmentHeader = columns.map((column) => `<th>${escapeHtml(column.label)}<small>${column.max != null ? `<br>${escapeHtml(t('from'))} ${escapeHtml(column.max)}` : ''}</small></th>`).join('');
+    const categoryHeader = categories.map((category) => `<th>${escapeHtml(category.name)}<small>${escapeHtml(t('categoryTotal'))} · ${escapeHtml(category.weight_percent)}%</small></th>`).join('');
     const body = students.map((student, index) => {
-      const cells = categories.flatMap((category) => [
-        ...itemsFor(category).map((assessment) => {
-          const value = gradeMap.get(cellKey(assessment.id, student.id))?.score_numeric;
-          const max = getAssessmentMaxScore(category, assessment);
-          return `<td>${value === '' || value == null ? '—' : `${escapeHtml(value)}<span class="muted"> / ${escapeHtml(max)}</span>`}</td>`;
-        }),
-        `<td class="category-total">${categoryScore(student.id, category) == null ? '—' : Number(categoryScore(student.id, category)).toFixed(2)}</td>`,
-      ]);
+      const cells = categories.map((category) => {
+        const total = categoryScore(student.id, category);
+        return `<td class="category-total">${total == null ? '—' : escapeHtml(Number(total).toFixed(2))}</td>`;
+      });
       const final = finalGrade(student.id);
       return `<tr><td class="student-number">${index + 1}</td><td class="student-name">${escapeHtml(student.full_name)}</td>${cells.join('')}<td class="final-grade">${final == null ? '—' : escapeHtml(Number(final).toFixed(2))}</td></tr>`;
     }).join('');
@@ -296,6 +282,7 @@ export default function GradeMatrix({ classId, className }) {
       .student-number { width: 28px; color: #71818a; }
       .student-name { width: 145px; text-align: right; font-weight: 700; }
       .category-total { background: #f0f6f3; font-weight: 700; }
+      .category-total::before { content: ''; }
       .final-grade { background: #e9f3ef; color: #176652; font-weight: 800; width: 60px; }
       .muted { color: #829097; font-size: 7px; }
       .footer { display: flex; justify-content: space-between; margin-top: 12px; color: #687a82; font-size: 8px; border-top: 1px solid #dbe5e2; padding-top: 7px; }
@@ -311,7 +298,7 @@ export default function GradeMatrix({ classId, className }) {
         <div><span>${escapeHtml(t('categoryCountLabel'))}</span><strong>${categories.length}</strong></div>
         <div><span>${escapeHtml(t('issuedAt'))}</span><strong>${escapeHtml(generatedAt)}</strong></div>
       </div></section>
-      <table><thead><tr><th rowspan="2">${escapeHtml(t('indexLabel'))}</th><th rowspan="2">${escapeHtml(t('students'))}</th>${categoryHeader}<th rowspan="2">${escapeHtml(t('finalGrade'))}<br>%</th></tr><tr>${assessmentHeader}</tr></thead><tbody>${body}</tbody></table>
+      <table><thead><tr><th>${escapeHtml(t('indexLabel'))}</th><th>${escapeHtml(t('students'))}</th>${categoryHeader}<th>${escapeHtml(t('finalGrade'))}<br>%</th></tr></thead><tbody>${body}</tbody></table>
       <div class="footer"><span>${escapeHtml(t('pdfGeneratedBy'))}</span><span>${escapeHtml(t('teacherSignature'))}: ____________________</span><span>${escapeHtml(t('schoolApproval'))}: ____________________</span></div>
       <script>window.addEventListener('load', () => setTimeout(() => { window.print(); }, 250));</script>
     </body></html>`;

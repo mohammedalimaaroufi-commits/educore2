@@ -130,6 +130,7 @@ export function clearTeacherLocalData(teacherId = getTeacherId()) {
     `educore:session:${teacherId}`,
     `${PROFILE_DRAFT_PREFIX}${teacherId}`,
     `${PENDING_PROFILE_PREFIX}${teacherId}`,
+    `educore:settings-cache:${teacherId}:`,
   ];
   try {
     const keys = [];
