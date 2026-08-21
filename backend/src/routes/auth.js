@@ -142,6 +142,30 @@ router.post('/reset-password', async (req, res) => {
   res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' });
 });
 
+function getSubscriptionPresentation(teacherId, sub) {
+  const definitions = getPlanDefinitions();
+  const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY reviewed_at DESC, created_at DESC").all(teacherId);
+  const request = requests[0] || null;
+  const plan = resolvePlanId(request?.plan || sub?.plan, {
+    definitions,
+    offerId: request?.offer_id,
+    amount: request?.amount_omr,
+    originalAmount: request?.original_amount_omr,
+  }) || normalizePlanId(sub?.plan) || sub?.plan || 'trial';
+  const definition = definitions.find((item) => item.id === plan) || null;
+  const offer = request?.offer_id ? db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(request.offer_id) : null;
+  return {
+    plan,
+    planTitle: definition?.title || plan,
+    offerId: request?.offer_id || null,
+    offerTitle: offer?.title || null,
+    amount: request?.amount_omr ?? null,
+    originalAmount: request?.original_amount_omr ?? null,
+    requestId: request?.id || null,
+    approvedAt: request?.reviewed_at || null,
+  };
+}
+
 function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
   const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY reviewed_at DESC, created_at DESC LIMIT 1").get(teacherId);
   if (!approved) return rawSub;
@@ -188,6 +212,7 @@ router.get('/me', requireAuth, (req, res) => {
     const endDate = sub.plan === 'trial' ? sub.trial_end_date : sub.current_period_end;
     const daysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
     subscriptionInfo = {
+      ...getSubscriptionPresentation(req.teacherId, sub),
       plan: sub.plan,
       status: sub.status,
       startDate,
@@ -232,7 +257,19 @@ router.post('/payment-requests', requireAuth, (req, res) => {
 
 // GET /api/auth/payment-requests  -> this teacher's own submitted requests + status
 router.get('/payment-requests', requireAuth, (req, res) => {
-  const requests = db.prepare('SELECT * FROM payment_requests WHERE teacher_id = ? ORDER BY created_at DESC').all(req.teacherId);
+  const definitions = getPlanDefinitions();
+  const requests = db.prepare('SELECT * FROM payment_requests WHERE teacher_id = ? ORDER BY created_at DESC').all(req.teacherId).map((request) => {
+    const plan = resolvePlanId(request.plan, { definitions, offerId: request.offer_id, amount: request.amount_omr, originalAmount: request.original_amount_omr }) || request.plan;
+    const definition = definitions.find((item) => item.id === plan);
+    const offer = request.offer_id ? db.prepare('SELECT title, description FROM subscription_offers WHERE id = ?').get(request.offer_id) : null;
+    return {
+      ...request,
+      plan,
+      plan_title: definition?.title || request.plan,
+      offer_title: offer?.title || null,
+      offer_description: offer?.description || null,
+    };
+  });
   res.json({ requests });
 });
 

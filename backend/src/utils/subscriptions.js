@@ -83,7 +83,9 @@ function toWesternDigits(value) {
 
 function resolvePlanId(value, options = {}) {
   const canonical = normalizePlanId(value);
-  if (canonical) return canonical;
+  // A historical request may have stored `trial` even though it contains a paid
+  // offer or amount. Resolve those stronger signals before accepting trial.
+  if (canonical && canonical !== 'trial') return canonical;
 
   const definitions = options.definitions || getPlanDefinitions();
   const raw = String(value ?? '').trim().toLowerCase().normalize('NFKC');
@@ -113,9 +115,14 @@ function resolvePlanId(value, options = {}) {
       return base === amount || offerPrice === amount;
     });
     if (candidates.length === 1) return candidates[0].id;
+
+    const historicalOffers = db.prepare('SELECT DISTINCT plan FROM subscription_offers WHERE offer_price_omr = ? OR original_price_omr = ?').all(amount, amount)
+      .map((row) => normalizePlanId(row.plan)).filter((plan) => isPaidPlanId(plan));
+    const uniqueHistoricalPlans = [...new Set(historicalOffers)];
+    if (uniqueHistoricalPlans.length === 1) return uniqueHistoricalPlans[0];
   }
 
-  return null;
+  return canonical === 'trial' ? 'trial' : null;
 }
 
 
