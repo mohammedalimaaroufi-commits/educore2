@@ -8,23 +8,24 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { buildClassRoster, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 function localId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function formatWhen(value) {
+function formatWhen(value, locale) {
   if (!value) return '';
-  return new Date(value).toLocaleDateString('ar', { month: 'short', day: 'numeric' });
+  return new Date(value).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US', { month: 'short', day: 'numeric' });
 }
 
 const BEHAVIOR_FILTERS = [
-  { id: 'all', label: 'كل الطلاب' },
-  { id: 'positive', label: 'لديهم إيجابيات' },
-  { id: 'negative', label: 'لديهم سلبيات' },
-  { id: 'notes', label: 'لديهم ملاحظات' },
-  { id: 'positive-notes', label: 'ملاحظات إيجابية' },
-  { id: 'negative-notes', label: 'ملاحظات سلبية' },
+  { id: 'all', key: 'allStudents' },
+  { id: 'positive', key: 'hasPositives' },
+  { id: 'negative', key: 'hasNegatives' },
+  { id: 'notes', key: 'hasNotes' },
+  { id: 'positive-notes', key: 'positiveNotes' },
+  { id: 'negative-notes', key: 'negativeNotes' },
 ];
 
 function buildSummary(snapshot, classId) {
@@ -59,6 +60,7 @@ function buildSummary(snapshot, classId) {
 }
 
 export default function BehaviorTab({ classId }) {
+  const { t, locale } = useLocale();
   const [snapshot, setSnapshot] = useState(null);
   const [students, setStudents] = useState([]);
   const [types, setTypes] = useState([]);
@@ -105,7 +107,7 @@ export default function BehaviorTab({ classId }) {
       if (behaviorSort === 'positive-desc') return (b.row.positive_points || 0) - (a.row.positive_points || 0);
       if (behaviorSort === 'negative-desc') return (b.row.negative_points || 0) - (a.row.negative_points || 0);
       if (behaviorSort === 'notes-desc') return (b.row.note_count || 0) - (a.row.note_count || 0);
-      if (behaviorSort === 'name') return a.student.full_name.localeCompare(b.student.full_name, 'ar');
+      if (behaviorSort === 'name') return a.student.full_name.localeCompare(b.student.full_name, locale === 'ar' ? 'ar' : 'en');
       return (b.row.behavior_score || 0) - (a.row.behavior_score || 0);
     });
     return rows.map(({ student }) => student);
@@ -124,7 +126,7 @@ export default function BehaviorTab({ classId }) {
     const next = { ...snapshot, behavior_logs: [...(snapshot?.behavior_logs || []), entry] };
     applySnapshot(next);
     setNoteDrafts((drafts) => ({ ...drafts, [studentId]: '' }));
-    setFeedback('تم رصد السلوك محليًا ✓');
+    setFeedback(`${t('savedLocally')} ✓`);
     setTimeout(() => setFeedback(''), 1500);
     try {
       await api.post('/behavior/log', entry);
@@ -151,28 +153,28 @@ export default function BehaviorTab({ classId }) {
   };
 
   const iconOptions = newType.polarity === 'positive' ? POSITIVE_BEHAVIOR_ICONS : NEGATIVE_BEHAVIOR_ICONS;
-  if (loading) return <p className="text-ink/50">جارِ تجهيز السلوك محليًا...</p>;
+  if (loading) return <p className="text-ink/50">{t('behaviorLoading')}</p>;
 
   return (
     <div className="space-y-6">
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div><h3 className="font-bold">رصد سلوك بنقرة واحدة</h3><p className="text-xs text-ink/50 mt-1">تظهر النقاط وآخر التفاصيل بجانب اسم الطالب مباشرة.</p></div>
+          <div><h3 className="font-bold">{t('behaviorOneClick')}</h3><p className="text-xs text-ink/50 mt-1">{t('behaviorSubtitle')}</p></div>
           {feedback && <span className="text-primary text-sm">{feedback}</span>}
         </div>
-          <div className="relative mb-3"><input className="input text-sm pr-9" placeholder="بحث سريع عن طالب..." value={query} onChange={(event) => setQuery(event.target.value)} /><Icon name="search" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" /></div>
-          <div className="flex flex-wrap items-center gap-2 mb-3" aria-label="فلاتر السلوك">
-            <span className="text-xs text-ink/50">فرز وتصفية سريعة:</span>
-            {BEHAVIOR_FILTERS.map((filter) => <button key={filter.id} type="button" onClick={() => setBehaviorFilter(filter.id)} className={`px-2.5 py-1 rounded-full border text-xs transition ${behaviorFilter === filter.id ? 'bg-primary text-white border-primary' : 'border-line text-ink/65 hover:border-primary/50'}`}>{filter.label}</button>)}
-            <select className="input text-xs w-44" value={behaviorSort} onChange={(event) => setBehaviorSort(event.target.value)} aria-label="ترتيب الطلاب سلوكيًا">
-              <option value="score-desc">الأعلى في صافي النقاط</option>
-              <option value="positive-desc">الأكثر نقاطًا إيجابية</option>
-              <option value="negative-desc">الأكثر نقاطًا سلبية</option>
-              <option value="notes-desc">الأكثر ملاحظات</option>
-              <option value="name">ترتيب أبجدي</option>
+          <div className="relative mb-3"><input className="input text-sm pr-9" placeholder={t('searchStudent')} value={query} onChange={(event) => setQuery(event.target.value)} /><Icon name="search" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" /></div>
+          <div className="flex flex-wrap items-center gap-2 mb-3" aria-label={t('behavior')}>
+            <span className="text-xs text-ink/50">{t('behaviorFiltersLabel')}</span>
+            {BEHAVIOR_FILTERS.map((filter) => <button key={filter.id} type="button" onClick={() => setBehaviorFilter(filter.id)} className={`px-2.5 py-1 rounded-full border text-xs transition ${behaviorFilter === filter.id ? 'bg-primary text-white border-primary' : 'border-line text-ink/65 hover:border-primary/50'}`}>{t(filter.key)}</button>)}
+            <select className="input text-xs w-44" value={behaviorSort} onChange={(event) => setBehaviorSort(event.target.value)} aria-label={t('behavior')}>
+              <option value="score-desc">{t('highestNet')}</option>
+              <option value="positive-desc">{t('mostPositive')}</option>
+              <option value="negative-desc">{t('mostNegative')}</option>
+              <option value="notes-desc">{t('mostNotes')}</option>
+              <option value="name">{t('alphabetical')}</option>
             </select>
           </div>
-          <p className="text-xs text-ink/45 mb-2">عرض {filteredStudents.length} من {students.length} طالبًا · النقاط السلبية محسوبة بقيمتها المطلقة، والصافي يظهر بجانب اسم الطالب.</p>
+          <p className="text-xs text-ink/45 mb-2">{t('displayCount', '', { visible: filteredStudents.length, total: students.length })} · {locale === 'ar' ? 'النقاط السلبية محسوبة بقيمتها المطلقة، والصافي يظهر بجانب اسم الطالب.' : 'Negative points use absolute values, and the net score appears beside the student name.'}</p>
         <div className="space-y-2">
           {filteredStudents.map((student) => {
               const row = summary.find((item) => item.student_id === student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, latest_logs: [] };
@@ -180,24 +182,24 @@ export default function BehaviorTab({ classId }) {
               <div key={student.id} className="border border-line rounded-xl2 overflow-hidden">
                 <button onClick={() => setOpenStudent((current) => (current === student.id ? null : student.id))} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-right hover:bg-surface ${openStudent === student.id ? 'bg-surface' : ''}`}>
                   <StudentAvatar name={student.full_name} photoUrl={student.photo_url} size={26} />
-                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>الصافي {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">إيجابي +{row.positive_points || 0} ({row.positive_count})</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">سلبي -{row.negative_points || 0} ({row.negative_count})</span>{row.note_count > 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700">ملاحظات {row.note_count}</span>}{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">آخرًا: {row.latest_logs[0].behavior.label}</span>}</span></span>
+                  <span className="flex-1 min-w-0 text-right"><span className="font-medium block truncate">{student.full_name}</span><span className="flex flex-wrap items-center gap-1 mt-1 text-[10px]"><span className={`px-1.5 py-0.5 rounded-full ${row.behavior_score >= 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger'}`}>{t('net')} {row.behavior_score > 0 ? '+' : ''}{row.behavior_score}</span><span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{t('positive')} +{row.positive_points || 0} ({row.positive_count})</span><span className="px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">{t('negative')} -{row.negative_points || 0} ({row.negative_count})</span>{row.note_count > 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700">{t('notes')} {row.note_count}</span>}{row.latest_logs[0]?.behavior?.label && <span className="text-ink/40 truncate">{t('latest')}: {row.latest_logs[0].behavior.label}</span>}</span></span>
                   <Icon name={openStudent === student.id ? 'chevronUp' : 'chevronDown'} className="w-4 h-4 text-ink/40 shrink-0" />
                 </button>
                 {openStudent === student.id && (
                   <div className="px-3 pb-3 pt-1 border-t border-line bg-surface/50">
-                    <p className="text-xs text-ink/50 mb-2">اضغط على أي ملاحظة سلوكية محفوظة لرصدها فورًا لـ{student.full_name}:</p>
+                    <p className="text-xs text-ink/50 mb-2">{t('clickBehavior', '', { name: student.full_name })}</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">{types.map((type) => <button key={type.id} onClick={() => logBehavior(student.id, type.id)} className={`px-3 py-2 rounded-xl2 text-sm font-medium border flex items-center justify-center gap-2 ${type.polarity === 'positive' ? 'border-primary/40 text-primary hover:bg-primary/10' : 'border-danger/40 text-danger hover:bg-danger/10'}`}><Icon name={type.icon} className="w-4 h-4" />{type.label} ({type.points > 0 ? '+' : ''}{type.points})</button>)}</div>
-                    <input className="input text-xs" placeholder="ملاحظة سريعة (اختياري)" value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
-                    {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">آخر التفاصيل</p>{row.latest_logs.map((log) => <div key={log.id} className="flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || 'بدون ملاحظة نصية'}</span><span className="text-ink/30">{formatWhen(log.occurred_at)}</span></div>)}</div>}
-                    <button className="text-primary text-xs mt-2" onClick={() => setDetailStudentId(student.id)}>عرض كامل السجل السلوكي لهذا الطالب</button>
+                    <input className="input text-xs" placeholder={t('quickNote')} value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
+                    {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">{t('latestDetails')}</p>{row.latest_logs.map((log) => <div key={log.id} className="flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || t('noTextNote')}</span><span className="text-ink/30">{formatWhen(log.occurred_at, locale)}</span></div>)}</div>}
+                    <button className="text-primary text-xs mt-2" onClick={() => setDetailStudentId(student.id)}>{t('fullBehaviorRecord')}</button>
                   </div>
                 )}
               </div>
             );
           })}
-          {filteredStudents.length === 0 && <p className="text-ink/50 text-sm py-4 text-center">لا يوجد طالب مطابق للبحث.</p>}
+          {filteredStudents.length === 0 && <p className="text-ink/50 text-sm py-4 text-center">{t('noMatchingStudent')}</p>}
         </div>
-        {!showTypeForm ? <button className="text-primary text-sm mt-3" onClick={() => setShowTypeForm(true)}>+ إضافة سلوك مخصص لهذا الصف</button> : <form onSubmit={addType} className="space-y-2 mt-3 pt-3 border-t border-line"><div className="flex flex-wrap gap-2"><input className="input text-sm flex-1" placeholder="اسم السلوك" required value={newType.label} onChange={(event) => setNewType({ ...newType, label: event.target.value })} /><select className="input text-sm w-32" value={newType.polarity} onChange={(event) => setNewType({ ...newType, polarity: event.target.value, icon: event.target.value === 'positive' ? 'star' : 'clock' })}><option value="positive">إيجابي</option><option value="negative">سلبي</option></select><input className="input text-sm w-20" type="number" value={newType.points} onChange={(event) => setNewType({ ...newType, points: Number(event.target.value) })} /></div><div className="flex gap-2">{iconOptions.map((icon) => <button key={icon} type="button" onClick={() => setNewType({ ...newType, icon })} className={`p-2 rounded-lg border ${newType.icon === icon ? 'border-primary bg-primary/10' : 'border-line'}`}><Icon name={icon} className="w-4 h-4" /></button>)}<button className="btn-secondary text-sm mr-auto" type="submit">حفظ السلوك</button></div></form>}
+        {!showTypeForm ? <button className="text-primary text-sm mt-3" onClick={() => setShowTypeForm(true)}>+ {t('addCustomBehavior')}</button> : <form onSubmit={addType} className="space-y-2 mt-3 pt-3 border-t border-line"><div className="flex flex-wrap gap-2"><input className="input text-sm flex-1" placeholder={t('behaviorName')} required value={newType.label} onChange={(event) => setNewType({ ...newType, label: event.target.value })} /><select className="input text-sm w-32" value={newType.polarity} onChange={(event) => setNewType({ ...newType, polarity: event.target.value, icon: event.target.value === 'positive' ? 'star' : 'clock' })}><option value="positive">{t('positiveLabel')}</option><option value="negative">{t('negativeLabel')}</option></select><input className="input text-sm w-20" type="number" value={newType.points} onChange={(event) => setNewType({ ...newType, points: Number(event.target.value) })} /></div><div className="flex gap-2">{iconOptions.map((icon) => <button key={icon} type="button" onClick={() => setNewType({ ...newType, icon })} className={`p-2 rounded-lg border ${newType.icon === icon ? 'border-primary bg-primary/10' : 'border-line'}`}><Icon name={icon} className="w-4 h-4" /></button>)}<button className="btn-secondary text-sm mr-auto" type="submit">{t('saveBehavior')}</button></div></form>}
       </div>
       <StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} />
     </div>

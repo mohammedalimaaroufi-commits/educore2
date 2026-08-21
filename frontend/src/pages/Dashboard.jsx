@@ -46,6 +46,7 @@ function gradingPillClasses(percent) {
 // Compact "بطاقة الصف" stats: how much of each visible assessment has been recorded,
 // who's leading/needs support on behavior, and whether today's attendance was taken.
 function ClassQuickStats({ stats }) {
+  const { t } = useLocale();
   if (!stats) return null;
   const { grading = [], behavior, attendance_marked_today } = stats;
 
@@ -54,8 +55,8 @@ function ClassQuickStats({ stats }) {
       {grading.length > 0 && (
         <div className="class-card__pills">
               {grading.map((g) => (
-            <span key={g.assessment_id} className={`class-stat-pill ${gradingPillClasses(g.percent)}`} title={`${g.category_name} · الوزن ${g.max_score}%`}>
-              <strong>{g.title}</strong><b>{g.percent === null ? '—' : `${g.percent}%`}</b><small>{g.entered_count}/{g.total_students} · وزن {g.max_score}%</small>
+            <span key={g.assessment_id} className={`class-stat-pill ${gradingPillClasses(g.percent)}`} title={`${g.category_name} · ${t('weight')} ${g.max_score}%`}>
+              <strong>{g.title}</strong><b>{g.percent === null ? '—' : `${g.percent}%`}</b><small>{g.entered_count}/{g.total_students} · {t('weight')} {g.max_score}%</small>
             </span>
           ))}
         </div>
@@ -70,13 +71,14 @@ function ClassQuickStats({ stats }) {
 
       <div className={`class-card__attendance ${attendance_marked_today ? 'is-marked' : ''}`}>
         <Icon name={attendance_marked_today ? 'check' : 'clock'} className="w-3.5 h-3.5" />
-        <span>{attendance_marked_today ? 'تم رصد الحضور اليوم' : 'لم يُرصد الحضور اليوم بعد'}</span>
+        <span>{attendance_marked_today ? t('attendanceMarkedToday') : t('attendanceNotMarked')}</span>
       </div>
     </div>
   );
 }
 
 function ArchivedClassesPanel({ onClose, onRestored }) {
+  const { t } = useLocale();
   const [archived, setArchived] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -123,14 +125,14 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
     <div className="fixed inset-0 bg-ink/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl2 max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-5 border-b border-line flex items-center justify-between">
-          <h3 className="font-bold text-lg">الصفوف المؤرشفة</h3>
+          <h3 className="font-bold text-lg">{t('archivedClassesTitle')}</h3>
           <button className="text-ink/50 text-xl" onClick={onClose}>×</button>
         </div>
         <div className="p-5">
           {loading ? (
-            <p className="text-ink/50 text-sm">جارِ التحميل...</p>
+            <p className="text-ink/50 text-sm">{t('appLoading')}</p>
           ) : archived.length === 0 ? (
-            <p className="text-ink/50 text-sm text-center py-6">لا توجد صفوف مؤرشفة حاليًا.</p>
+            <p className="text-ink/50 text-sm text-center py-6">{t('noArchived')}</p>
           ) : (
             <div className="space-y-2">
               {archived.map((c) => (
@@ -139,11 +141,11 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
                     <div className="w-8 h-8 rounded-lg" style={{ background: c.color }} />
                     <div>
                       <p className="font-medium text-sm">{c.name}</p>
-                      <p className="text-xs text-ink/50">{c.student_count} طالب</p>
+                      <p className="text-xs text-ink/50">{t('studentsCount', '', { count: c.student_count })}</p>
                     </div>
                   </div>
-                  <button className="btn-secondary text-xs flex items-center gap-1" onClick={() => restore(c.id)}>
-                    <Icon name="restore" className="w-3.5 h-3.5" /> استعادة
+                    <button className="btn-secondary text-xs flex items-center gap-1" onClick={() => restore(c.id)}>
+                    <Icon name="restore" className="w-3.5 h-3.5" /> {t('restore')}
                   </button>
                 </div>
               ))}
@@ -157,7 +159,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
 
 export default function Dashboard() {
   const { teacher, logout } = useAuth();
-  const { t } = useLocale();
+  const { t, direction, locale } = useLocale();
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -253,13 +255,16 @@ export default function Dashboard() {
     try {
       const response = isEditing ? await api.patch(`/classes/${classId}`, formPayload) : await api.post('/classes', payload);
       const serverClass = response?.data?.class;
-      if (serverClass) {
-        const serverSnapshot = { ...nextSnapshot, classes: nextSnapshot.classes.map((item) => item.id === classId ? { ...item, ...serverClass } : item) };
-        await saveSnapshot(teacherId, serverSnapshot);
-      }
+      const serverSnapshot = serverClass
+        ? { ...nextSnapshot, classes: nextSnapshot.classes.map((item) => item.id === classId ? { ...item, ...serverClass } : item) }
+        : nextSnapshot;
+      await saveSnapshot(teacherId, serverSnapshot);
+      setClasses(serverSnapshot.classes.filter((item) => !item.archived).map((item) => cardForClass(serverSnapshot, item)));
       await invalidateApiCache('/classes');
       await invalidateApiCache(`/classes/${classId}`);
-      await syncSnapshot(teacherId, { force: true });
+      // The PATCH response is authoritative for this edit. Do not immediately
+      // force a snapshot GET here: on Turso a read can briefly lag behind the
+      // write and would overwrite the freshly saved local-first value.
       await load();
       setSaveState('saved');
     } catch {
@@ -273,7 +278,7 @@ export default function Dashboard() {
 
   const archiveClass = async (e, id) => {
     e.preventDefault(); e.stopPropagation();
-    if (!confirm('أرشفة هذا الصف؟ يمكن استعادته لاحقًا من قسم "الصفوف المؤرشفة".')) return;
+    if (!confirm(t('confirmArchive'))) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
     await saveSnapshot(teacherId, { ...snapshot, classes: (snapshot.classes || []).map((item) => item.id === id ? { ...item, archived: 1, updated_at: new Date().toISOString() } : item) });
@@ -285,7 +290,7 @@ export default function Dashboard() {
 
   const deleteClassPermanently = async (e, id) => {
     e.preventDefault(); e.stopPropagation();
-    if (!confirm('تحذير: سيتم حذف هذا الصف وكل طلابه ودرجاته وسلوكه وحضوره نهائيًا ولا يمكن التراجع. هل أنت متأكد؟')) return;
+    if (!confirm(t('confirmDeleteClass'))) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
     const studentIds = new Set((snapshot.students || []).filter((student) => student.class_id === id).map((student) => student.id));
@@ -316,27 +321,27 @@ export default function Dashboard() {
   const hasFilters = Boolean(searchTerm || subjectFilter !== 'all' || yearFilter !== 'all' || completionFilter !== 'all');
 
   return (
-    <div className="dashboard-shell" dir="rtl">
+    <div className="dashboard-shell" dir={direction}>
       <div className="dashboard-topbar">
         <div className="brand-lockup">
           <div className="brand-mark">س</div>
           <div>
             <div className="brand-title">{APP_NAME}</div>
-            <div className="brand-subtitle">إدارة الفصل الذكي</div>
+            <div className="brand-subtitle">{t('appSubtitle')}</div>
           </div>
         </div>
-        <label className="dashboard-search" aria-label="البحث في الصفوف">
+        <label className="dashboard-search" aria-label={t('searchClasses')}>
           <Icon name="search" className="w-4 h-4" />
-          <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="بحث في الصفوف..." />
+          <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={t('searchClasses')} />
           <kbd>⌘ K</kbd>
         </label>
         <div className="dashboard-utilities">
-          <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? 'متصل' : 'وضع دون اتصال'}</span>
-          <span className="utility-date">{new Intl.DateTimeFormat('ar', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
+          <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? t('online') : t('offlineMode')}</span>
+          <span className="utility-date">{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
           <nav className="dashboard-nav-actions" aria-label="روابط الحساب">
-            <Link to="/subscription" className="topbar-nav-link"><Icon name="subscription" className="w-4 h-4" /><span>الاشتراك</span></Link>
-            <Link to="/settings" className="topbar-nav-link"><Icon name="settings" className="w-4 h-4" /><span>الإعدادات</span></Link>
-            <button type="button" className="topbar-nav-link topbar-nav-link--danger" onClick={logout}><Icon name="logout" className="w-4 h-4" /><span>تسجيل الخروج</span></button>
+            <Link to="/subscription" className="topbar-nav-link"><Icon name="subscription" className="w-4 h-4" /><span>{t('subscription')}</span></Link>
+            <Link to="/settings" className="topbar-nav-link"><Icon name="settings" className="w-4 h-4" /><span>{t('settings')}</span></Link>
+            <button type="button" className="topbar-nav-link topbar-nav-link--danger" onClick={logout}><Icon name="logout" className="w-4 h-4" /><span>{t('logout')}</span></button>
           </nav>
           <span className="teacher-avatar" title={teacher?.full_name || 'المعلم'}>{initials}</span>
         </div>
@@ -345,60 +350,60 @@ export default function Dashboard() {
       <main className="dashboard-content">
         <section className="dashboard-hero">
           <div>
-            <span className="eyebrow">لوحة المعلم</span>
-            <h1>السجل المصاحب الإلكتروني</h1>
-            <p>أهلاً، {teacher?.full_name || 'معلمنا العزيز'} — كل صفوفك وبياناتك في مكان واحد.</p>
+            <span className="eyebrow">{t('teacherBoard')}</span>
+            <h1>{t('smartRecord')}</h1>
+            <p>{t('helloTeacher', '', { name: teacher?.full_name || (locale === 'ar' ? 'معلمنا العزيز' : 'teacher') })}</p>
           </div>
           <div className="hero-note">
             <span className="hero-note__mark">✓</span>
-            <div><strong>بياناتك محفوظة محليًا</strong><span>{isOnline ? 'تتم المزامنة بهدوء في الخلفية' : 'يمكنك مواصلة العمل دون اتصال'}</span></div>
+            <div><strong>{t('localDataSaved')}</strong><span>{isOnline ? t('syncBackground') : t('continueOffline')}</span></div>
           </div>
         </section>
 
         <TrialBanner />
 
         <div className="dashboard-section-head">
-          <div>
-            <span className="eyebrow">مساحة العمل</span>
+              <div>
+            <span className="eyebrow">{t('workspace')}</span>
             <h2>{t('myClasses')}</h2>
           </div>
           <div className="dashboard-actions">
-            {saveState === 'saving' && <span className="save-feedback">جارِ تثبيت التعديل...</span>}
-            {saveState === 'saved' && <span className="save-feedback save-feedback--success">تم حفظ التعديل</span>}
-            {saveState === 'queued' && <span className="save-feedback">حُفظ محليًا بانتظار الاتصال</span>}
+            {saveState === 'saving' && <span className="save-feedback">{t('savingEdit')}</span>}
+            {saveState === 'saved' && <span className="save-feedback save-feedback--success">{t('savedEdit')}</span>}
+            {saveState === 'queued' && <span className="save-feedback">{t('savedLocallyQueued')}</span>}
             <button className="btn-secondary action-button" onClick={() => setShowArchived(true)}><Icon name="archive" className="w-4 h-4" /> {t('archivedClasses')}</button>
             <button className="btn-primary action-button" onClick={startAdd}><span className="action-plus">+</span> {t('newClass')}</button>
           </div>
         </div>
 
         <section className="dashboard-filters" aria-label="بحث وفلاتر الصفوف">
-          <div className="dashboard-filter-search"><Icon name="search" className="w-4 h-4" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="بحث سريع باسم الصف أو المادة..." /></div>
-          <label className="dashboard-filter-select"><span>المادة</span><select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">كل المواد</option>{subjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
-          <label className="dashboard-filter-select"><span>السنة</span><select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option value="all">كل السنوات</option>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
-          <label className="dashboard-filter-select"><span>حالة الرصد</span><select value={completionFilter} onChange={(event) => setCompletionFilter(event.target.value)}><option value="all">كل الحالات</option><option value="complete">مكتمل</option><option value="progress">قيد الرصد</option><option value="empty">لم يبدأ</option></select></label>
-          {hasFilters && <button type="button" className="filter-reset" onClick={() => { setSearchTerm(''); setSubjectFilter('all'); setYearFilter('all'); setCompletionFilter('all'); }}><Icon name="refresh" className="w-3.5 h-3.5" /> مسح</button>}
-          <span className="filter-result-count">{visibleClasses.length} من {classes.length} صف</span>
+          <div className="dashboard-filter-search"><Icon name="search" className="w-4 h-4" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={t('searchClassesQuick')} /></div>
+          <label className="dashboard-filter-select"><span>{t('subject')}</span><select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">{t('allSubjects')}</option>{subjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
+          <label className="dashboard-filter-select"><span>{t('academicYear')}</span><select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option value="all">{t('allYears')}</option>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
+          <label className="dashboard-filter-select"><span>{t('gradingStatus')}</span><select value={completionFilter} onChange={(event) => setCompletionFilter(event.target.value)}><option value="all">{t('allStatuses')}</option><option value="complete">{t('complete')}</option><option value="progress">{t('inProgress')}</option><option value="empty">{t('notStarted')}</option></select></label>
+          {hasFilters && <button type="button" className="filter-reset" onClick={() => { setSearchTerm(''); setSubjectFilter('all'); setYearFilter('all'); setCompletionFilter('all'); }}><Icon name="refresh" className="w-3.5 h-3.5" /> {t('clear')}</button>}
+          <span className="filter-result-count">{t('classCount', '', { visible: visibleClasses.length, total: classes.length })}</span>
         </section>
 
         {showForm && (
           <form onSubmit={submit} className="surface-panel create-class-form">
-            <div className="create-class-form__heading"><div><span className="eyebrow">إعداد جديد</span><h3>{editingId ? 'تعديل بيانات الصف' : 'إنشاء صف جديد'}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label="إغلاق">×</button></div>
+            <div className="create-class-form__heading"><div><span className="eyebrow">{t('setupNew')}</span><h3>{editingId ? t('editClass') : t('createClass')}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label={t('cancel')}>×</button></div>
             <div className="create-class-form__grid">
-              <div><label className="label">اسم الصف</label><input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="مثال: الصف الثامن - أ" /></div>
-              <div><label className="label">المادة</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="مثال: الرياضيات" /></div>
-              <div><label className="label">السنة الدراسية</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
-              <div><label className="label">اللون المميز</label><div className="color-picker">{COLORS.map((c) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`اختيار اللون ${c}`} />)}</div></div>
+              <div><label className="label">{t('className')}</label><input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الصف الثامن - أ' : 'e.g. Grade 8 - A'} /></div>
+              <div><label className="label">{t('subject')}</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الرياضيات' : 'e.g. Mathematics'} /></div>
+              <div><label className="label">{t('academicYear')}</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
+              <div><label className="label">{t('accentColor')}</label><div className="color-picker">{COLORS.map((c) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`اختيار اللون ${c}`} />)}</div></div>
             </div>
-            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? 'جارِ الحفظ...' : editingId ? 'حفظ التعديلات' : 'إنشاء الصف'}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>إلغاء</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">تم الحفظ بنجاح</span>}{saveState === 'queued' && <span className="save-feedback">حُفظ محليًا وسيتم رفعه عند الاتصال</span>}</div>
+            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? t('saving') : editingId ? t('saveChanges') : t('createClass')}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>{t('cancel')}</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">{t('saved')}</span>}{saveState === 'queued' && <span className="save-feedback">{t('savedLocallyQueued')}</span>}</div>
           </form>
         )}
 
         {loading ? (
           <div className="class-grid">{[1, 2, 3].map((item) => <div className="class-card class-card--skeleton" key={item}><div className="skeleton-block" /><div className="skeleton-line skeleton-line--long" /><div className="skeleton-line" /></div>)}</div>
         ) : classes.length === 0 ? (
-          <div className="empty-state"><div className="empty-state__icon">＋</div><h3>أنشئ أول صف لك</h3><p>ابدأ بإضافة صفوفك لتظهر هنا مع الطلاب والدرجات والحضور في لوحة واحدة.</p><button className="btn-primary action-button" onClick={startAdd}>إنشاء صف جديد</button></div>
+          <div className="empty-state"><div className="empty-state__icon">＋</div><h3>{t('noClasses')}</h3><p>{t('noClassesText')}</p><button className="btn-primary action-button" onClick={startAdd}>{t('createClass')}</button></div>
         ) : visibleClasses.length === 0 ? (
-          <div className="empty-state"><div className="empty-state__icon">⌕</div><h3>لا توجد نتائج</h3><p>جرّب البحث باسم الصف أو المادة أو السنة الدراسية.</p></div>
+          <div className="empty-state"><div className="empty-state__icon">⌕</div><h3>{t('noResults')}</h3><p>{t('noResultsText')}</p></div>
         ) : (
           <div className="class-grid">
             {visibleClasses.map((c) => {
@@ -407,15 +412,15 @@ export default function Dashboard() {
               return (
                 <article key={c.id} className="class-card" style={{ '--card-accent': accent }}>
                   <Link to={`/classes/${c.id}`} className="class-card__visual" aria-label={`فتح ${c.name}`}>
-                    <span className="class-card__visual-label">{VISUAL_LABELS[visualIndex]}</span>
+                    <span className="class-card__visual-label">{locale === 'ar' ? VISUAL_LABELS[visualIndex] : ['Books & learning', 'Progress tracking', 'Activity & practice'][visualIndex]}</span>
                     <span className="class-card__visual-symbol">{visualIndex === 0 ? '▦' : visualIndex === 1 ? '◌' : '✦'}</span>
-                    <div><strong>{c.name}</strong><span>{c.subject || 'بدون مادة محددة'}</span></div>
+                    <div><strong>{c.name}</strong><span>{c.subject || t('noSubject')}</span></div>
                   </Link>
                   <div className="class-card__content">
-                    <div className="class-card__heading-row"><div><span className="class-card__eyebrow">{c.academic_year || 'السنة الدراسية'}</span><h3>{c.name}</h3></div><span className="class-card__badge">{c.student_count} طالب</span></div>
-                    <div className="class-card__meta"><span>{c.subject || 'بدون مادة محددة'}</span><span>{c.quick_stats?.grading?.length || 0} تقييمات</span></div>
+                    <div className="class-card__heading-row"><div><span className="class-card__eyebrow">{c.academic_year || t('academicYear')}</span><h3>{c.name}</h3></div><span className="class-card__badge">{t('studentsCount', '', { count: c.student_count })}</span></div>
+                    <div className="class-card__meta"><span>{c.subject || t('noSubject')}</span><span>{t('assessmentsCount', '', { count: c.quick_stats?.grading?.length || 0 })}</span></div>
                     <ClassQuickStats stats={c.quick_stats} />
-                    <div className="class-card__footer"><Link to={`/classes/${c.id}`} className="class-card__open">فتح الصف <span>←</span></Link><div className="class-card__actions"><button className="action-link" onClick={(e) => startEdit(e, c)}>تعديل</button><button className="action-link" onClick={(e) => archiveClass(e, c.id)}>أرشفة</button><button className="action-link action-link--danger" onClick={(e) => deleteClassPermanently(e, c.id)}>حذف</button></div></div>
+                    <div className="class-card__footer"><Link to={`/classes/${c.id}`} className="class-card__open">{t('openClass')} <span>{locale === 'ar' ? '←' : '→'}</span></Link><div className="class-card__actions"><button className="action-link" onClick={(e) => startEdit(e, c)}>{locale === 'ar' ? 'تعديل' : 'Edit'}</button><button className="action-link" onClick={(e) => archiveClass(e, c.id)}>{t('archiveClass')}</button><button className="action-link action-link--danger" onClick={(e) => deleteClassPermanently(e, c.id)}>{t('deleteClass')}</button></div></div>
                   </div>
                 </article>
               );

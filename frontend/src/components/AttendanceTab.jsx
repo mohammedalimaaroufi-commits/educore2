@@ -7,6 +7,7 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { getClassData, calculateAttendanceRate } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 function localId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,6 +38,7 @@ function buildStats(snapshot, classId) {
 }
 
 export default function AttendanceTab({ classId }) {
+  const { t } = useLocale();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [session, setSession] = useState(null);
   const [roster, setRoster] = useState([]);
@@ -88,14 +90,15 @@ export default function AttendanceTab({ classId }) {
     try {
       await api.post('/attendance/session', payload);
       void syncSnapshot(teacherId, { force: true });
-      setFeedback('تم حفظ الحضور ومزامنته');
+      setFeedback(t('attendanceSaved'));
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/attendance/session', data: payload });
-      setFeedback('تم حفظ الحضور محليًا وسيُزامن عند عودة الاتصال');
+      setFeedback(t('attendanceSavedLocally'));
     }
     setTimeout(() => setFeedback(''), 2500);
   };
 
-  if (loading) return <p className="text-ink/50">جارِ تجهيز الحضور محليًا...</p>;
-  return <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="card p-4 lg:col-span-2"><div className="flex items-center justify-between mb-4"><h3 className="font-bold">تسجيل الحضور</h3><input type="date" className="input text-sm w-40" value={date} onChange={(event) => changeDate(event.target.value)} /></div><div className="space-y-2 max-h-96 overflow-y-auto">{roster.map((student) => <div key={student.student_id} className="flex items-center justify-between border-b border-line pb-2"><span className="text-sm font-medium">{student.full_name}</span><div className="flex gap-1">{Object.entries(ATTENDANCE_STATUS).map(([key, status]) => <button key={key} onClick={() => setStatus(student.student_id, key)} className={`px-2 py-1 rounded-md text-xs border flex items-center gap-1 ${student.status === key ? status.bg : 'border-line text-ink/60 hover:bg-surface'}`}><Icon name={status.icon} className="w-3 h-3" />{status.label}</button>)}</div></div>)}</div><button className="btn-primary text-sm mt-4" onClick={save}>حفظ الحضور لهذا اليوم</button>{feedback && <p className="text-primary text-xs mt-2">{feedback}</p>}</div><div className="card p-4"><h3 className="font-bold mb-3">إحصائيات الحضور</h3><div className="space-y-3 max-h-96 overflow-y-auto">{stats.map((student) => { const rate = student.total_sessions > 0 ? Math.round((student.present_count / student.total_sessions) * 100) : null; return <div key={student.student_id}><div className="flex justify-between text-xs mb-1"><button className="text-ink hover:text-primary" onClick={() => setDetailStudentId(student.student_id)}>{student.full_name}</button><span className="text-ink/60">{rate !== null ? `${rate}%` : '—'}</span></div><div className="w-full h-2 bg-line rounded-full overflow-hidden"><div className="h-full bg-primary" style={{ width: `${rate ?? 0}%` }} /></div></div>; })}</div></div><StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} /></div>;
+  if (loading) return <p className="text-ink/50">{t('attendanceLoading')}</p>;
+  const statusLabels = { present: t('present'), absent: t('absent'), late: t('late'), excused: t('excused') };
+  return <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="card p-4 lg:col-span-2"><div className="flex items-center justify-between mb-4"><h3 className="font-bold">{t('attendanceTitle')}</h3><input type="date" className="input text-sm w-40" value={date} onChange={(event) => changeDate(event.target.value)} /></div><div className="space-y-2 max-h-96 overflow-y-auto">{roster.map((student) => <div key={student.student_id} className="flex items-center justify-between border-b border-line pb-2"><span className="text-sm font-medium">{student.full_name}</span><div className="flex gap-1">{Object.entries(ATTENDANCE_STATUS).map(([key, status]) => <button key={key} onClick={() => setStatus(student.student_id, key)} className={`px-2 py-1 rounded-md text-xs border flex items-center gap-1 ${student.status === key ? status.bg : 'border-line text-ink/60 hover:bg-surface'}`}><Icon name={status.icon} className="w-3 h-3" />{statusLabels[key]}</button>)}</div></div>)}</div><button className="btn-primary text-sm mt-4" onClick={save}>{t('saveAttendanceToday')}</button>{feedback && <p className="text-primary text-xs mt-2">{feedback}</p>}</div><div className="card p-4"><h3 className="font-bold mb-3">{t('attendanceStats')}</h3><div className="space-y-3 max-h-96 overflow-y-auto">{stats.map((student) => { const rate = student.total_sessions > 0 ? Math.round((student.present_count / student.total_sessions) * 100) : null; return <div key={student.student_id}><div className="flex justify-between text-xs mb-1"><button className="text-ink hover:text-primary" onClick={() => setDetailStudentId(student.student_id)}>{student.full_name}</button><span className="text-ink/60">{rate !== null ? `${rate}%` : '—'}</span></div><div className="w-full h-2 bg-line rounded-full overflow-hidden"><div className="h-full bg-primary" style={{ width: `${rate ?? 0}%` }} /></div></div>; })}</div></div><StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} /></div>;
 }

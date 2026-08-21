@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import adminApi from '../api/adminClient';
 import { connectSocket } from '../api/socket';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 const PLAN_LABELS = { '6_months': '6 أشهر', yearly: 'سنوية', lifetime: 'مدى الحياة' };
 const STATUS_LABELS = { pending: 'قيد المراجعة', approved: 'مُفعّل', rejected: 'مرفوض' };
@@ -48,6 +49,7 @@ function mergeChatMessage(current, incoming) {
 }
 
 function PaymentRequests() {
+  const { t, locale } = useLocale();
   const [requests, setRequests] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [showArchived, setShowArchived] = useState(false);
@@ -64,21 +66,21 @@ function PaymentRequests() {
   useEffect(() => { load(); }, [statusFilter, showArchived]);
 
   const approve = async (id) => {
-    if (!confirm('تأكيد استلام التحويل وتفعيل الاشتراك؟')) return;
+    if (!confirm(t('confirmActivation'))) return;
     setBusyId(id);
     setActionMessage('');
     try {
       await adminApi.post(`/admin/payment-requests/${id}/approve`, {});
       await load();
-      setActionMessage('تم تفعيل الاشتراك وتحديث حساب المعلم بنجاح.');
+      setActionMessage(t('activationSuccess'));
     } catch (error) {
-      setActionMessage(error.response?.data?.error || 'تعذر تفعيل الاشتراك. تحقق من جلسة المسؤول وحاول مرة أخرى.');
+      setActionMessage(error.response?.data?.error ? `${error.response.data.error}${error.response.data.plan ? ` (${t('rawPlan')}: ${error.response.data.plan})` : ''}` : t('activationFailed'));
     } finally {
       setBusyId(null);
     }
   };
   const reject = async (id) => {
-    const note = prompt('سبب الرفض (اختياري):') || '';
+    const note = prompt(t('rejectReason')) || '';
     setBusyId(id);
     try { await adminApi.post(`/admin/payment-requests/${id}/reject`, { admin_note: note }); await load(); } finally { setBusyId(null); }
   };
@@ -98,19 +100,19 @@ function PaymentRequests() {
 
   return (
     <>
-      {actionMessage && <div className={`admin-action-feedback ${actionMessage.startsWith('تم') ? 'is-success' : 'is-error'}`} role="status">{actionMessage}</div>}
+      {actionMessage && <div className={`admin-action-feedback ${actionMessage === t('activationSuccess') ? 'is-success' : 'is-error'}`} role="status">{actionMessage}</div>}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <div className="flex gap-2">
+          <div className="flex gap-2">
           {['pending', 'approved', 'rejected', ''].map((s) => (
             <button key={s || 'all'} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1 rounded-full text-xs border ${statusFilter === s ? 'bg-ink text-white border-ink' : 'border-line'}`}>
-              {s ? STATUS_LABELS[s] : 'الكل'}
+              {s ? ({ pending: t('statusPending'), approved: t('statusApproved'), rejected: t('statusRejected') }[s]) : t('all')}
             </button>
           ))}
         </div>
         <button onClick={() => setShowArchived((v) => !v)}
           className={`px-3 py-1 rounded-full text-xs border ${showArchived ? 'bg-accent text-white border-accent' : 'border-line text-ink/60'}`}>
-          {showArchived ? '📦 عرض الأرشيف' : 'عرض الأرشيف'}
+          {showArchived ? `📦 ${t('showArchive')}` : t('showArchive')}
         </button>
       </div>
 
@@ -123,23 +125,23 @@ function PaymentRequests() {
                   <img src={r.receipt_image} alt="وصل التحويل" className="w-14 h-14 object-cover rounded-lg border border-line" />
                 </button>
               ) : (
-                <div className="w-14 h-14 rounded-lg border border-dashed border-line flex items-center justify-center text-[10px] text-ink/40 text-center">لا يوجد وصل</div>
+                <div className="w-14 h-14 rounded-lg border border-dashed border-line flex items-center justify-center text-[10px] text-ink/40 text-center">{t('noReceipt')}</div>
               )}
               <div>
                 <p className="font-bold">{r.full_name} <span className="text-ink/50 text-xs">({r.email})</span></p>
-                <p className="text-sm text-ink/70">الباقة: {PLAN_LABELS[r.plan]} — {r.amount_omr} ر.ع</p>
-                {r.reference_note && <p className="text-xs text-ink/50">ملاحظة المعلم: {r.reference_note}</p>}
-                <p className="text-xs text-ink/40">{new Date(r.created_at).toLocaleString('ar')}</p>
+                <p className="text-sm text-ink/70">{t('plan')}: {PLAN_LABELS[r.plan] || r.plan || t('statusUnknown')} {r.plan && !PLAN_LABELS[r.plan] && <small>({t('rawPlan')}: {r.plan})</small>} — {r.amount_omr} OMR</p>
+                {r.reference_note && <p className="text-xs text-ink/50">{t('teacherNote')}: {r.reference_note}</p>}
+                <p className="text-xs text-ink/40">{new Date(r.created_at).toLocaleString(locale === 'ar' ? 'ar' : 'en-US')}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <span className={`text-xs px-2 py-1 rounded-full ${r.status === 'pending' ? 'bg-accent/20 text-ink' : r.status === 'approved' ? 'bg-primary/20 text-primary' : 'bg-danger/20 text-danger'}`}>
-                {STATUS_LABELS[r.status]}
+                {{ pending: t('statusPending'), approved: t('statusApproved'), rejected: t('statusRejected') }[r.status] || r.status}
               </span>
               {r.status === 'pending' && !showArchived && (
                 <>
-                  <button className="btn-primary text-xs" disabled={busyId === r.id} onClick={() => approve(r.id)}>{busyId === r.id ? 'جارِ التفعيل...' : 'تفعيل'}</button>
-                  <button className="text-danger text-xs" disabled={busyId === r.id} onClick={() => reject(r.id)}>رفض</button>
+                  <button className="btn-primary text-xs" disabled={busyId === r.id} onClick={() => approve(r.id)}>{busyId === r.id ? t('activating') : t('activate')}</button>
+                  <button className="text-danger text-xs" disabled={busyId === r.id} onClick={() => reject(r.id)}>{t('reject')}</button>
                 </>
               )}
               {showArchived ? (
@@ -153,7 +155,7 @@ function PaymentRequests() {
             </div>
           </div>
         ))}
-        {requests.length === 0 && <p className="text-ink/50 text-sm">لا توجد طلبات في هذه الفئة.</p>}
+        {requests.length === 0 && <p className="text-ink/50 text-sm">{t('noRequests')}</p>}
       </div>
 
       {viewReceipt && (

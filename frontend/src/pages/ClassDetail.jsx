@@ -24,7 +24,7 @@ const TAB_KEYS = [
 
 export default function ClassDetail() {
   const { id } = useParams();
-  const { t, locale } = useLocale();
+  const { t, locale, direction } = useLocale();
   const [cls, setCls] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [tab, setTab] = useState('students');
@@ -57,7 +57,7 @@ export default function ClassDetail() {
   const isArabic = locale === 'ar';
 
   return (
-    <div className="class-page-shell">
+    <div className="class-page-shell" dir={direction}>
       <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {isArabic ? 'العودة إلى لوحة الصفوف' : 'Back to classes'}</Link><span className="class-page-status"><span className="class-page-status__dot" /> {isArabic ? 'بيانات محفوظة محليًا' : 'Data saved locally'}</span></div>
       {loading && !cls && <div className="class-page-loading">{isArabic ? 'جارِ فتح الصف محليًا...' : 'Opening class locally...'}</div>}
       {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>

@@ -5,6 +5,7 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
 
@@ -55,6 +56,7 @@ function snapshotWithGrade(snapshot, entry) {
 }
 
 export default function GradeMatrix({ classId, className }) {
+  const { t, locale } = useLocale();
   const [students, setStudents] = useState([]);
   const [categories, setCategories] = useState([]);
   const [grades, setGrades] = useState({});
@@ -89,16 +91,16 @@ export default function GradeMatrix({ classId, className }) {
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
   const itemsFor = (category) => getCategoryAssessments(category);
   const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
-  const coverageLabel = (coverage) => coverage.percent === null ? 'لا يوجد رصد' : `الرصد ${coverage.percent}% (${coverage.entered_count}/${coverage.total_students})`;
+  const coverageLabel = (coverage) => coverage.percent === null ? t('noGrading') : t('gradingCoverage', '', { percent: coverage.percent, entered: coverage.entered_count, total: coverage.total_students });
   const detailTotalFor = (category) => (category.assessments || [])
     .filter((assessment) => !Number(assessment.is_summary))
     .reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
   const detailStatusFor = (category) => {
     const total = detailTotalFor(category);
     const weight = Number(category.weight_percent || 0);
-    if (total > weight) return { tone: 'text-danger bg-danger/10', label: `متجاوز بـ ${(total - weight).toFixed(2)}` };
-    if (total < weight) return { tone: 'text-accent bg-accent/10', label: `متبقٍ ${(weight - total).toFixed(2)}` };
-    return { tone: 'text-primary bg-primary/10', label: 'متوازن' };
+    if (total > weight) return { tone: 'text-danger bg-danger/10', label: t('overBy', '', { value: (total - weight).toFixed(2) }) };
+    if (total < weight) return { tone: 'text-accent bg-accent/10', label: t('remainingBy', '', { value: (weight - total).toFixed(2) }) };
+    return { tone: 'text-primary bg-primary/10', label: t('balanced') };
   };
 
   const setCell = (assessmentId, studentId, field, value) => {
@@ -208,10 +210,10 @@ export default function GradeMatrix({ classId, className }) {
 
   const deleteAssessment = async (assessment) => {
     if (Number(assessment.is_summary)) {
-      alert('لا يمكن حذف خانة الفئة الأساسية. يمكنك حذف التقييمات الإضافية فقط.');
+      alert(t('cannotDeleteSummary'));
       return;
     }
-    if (!confirm('حذف هذا التقييم وكل الدرجات المرتبطة به؟')) return;
+    if (!confirm(t('deleteAssessmentConfirm'))) return;
     setCategories((current) => current.map((category) => ({
       ...category,
       assessments: (category.assessments || []).filter((item) => item.id !== assessment.id),
@@ -251,18 +253,18 @@ export default function GradeMatrix({ classId, className }) {
 
   const downloadGradebookPDF = () => {
     const profile = teacherProfile();
-    const generatedAt = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
+    const generatedAt = new Date().toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const columns = categories.flatMap((category) => [
       ...itemsFor(category).map((assessment) => ({
         key: assessment.id,
-        label: assessment.title || (Number(assessment.is_summary) ? 'درجة الفئة' : 'تقييم فرعي'),
+          label: assessment.title || (Number(assessment.is_summary) ? t('categoryScore') : t('subAssessment')),
         category: category.name,
         max: getAssessmentMaxScore(category, assessment),
       })),
-      { key: `${category.id}:total`, label: 'إجمالي الفئة', category: category.name, max: category.weight_percent },
+      { key: `${category.id}:total`, label: t('categoryTotal'), category: category.name, max: category.weight_percent },
     ]);
     const categoryHeader = categories.map((category) => `<th colspan="${itemsFor(category).length + 1}">${escapeHtml(category.name)}<small> (${escapeHtml(category.weight_percent)}%)</small></th>`).join('');
-    const assessmentHeader = columns.map((column) => `<th>${escapeHtml(column.label)}<small>${column.max != null ? `<br>من ${escapeHtml(column.max)}` : ''}</small></th>`).join('');
+    const assessmentHeader = columns.map((column) => `<th>${escapeHtml(column.label)}<small>${column.max != null ? `<br>${escapeHtml(t('from'))} ${escapeHtml(column.max)}` : ''}</small></th>`).join('');
     const body = students.map((student, index) => {
       const cells = categories.flatMap((category) => [
         ...itemsFor(category).map((assessment) => {
@@ -275,7 +277,7 @@ export default function GradeMatrix({ classId, className }) {
       const final = finalGrade(student.id);
       return `<tr><td class="student-number">${index + 1}</td><td class="student-name">${escapeHtml(student.full_name)}</td>${cells.join('')}<td class="final-grade">${final == null ? '—' : escapeHtml(Number(final).toFixed(2))}</td></tr>`;
     }).join('');
-    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل درجات ${escapeHtml(className || 'الصف')}</title><style>
+    const html = `<!doctype html><html lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>${escapeHtml(t('gradebookTitle'))} ${escapeHtml(className || t('className'))}</title><style>
       @page { size: A4 landscape; margin: 12mm; }
       * { box-sizing: border-box; }
       body { font-family: "Noto Sans Arabic", "Arial", sans-serif; color: #182b36; margin: 0; font-size: 9px; }
@@ -299,18 +301,18 @@ export default function GradeMatrix({ classId, className }) {
       .footer { display: flex; justify-content: space-between; margin-top: 12px; color: #687a82; font-size: 8px; border-top: 1px solid #dbe5e2; padding-top: 7px; }
       @media print { .no-print { display: none; } }
     </style></head><body>
-      <section class="masthead"><div class="brand">EduCore Manager</div><h1>سجل الدرجات الرسمي</h1><div class="meta">
-        <div><span>اسم المدرسة</span><strong>${escapeHtml(profile.school_name || '—')}</strong></div>
-        <div><span>المعلم</span><strong>${escapeHtml(profile.full_name || '—')}</strong></div>
-        <div><span>المادة</span><strong>${escapeHtml(profile.subject || '—')}</strong></div>
-        <div><span>الصف</span><strong>${escapeHtml(className || '—')}</strong></div>
-        <div><span>المرحلة الدراسية</span><strong>${escapeHtml(profile.school_stage || '—')}</strong></div>
-        <div><span>عدد الطلاب</span><strong>${students.length}</strong></div>
-        <div><span>عدد الفئات</span><strong>${categories.length}</strong></div>
-        <div><span>تاريخ الإصدار</span><strong>${escapeHtml(generatedAt)}</strong></div>
+      <section class="masthead"><div class="brand">EduCore Manager</div><h1>${escapeHtml(t('formalGradebook'))}</h1><div class="meta">
+        <div><span>${escapeHtml(t('schoolName'))}</span><strong>${escapeHtml(profile.school_name || '—')}</strong></div>
+        <div><span>${escapeHtml(t('teacherLabel'))}</span><strong>${escapeHtml(profile.full_name || '—')}</strong></div>
+        <div><span>${escapeHtml(t('subject'))}</span><strong>${escapeHtml(profile.subject || '—')}</strong></div>
+        <div><span>${escapeHtml(t('className'))}</span><strong>${escapeHtml(className || '—')}</strong></div>
+        <div><span>${escapeHtml(t('schoolStage'))}</span><strong>${escapeHtml(profile.school_stage || '—')}</strong></div>
+        <div><span>${escapeHtml(t('studentCountLabel'))}</span><strong>${students.length}</strong></div>
+        <div><span>${escapeHtml(t('categoryCountLabel'))}</span><strong>${categories.length}</strong></div>
+        <div><span>${escapeHtml(t('issuedAt'))}</span><strong>${escapeHtml(generatedAt)}</strong></div>
       </div></section>
-      <table><thead><tr><th rowspan="2">م</th><th rowspan="2">اسم الطالب</th>${categoryHeader}<th rowspan="2">النهائية<br>%</th></tr><tr>${assessmentHeader}</tr></thead><tbody>${body}</tbody></table>
-      <div class="footer"><span>تم إنشاء هذا السجل من EduCore Manager</span><span>توقيع المعلم: ____________________</span><span>اعتماد المدرسة: ____________________</span></div>
+      <table><thead><tr><th rowspan="2">${escapeHtml(t('indexLabel'))}</th><th rowspan="2">${escapeHtml(t('students'))}</th>${categoryHeader}<th rowspan="2">${escapeHtml(t('finalGrade'))}<br>%</th></tr><tr>${assessmentHeader}</tr></thead><tbody>${body}</tbody></table>
+      <div class="footer"><span>${escapeHtml(t('pdfGeneratedBy'))}</span><span>${escapeHtml(t('teacherSignature'))}: ____________________</span><span>${escapeHtml(t('schoolApproval'))}: ____________________</span></div>
       <script>window.addEventListener('load', () => setTimeout(() => { window.print(); }, 250));</script>
     </body></html>`;
     const printWindow = window.open('', '_blank');
@@ -336,30 +338,30 @@ export default function GradeMatrix({ classId, className }) {
     downloadCSV(`درجات_${className || 'الصف'}.csv`, rows, headers);
   };
 
-  if (loading) return <p className="text-ink/50">جارِ تجهيز دفتر الدرجات محليًا...</p>;
-  if (categories.length === 0) return <div className="card p-10 text-center"><p className="text-ink/60 mb-1">لا توجد فئات تقييم لهذا الصف بعد.</p><p className="text-ink/40 text-sm">افتح تبويب "فئات التقييم" لإضافة فئة.</p></div>;
-  if (students.length === 0) return <div className="card p-10 text-center text-ink/60">أضف طلابًا من تبويب "الطلاب" أولًا.</div>;
+  if (loading) return <p className="text-ink/50">{t('gradebookLoading')}</p>;
+  if (categories.length === 0) return <div className="card p-10 text-center"><p className="text-ink/60 mb-1">{t('noCategories')}</p><p className="text-ink/40 text-sm">{t('openCategoriesToAdd')}</p></div>;
+  if (students.length === 0) return <div className="card p-10 text-center text-ink/60">{t('addStudentsFirst')}</div>;
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 print:hidden">
         <div>
-          <h3 className="font-bold">جدول الدرجات الكامل</h3>
-          <p className="text-xs text-ink/50">قيمة كل تقييم من وزن فئته، والإجمالي النهائي يُحسب من 100%. تُحفظ الخانة محليًا فورًا ثم تُزامن.</p><span className="grade-matrix-hint">اسحب الجدول أفقيًا عند الحاجة — اسم الطالب ثابت</span>
+          <h3 className="font-bold">{t('fullGradeTable')}</h3>
+          <p className="text-xs text-ink/50">{t('gradebookDescription')}</p><span className="grade-matrix-hint">{t('horizontalHint')}</span>
         </div>
-        <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>تنزيل CSV</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>تنزيل PDF رسمي A4</button></div>
+        <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>{t('csvExport')}</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>{t('downloadPdf')}</button></div>
       </div>
       <div className="card grade-matrix-card">
-        <div className="grade-matrix-scroll" role="region" aria-label="جدول الدرجات القابل للتمرير">
+        <div className="grade-matrix-scroll" role="region" aria-label={t('scrollableGradeTable')}>
         <table className="grade-matrix-table text-xs border-collapse">
           <thead>
             <tr>
-              <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-20">الطالب</th>
+              <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-20">{t('students')}</th>
               {categories.map((category, index) => <th key={category.id} colSpan={itemsFor(category).length + 1} className="text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></th>)}
-              <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">النهائية %</th>
+              <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">{t('finalGrade')} %</th>
             </tr>
             <tr>
-              <th className="grade-matrix-sticky grade-matrix-sticky--subheader text-right px-3 py-2 text-[11px] text-ink/50 font-medium z-20">تفاصيل فرعية للفئة</th>
+              <th className="grade-matrix-sticky grade-matrix-sticky--subheader text-right px-3 py-2 text-[11px] text-ink/50 font-medium z-20">{t('subCategoryDetails')}</th>
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
@@ -367,35 +369,35 @@ export default function GradeMatrix({ classId, className }) {
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
                           <>
-                            <span className="font-medium">درجة الفئة <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
+                            <span className="font-medium">{t('categoryScore')} <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
                             <span className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</span>
                           </>
                         ) : (
                           <>
                             <div className="flex items-center gap-1">
-                              <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`عنوان التقييم الفرعي ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
-                              <button className="text-danger text-base leading-none font-bold print:hidden" title="حذف التقييم الفرعي" aria-label={`حذف ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
+                              <input className="input text-[11px] py-0.5 px-1 text-center w-24" defaultValue={assessment.title} aria-label={`${t('subAssessmentTitle')} ${assessment.title}`} onBlur={(event) => { const title = event.target.value.trim(); if (title && title !== assessment.title) updateAssessment(assessment, { title }); }} />
+                              <button className="text-danger text-base leading-none font-bold print:hidden" title={t('deleteSubAssessment')} aria-label={`${t('deleteClass')} ${assessment.title}`} onClick={() => deleteAssessment(assessment)}>×</button>
                             </div>
-                            <div className="text-[10px] text-ink/50">تقييم فرعي ({assessment.max_score})</div>
+                            <div className="text-[10px] text-ink/50">{t('subAssessment')} ({assessment.max_score})</div>
                             <div className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</div>
-                            <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`وزن التقييم الفرعي ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
+                            <input className="input text-[11px] py-0.5 px-1 text-center w-14" type="number" min="0.01" step="any" defaultValue={assessment.max_score} aria-label={`${t('subAssessmentWeight')} ${assessment.title}`} onBlur={(event) => { const max_score = Number(event.target.value); if (max_score > 0 && max_score !== Number(assessment.max_score)) updateAssessment(assessment, { max_score }); }} />
                           </>
                         )}
                       </div>
                     </th>
                   ))}
                   <th className="px-2 py-1.5 border-b border-line print:hidden" style={{ background: `${categoryColor(index)}14` }}>
-                    {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>مجموع {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
+                    {Number(category.assessments?.some((assessment) => !Number(assessment.is_summary))) > 0 && (() => { const status = detailStatusFor(category); return <div className={`text-[10px] rounded px-1 py-0.5 mb-1 ${status.tone}`}>{t('sum')} {detailTotalFor(category)} / {category.weight_percent} · {status.label}</div>; })()}
                     {newAssessment === category.id ? (
                       <form onSubmit={addAssessment} className="flex flex-col gap-1 p-1 min-w-[130px]">
-                        <input className="input text-xs py-0.5" placeholder="اسم التقييم" required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
-                        <input className="input text-xs py-0.5" type="number" min="0.01" step="any" required placeholder="وزن التقييم" value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: event.target.value })} />
-                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">إضافة</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>إلغاء</button></div>
+                        <input className="input text-xs py-0.5" placeholder={t('addAssessmentName')} required autoFocus value={assessmentForm.title} onChange={(event) => setAssessmentForm({ ...assessmentForm, title: event.target.value })} />
+                        <input className="input text-xs py-0.5" type="number" min="0.01" step="any" required placeholder={t('assessmentWeight')} value={assessmentForm.max_score} onChange={(event) => setAssessmentForm({ ...assessmentForm, max_score: event.target.value })} />
+                        <div className="flex gap-1"><button className="btn-primary text-xs px-2 py-0.5" type="submit">{t('add')}</button><button className="btn-secondary text-xs px-2 py-0.5" type="button" onClick={() => setNewAssessment(null)}>{t('cancel')}</button></div>
                       </form>
                     ) : (() => {
                       const remaining = Number(category.weight_percent || 0) - detailTotalFor(category);
-                      const remainingLabel = remaining >= 0 ? `بقية ${remaining.toFixed(2).replace(/\.00$/, '')}` : `متجاوز ${Math.abs(remaining).toFixed(2).replace(/\.00$/, '')}`;
-                      return <button className="btn-secondary text-xs px-2 py-1 leading-tight" style={{ color: categoryColor(index) }} title="إضافة تقييم فرعي لهذه الفئة" onClick={() => startAdding(category)}>تقييم فرعي ({remainingLabel}) +</button>;
+                      const remainingLabel = remaining >= 0 ? t('remainingBy', '', { value: remaining.toFixed(2).replace(/\.00$/, '') }) : t('overBy', '', { value: Math.abs(remaining).toFixed(2).replace(/\.00$/, '') });
+                      return <button className="btn-secondary text-xs px-2 py-1 leading-tight" style={{ color: categoryColor(index) }} title={`${t('add')} ${t('subAssessment')}`} onClick={() => startAdding(category)}>{t('subAssessment')} ({remainingLabel}) +</button>;
                     })()}
                   </th>
                 </React.Fragment>
@@ -420,8 +422,8 @@ export default function GradeMatrix({ classId, className }) {
                               {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
                               {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
                             </div>
-                            <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>{cell.comment ? '📝 ملاحظة' : '+ ملاحظة'}</button>
-                            {openComment === key && <div className="w-40"><CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" /><button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>حفظ</button></div>}
+                            <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>{cell.comment ? `📝 ${t('note')}` : `+ ${t('addNote')}`}</button>
+                            {openComment === key && <div className="w-40"><CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" /><button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>{t('saveNote')}</button></div>}
                           </div>
                         </td>
                       );

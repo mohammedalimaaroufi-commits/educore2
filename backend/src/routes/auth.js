@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, normalizePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -192,8 +192,8 @@ router.get('/plans', (req, res) => {
 // POST /api/auth/payment-requests  { plan, reference_note, receipt_image }
 // Submits a bank-transfer receipt for manual review; does NOT activate the subscription immediately.
 router.post('/payment-requests', requireAuth, (req, res) => {
-  const { plan, reference_note, receipt_image } = req.body;
-  const canonicalPlan = normalizePlanId(plan);
+  const { plan, offer_id, reference_note, receipt_image } = req.body;
+  const canonicalPlan = resolvePlanId(plan, { offerId: offer_id });
   const basePrices = getBasePrices();
   if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'باقة غير صالحة' });
   const offer = getActiveOffer(canonicalPlan);

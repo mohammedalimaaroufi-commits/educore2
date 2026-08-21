@@ -18,34 +18,97 @@ const PLAN_ID_ALIASES = {
   'فترة تجريبية': 'trial',
   '6_months': '6_months',
   '6_month': '6_months',
+  '6 months': '6_months',
   '6months': '6_months',
   '6-months': '6_months',
+  '6-month': '6_months',
   six_months: '6_months',
+  six_month: '6_months',
   'six-months': '6_months',
+  'six-month': '6_months',
   half_year: '6_months',
+  'half-year': '6_months',
+  semester: '6_months',
   semiannual: '6_months',
   '6 أشهر': '6_months',
   '6 اشهر': '6_months',
+  '٦ أشهر': '6_months',
+  '٦ اشهر': '6_months',
   yearly: 'yearly',
   annual: 'yearly',
+  'annual plan': 'yearly',
+  'yearly plan': 'yearly',
   year: 'yearly',
+  '12 months': 'yearly',
   '12_months': 'yearly',
   '12months': 'yearly',
+  '12-months': 'yearly',
+  '12 month': 'yearly',
   سنوية: 'yearly',
   سنوي: 'yearly',
+  'الباقة السنوية': 'yearly',
   lifetime: 'lifetime',
+  'lifetime plan': 'lifetime',
   forever: 'lifetime',
   permanent: 'lifetime',
   'مدى الحياة': 'lifetime',
+  'باقة مدى الحياة': 'lifetime',
+  '6 أشهر': '6_months',
+  'باقة 6 أشهر': '6_months',
+  'باقة ستة أشهر': '6_months',
+  'فترة تجريبية': 'trial',
+  تجريبي: 'trial',
+  trial: 'trial',
 };
 
 function normalizePlanId(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  return PLAN_ID_ALIASES[raw] || null;
+  const raw = String(value ?? '').trim().toLowerCase().normalize('NFKC');
+  if (!raw) return null;
+  return PLAN_ID_ALIASES[raw]
+    || PLAN_ID_ALIASES[raw.replace(/[–—−]/g, '-').replace(/\s+/g, ' ')]
+    || PLAN_ID_ALIASES[raw.replace(/[\s-]+/g, '_')]
+    || null;
 }
 
 function isPaidPlanId(value) {
   return ['6_months', 'yearly', 'lifetime'].includes(normalizePlanId(value));
+}
+
+// Requests created by older frontends sometimes stored the visible plan title or
+// an offer id instead of the canonical plan id. Resolve those values at the
+// server boundary so approval remains safe and deterministic.
+function resolvePlanId(value, options = {}) {
+  const canonical = normalizePlanId(value);
+  if (canonical) return canonical;
+
+  const definitions = options.definitions || getPlanDefinitions();
+  const raw = String(value ?? '').trim().toLowerCase().normalize('NFKC');
+  if (raw) {
+    const byTitle = definitions.find((plan) => {
+      const title = String(plan.title || '').trim().toLowerCase().normalize('NFKC');
+      return title === raw || title.replace(/[\s-]+/g, '_') === raw.replace(/[\s-]+/g, '_');
+    });
+    if (byTitle) return byTitle.id;
+  }
+
+  if (options.offerId) {
+    const offer = db.prepare('SELECT plan FROM subscription_offers WHERE id = ?').get(options.offerId);
+    const offerPlan = normalizePlanId(offer?.plan);
+    if (isPaidPlanId(offerPlan)) return offerPlan;
+  }
+
+  const amount = Number(options.amount);
+  if (Number.isFinite(amount) && amount > 0) {
+    const candidates = definitions.filter((plan) => {
+      const base = Number(plan.base_price_omr);
+      const activeOffer = getActiveOffer(plan.id);
+      const offerPrice = activeOffer ? Number(activeOffer.offer_price_omr) : null;
+      return base === amount || offerPrice === amount;
+    });
+    if (candidates.length === 1) return candidates[0].id;
+  }
+
+  return null;
 }
 
 
@@ -108,13 +171,11 @@ function getTrialDays() {
 
 function getActiveOffers(plan = null) {
   const now = new Date().toISOString();
-  const clauses = ['enabled = 1', '(starts_at IS NULL OR starts_at <= ?)', '(ends_at IS NULL OR ends_at >= ?)'];
-  const params = [now, now];
-  if (plan) {
-    clauses.push('plan = ?');
-    params.push(plan);
-  }
-  return db.prepare(`SELECT * FROM subscription_offers WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, created_at DESC`).all(...params);
+  const rows = db.prepare(`SELECT * FROM subscription_offers
+    WHERE enabled = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
+    ORDER BY updated_at DESC, created_at DESC`).all(now, now);
+  const wanted = plan ? normalizePlanId(plan) : null;
+  return rows.filter((offer) => !wanted || normalizePlanId(offer.plan) === wanted);
 }
 
 function getActiveOffer(plan) {
@@ -146,6 +207,7 @@ module.exports = {
   getSetting,
   getPlanDefinitions,
   normalizePlanId,
+  resolvePlanId,
   isPaidPlanId,
   getPlanDefinition,
   savePlanDefinitions,

@@ -177,14 +177,24 @@ router.get('/:id', (req, res) => {
 router.patch('/:id', (req, res) => {
   const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
   if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
-  const fields = ['name', 'subject', 'academic_year', 'color', 'icon'];
+
   const updates = {};
-  fields.forEach((f) => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
-  const setClause = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  if (setClause) {
-    db.prepare(`UPDATE classes SET ${setClause}, updated_at = datetime('now') WHERE id = @id`).run({ ...updates, id: cls.id });
+  if (req.body.name !== undefined) updates.name = String(req.body.name).trim();
+  if (req.body.subject !== undefined) updates.subject = String(req.body.subject).trim() || null;
+  if (req.body.academic_year !== undefined) updates.academic_year = String(req.body.academic_year).trim() || null;
+  if (req.body.color !== undefined) updates.color = String(req.body.color).trim() || cls.color || '#2E7D6B';
+  if (req.body.icon !== undefined) updates.icon = String(req.body.icon).trim() || cls.icon || 'book';
+  if (updates.name !== undefined && !updates.name) return res.status(400).json({ error: 'اسم الصف مطلوب' });
+
+  const keys = Object.keys(updates);
+  if (keys.length > 0) {
+    const setClause = keys.map((key) => `${key} = @${key}`).join(', ');
+    db.prepare(`UPDATE classes SET ${setClause}, updated_at = datetime('now') WHERE id = @id AND teacher_id = @teacher_id`)
+      .run({ ...updates, id: cls.id, teacher_id: req.teacherId });
   }
-  res.json({ class: db.prepare('SELECT * FROM classes WHERE id = ?').get(cls.id) });
+
+  const saved = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(cls.id, req.teacherId);
+  res.json({ class: saved, saved_fields: keys });
 });
 
 // DELETE /api/classes/:id            -> archive (soft delete, recoverable)

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 
 const router = express.Router();
 
@@ -156,9 +156,19 @@ router.post('/payment-requests/:id/approve', (req, res) => {
   if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
 
   const now = new Date().toISOString();
-  const canonicalPlan = normalizePlanId(request.plan);
-  if (!isPaidPlanId(canonicalPlan)) return res.status(400).json({ error: 'الباقة المرتبطة بالطلب غير موجودة أو غير صالحة للتفعيل' });
   const definitions = getPlanDefinitions();
+  const canonicalPlan = resolvePlanId(request.plan, {
+    definitions,
+    offerId: request.offer_id,
+    amount: request.amount_omr,
+  });
+  if (!isPaidPlanId(canonicalPlan)) {
+    return res.status(400).json({
+      error: 'الباقة المرتبطة بالطلب غير موجودة أو غير صالحة للتفعيل',
+      plan: request.plan || null,
+      request_id: request.id,
+    });
+  }
   const selectedPlan = definitions.find((plan) => plan.id === canonicalPlan);
   if (!selectedPlan) return res.status(400).json({ error: 'تعذر العثور على تعريف الباقة. أعد حفظ الباقات الأساسية من لوحة المسؤول ثم أعد المحاولة.' });
   const periodEnd = selectedPlan.duration_days === null ? null : addDays(now, selectedPlan.duration_days);

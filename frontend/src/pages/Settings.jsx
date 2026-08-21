@@ -10,19 +10,19 @@ import BackupManager from '../components/BackupManager.jsx';
 import LocalStorageManager from '../components/LocalStorageManager.jsx';
 
 const CATEGORIES = [
-  { id: 'grade', label: 'الدرجات' },
-  { id: 'behavior', label: 'السلوك' },
-  { id: 'attendance', label: 'الحضور' },
-  { id: 'general', label: 'عام' },
+  { id: 'grade', key: 'grades' },
+  { id: 'behavior', key: 'behavior' },
+  { id: 'attendance', key: 'attendance' },
+  { id: 'general', key: 'general' },
 ];
 
 const TABS = [
-  { id: 'profile', label: 'الملف الشخصي' },
-  { id: 'schemes', label: 'فئات التقييم ومخططاتها الجاهزة' },
-  { id: 'behavior', label: 'تحرير السلوك المخصص' },
-  { id: 'recommendations', label: 'العبارات الوصفية للنتيجة النهائية' },
-  { id: 'templates', label: 'العبارات الوصفية للدرجات' },
-  { id: 'backup', label: 'نسخة احتياطية' },
+  { id: 'profile', key: 'profile' },
+  { id: 'schemes', key: 'schemes' },
+  { id: 'behavior', key: 'behaviorTemplates' },
+  { id: 'recommendations', key: 'finalRecommendations' },
+  { id: 'templates', key: 'gradeTemplates' },
+  { id: 'backup', key: 'backup' },
 ];
 
 function ProfileTab() {
@@ -82,8 +82,8 @@ function ProfileTab() {
       setSavedMsg(t('saved'));
     } catch {
       savePendingProfile(teacher.id, profile);
-      setSavedMsg('تم حفظ التغييرات على هذا الجهاز، وستتم المزامنة عند عودة الاتصال');
-      setError('تعذر الاتصال بالخادم حاليًا. بياناتك المحلية محفوظة ولن تضيع.');
+      setSavedMsg(t('profileSavedOffline'));
+      setError(t('serverUnavailable'));
     } finally {
       setSaving(false);
       setTimeout(() => setSavedMsg(''), 3500);
@@ -92,7 +92,7 @@ function ProfileTab() {
 
   return (
     <div className="settings-panel settings-panel--profile">
-      <div className="settings-panel__heading"><div><span className="settings-eyebrow">هوية الحساب</span><h3>{t('profile')}</h3><p>عدّل بياناتك العامة وستُحفظ محليًا ثم تُزامن عند توفر الاتصال.</p></div><span className="settings-panel__icon">◎</span></div>
+      <div className="settings-panel__heading"><div><span className="settings-eyebrow">{t('accountIdentity')}</span><h3>{t('profile')}</h3><p>{t('profileDescription')}</p></div><span className="settings-panel__icon">◎</span></div>
       <form onSubmit={saveProfile} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div><label className="label">{t('fullName')}</label><input className="input" value={profile.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></div>
         <div><label className="label">{t('subject')}</label><input className="input" value={profile.subject} onChange={(e) => updateProfileField('subject', e.target.value)} /></div>
@@ -110,6 +110,7 @@ function ProfileTab() {
 }
 
 function RecommendationsTab() {
+  const { t } = useLocale();
   const [rules, setRules] = useState([]);
   const [newRule, setNewRule] = useState({ min_score: '', max_score: '', text: '' });
 
@@ -134,17 +135,15 @@ function RecommendationsTab() {
   };
 
   const deleteRule = async (id) => {
-    if (!confirm('حذف هذه القاعدة؟')) return;
+    if (!confirm(t('deleteRuleConfirm'))) return;
     await api.delete(`/settings/grade-recommendations/${id}`);
     loadRules();
   };
 
   return (
     <div className="card p-5">
-      <h3 className="font-bold mb-1">التوصيات التلقائية حسب الدرجة النهائية</h3>
-      <p className="text-xs text-ink/60 mb-4">
-        تُستخدم هذه القواعد لتوليد عبارة تلقائية في تقرير كل طالب، تُختار حسب مدى الدرجة النهائية. عدّل النطاقات أو النص كما يناسبك.
-      </p>
+      <h3 className="font-bold mb-1">{t('recommendationsTitle')}</h3>
+      <p className="text-xs text-ink/60 mb-4">{t('recommendationsText')}</p>
 
       <div className="space-y-2 mb-4">
         {rules.sort((a, b) => b.min_score - a.min_score).map((r) => (
@@ -156,27 +155,28 @@ function RecommendationsTab() {
               onBlur={(e) => Number(e.target.value) !== r.max_score && updateRule(r.id, 'max_score', Number(e.target.value))} />
             <input className="input text-xs py-1" defaultValue={r.text}
               onBlur={(e) => e.target.value !== r.text && updateRule(r.id, 'text', e.target.value)} />
-            <button className="text-danger text-xs" onClick={() => deleteRule(r.id)}>حذف</button>
+            <button className="text-danger text-xs" onClick={() => deleteRule(r.id)}>{t('deleteClass')}</button>
           </div>
         ))}
-        {rules.length === 0 && <p className="text-ink/50 text-sm">لا توجد قواعد بعد.</p>}
+        {rules.length === 0 && <p className="text-ink/50 text-sm">{t('noRules')}</p>}
       </div>
 
       <form onSubmit={addRule} className="grid gap-2 items-center pt-2 border-t border-line" style={{ gridTemplateColumns: '70px 20px 70px 1fr auto' }}>
-        <input className="input text-xs py-1" type="number" placeholder="من" required
+        <input className="input text-xs py-1" type="number" placeholder={t('from')} required
           value={newRule.min_score} onChange={(e) => setNewRule({ ...newRule, min_score: e.target.value })} />
         <span className="text-center text-ink/40 text-xs">–</span>
-        <input className="input text-xs py-1" type="number" placeholder="إلى" required
+        <input className="input text-xs py-1" type="number" placeholder={t('to')} required
           value={newRule.max_score} onChange={(e) => setNewRule({ ...newRule, max_score: e.target.value })} />
-        <input className="input text-xs py-1" placeholder="نص التوصية" required
+        <input className="input text-xs py-1" placeholder={t('recommendationText')} required
           value={newRule.text} onChange={(e) => setNewRule({ ...newRule, text: e.target.value })} />
-        <button className="btn-secondary text-xs px-2" type="submit">+ إضافة</button>
+        <button className="btn-secondary text-xs px-2" type="submit">+ {t('add')}</button>
       </form>
     </div>
   );
 }
 
 function TemplatesTab() {
+  const { t } = useLocale();
   const [templates, setTemplates] = useState([]);
   const [newTemplate, setNewTemplate] = useState({ text: '', category: 'grade' });
 
@@ -200,16 +200,16 @@ function TemplatesTab() {
 
   return (
     <div className="card p-5">
-      <h3 className="font-bold mb-1">بنك العبارات الوصفية الجاهزة</h3>
-      <p className="text-xs text-ink/60 mb-4">عبارات يمكن إدراجها بسرعة عند إدخال الدرجات أو كتابة التقارير، بدل كتابتها يدويًا كل مرة.</p>
+      <h3 className="font-bold mb-1">{t('phraseBankTitle')}</h3>
+      <p className="text-xs text-ink/60 mb-4">{t('phraseBankText')}</p>
 
       <form onSubmit={addTemplate} className="flex flex-wrap gap-2 mb-5">
         <select className="input text-sm w-32" value={newTemplate.category} onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value })}>
-          {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{t(c.key)}</option>)}
         </select>
-        <input className="input text-sm flex-1 min-w-[200px]" placeholder="نص العبارة" required
+        <input className="input text-sm flex-1 min-w-[200px]" placeholder={t('phraseText')} required
           value={newTemplate.text} onChange={(e) => setNewTemplate({ ...newTemplate, text: e.target.value })} />
-        <button className="btn-primary text-sm" type="submit">+ إضافة</button>
+        <button className="btn-primary text-sm" type="submit">+ {t('add')}</button>
       </form>
 
       <div className="space-y-4">
@@ -218,37 +218,38 @@ function TemplatesTab() {
           if (items.length === 0) return null;
           return (
             <div key={cat.id}>
-              <p className="text-xs font-bold text-ink/50 mb-2">{cat.label}</p>
+              <p className="text-xs font-bold text-ink/50 mb-2">{t(cat.key)}</p>
               <div className="space-y-1">
-                {items.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between text-sm border-b border-line pb-1">
-                    <span>{t.text}</span>
-                    <button className="text-danger text-xs" onClick={() => deleteTemplate(t.id)}>حذف</button>
+                {items.map((phrase) => (
+                  <div key={phrase.id} className="flex items-center justify-between text-sm border-b border-line pb-1">
+                    <span>{phrase.text}</span>
+                    <button className="text-danger text-xs" onClick={() => deleteTemplate(phrase.id)}>{t('deleteClass')}</button>
                   </div>
                 ))}
               </div>
             </div>
           );
         })}
-        {templates.length === 0 && <p className="text-ink/50 text-sm">لا توجد عبارات محفوظة بعد.</p>}
+        {templates.length === 0 && <p className="text-ink/50 text-sm">{t('noPhrases')}</p>}
       </div>
     </div>
   );
 }
 
 export default function Settings() {
+  const { t, locale } = useLocale();
   const [tab, setTab] = useState('profile');
 
   return (
     <div className="settings-page-shell">
-      <div className="settings-page-topline"><Link to="/" className="settings-back">← العودة للوحة التحكم</Link><span className="settings-local-badge">يحفظ محليًا · يزامن تلقائيًا</span></div>
-      <header className="settings-page-hero"><div><span className="settings-eyebrow">مساحة التخصيص</span><h1>الإعدادات العامة</h1><p>اجعل EduCore يعمل بالطريقة التي تناسبك، من ملفك الشخصي إلى قوالب الدرجات والسلوك والنسخ الاحتياطية.</p></div><div className="settings-hero-grid"><span>01<small>الملف</small></span><span>02<small>القوالب</small></span><span>03<small>الحماية</small></span></div></header>
+      <div className="settings-page-topline"><Link to="/" className="settings-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
+      <header className="settings-page-hero"><div><span className="settings-eyebrow">{t('settingsCustomization')}</span><h1>{t('generalSettings')}</h1><p>{t('settingsDescription')}</p></div><div className="settings-hero-grid"><span>01<small>{t('profile')}</small></span><span>02<small>{t('gradeTemplates')}</small></span><span>03<small>{t('backup')}</small></span></div></header>
 
-      <nav className="settings-tabs" aria-label="إعدادات المعلم">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={`settings-tab ${tab === t.id ? 'is-active' : ''}`}>
-            <span>{String(TABS.findIndex((item) => item.id === t.id) + 1).padStart(2, '0')}</span>{t.label}
+      <nav className="settings-tabs" aria-label={t('settings')}>
+        {TABS.map((tabItem) => (
+          <button key={tabItem.id} type="button" onClick={() => setTab(tabItem.id)}
+            className={`settings-tab ${tab === tabItem.id ? 'is-active' : ''}`}>
+            <span>{String(TABS.findIndex((item) => item.id === tabItem.id) + 1).padStart(2, '0')}</span>{t(tabItem.key)}
           </button>
         ))}
       </nav>
