@@ -396,3 +396,27 @@ h1, h2, h3, h4 {
   .class-page-fixed-header .class-page-topline, .settings-page-fixed-header .settings-page-topline, .subscription-page-fixed-header .subscription-page-topline { padding-top: .8rem; }
   .settings-page-fixed-header .settings-page-hero, .subscription-page-fixed-header .subscription-page-hero, .admin-page-fixed-header .admin-page-hero { min-height: 10rem; padding: 1.2rem 1.25rem; }
 }
+
+/* Table chrome: headers remain readable while the table body scrolls. */
+.table-scroll-sticky { max-width: 100%; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.table-head-sticky { border-collapse: separate; border-spacing: 0; }
+.table-head-sticky thead th { position: sticky; top: 0; z-index: 12; background: #f7f5f0; box-shadow: 0 1px 0 rgba(27,36,48,.12); }
+.table-head-sticky thead th:first-child { z-index: 14; }
+.table-head-sticky tbody tr { background: #fff; }
+.grade-matrix-scroll { max-height: min(66dvh, 42rem); overflow: auto; }
+.grade-matrix-table { border-collapse: separate; border-spacing: 0; }
+.grade-matrix-table thead tr:first-child th { position: sticky; top: 0; z-index: 24; box-shadow: 0 1px 0 rgba(27,36,48,.18); }
+.grade-matrix-table thead tr:nth-child(2) th { position: sticky; top: 3.2rem; z-index: 23; box-shadow: 0 1px 0 rgba(27,36,48,.12); }
+.grade-matrix-table thead .grade-matrix-sticky--header { z-index: 28; }
+.grade-matrix-table thead .grade-matrix-sticky--subheader { z-index: 27; }
+.grade-matrix-table tbody .grade-matrix-sticky--body { z-index: 15; }
+@media (max-width: 760px) {
+  .grade-matrix-scroll { max-height: min(62dvh, 34rem); }
+  .grade-matrix-table thead tr:nth-child(2) th { top: 3rem; }
+}
+
+.settings-follow-up-rule { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem; background: rgba(247,245,240,.72); border: 1px solid rgba(27,36,48,.08); border-radius: .85rem; }
+.settings-follow-up-rule input[type='checkbox'] { flex: 0 0 auto; accent-color: #2e7d6b; }
+@media (max-width: 680px) { .settings-follow-up-rule { align-items: flex-start; flex-direction: column; } .settings-follow-up-rule > div { width: 100%; } }
+.analytics-kpi button { font-family: inherit; }
+button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointer; }

@@ -3,12 +3,17 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, L
 import StudentAvatar from './StudentAvatar.jsx';
 import StudentDetailModal from './StudentDetailModal.jsx';
 import { getTeacherId } from '../utils/localCache.js';
+import { readSettingsCache } from '../utils/settingsCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
+import { useLocale } from '../context/LocaleContext.jsx';
 import {
   buildCategoryAverages,
   buildDistribution,
   buildGrowth,
   buildClassRoster,
+  buildFollowUpRows,
+  DEFAULT_FOLLOW_UP_SETTINGS,
+  normalizeFollowUpSettings,
 } from '../utils/analyticsSelectors.js';
 
 const SORT_OPTIONS = {
@@ -26,7 +31,41 @@ function ChartKey({ items, label }) {
   </div>;
 }
 
+function FollowUpReason({ reason, locale }) {
+  const details = reason.details || [];
+  return <div className="rounded-lg border border-line bg-white/70 p-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <strong className="text-danger">{reason.label}</strong><span className="font-bold text-ink/70">{reason.value}</span>
+    </div>
+    {details.length > 0 && <div className="mt-2 space-y-1 text-[11px] text-ink/60">
+      {reason.key === 'behavior' && details.map((item, index) => <div key={`${item.occurred_at || 'behavior'}-${index}`} className="flex flex-wrap gap-1 border-t border-line/60 pt-1"><span className="font-medium text-danger">{item.label}</span><span>−{item.points} {locale === 'ar' ? 'نقطة' : 'points'}</span>{item.note && <span>· {item.note}</span>}{item.occurred_at && <time className="text-ink/35">· {new Date(item.occurred_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US')}</time>}</div>)}
+      {(reason.key === 'grade' || reason.key === 'missing-grade') && details.map((category) => <div key={category.category} className="border-t border-line/60 pt-1"><div className="flex flex-wrap justify-between gap-1"><span className="font-medium">{category.category}</span><span>{category.percent === null ? '—' : `${category.percent}%`} · {locale === 'ar' ? 'الوزن' : 'weight'} {category.weight}%</span></div><div className="flex flex-wrap gap-x-2 gap-y-1 text-ink/45">{category.items.map((item) => <span key={`${category.category}-${item.title}`}>{item.title}: {item.score === null ? '—' : `${item.score}/${item.max}`}{item.comment ? ` · ${item.comment}` : ''}</span>)}</div></div>)}
+      {(reason.key === 'absence' || reason.key === 'late') && details.map((item, index) => <span key={`${item.session_date || reason.key}-${index}`} className="inline-block border-t border-line/60 pt-1 ml-2">{item.session_date || '—'}</span>)}
+    </div>}
+  </div>;
+}
+
+function FollowUpList({ rows, onOpenStudent, locale, settings }) {
+  const thresholds = settings.thresholds;
+  const activeRules = [
+    settings.enabled.behavior && (locale === 'ar' ? `سلوك ≤ ${thresholds.behaviorScore}` : `behavior ≤ ${thresholds.behaviorScore}`),
+    settings.enabled.grade && (locale === 'ar' ? `درجة < ${thresholds.finalGrade}%` : `grade < ${thresholds.finalGrade}%`),
+    settings.enabled.missingGrade && (locale === 'ar' ? 'درجة غير مكتملة' : 'missing grade'),
+    settings.enabled.absence && (locale === 'ar' ? `غياب ≥ ${thresholds.absentDays}` : `absence ≥ ${thresholds.absentDays}`),
+    settings.enabled.late && (locale === 'ar' ? `تأخير ≥ ${thresholds.lateDays}` : `late ≥ ${thresholds.lateDays}`),
+  ].filter(Boolean).join(locale === 'ar' ? '، ' : ', ');
+  if (!rows.length) return <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 text-center text-sm text-primary">{locale === 'ar' ? 'لا يوجد طلاب يطابقون شروط المتابعة الحالية.' : 'No students match the current follow-up rules.'}</div>;
+  return <div className="space-y-2">
+    {rows.map((row) => <article key={row.student_id} className="rounded-xl2 border border-line bg-white/80 p-3">
+      <div className="flex flex-wrap items-start gap-3"><StudentAvatar name={row.full_name} photoUrl={row.student.photo_url} size={34} /><div className="min-w-0 flex-1"><button type="button" onClick={() => onOpenStudent(row.student_id)} className="font-bold text-right hover:text-primary">{row.full_name}</button><div className="mt-1 flex flex-wrap gap-1 text-[11px]"><span className="rounded-full bg-danger/10 px-2 py-0.5 text-danger">{locale === 'ar' ? 'أسباب' : 'Reasons'} {row.reasons.length}</span><span className="rounded-full bg-surface px-2 py-0.5 text-ink/60">{row.finalGrade === null ? '—' : `${row.finalGrade}%`}</span><span className="rounded-full bg-surface px-2 py-0.5 text-ink/60">{row.attendanceRate === null ? '—' : `${row.attendanceRate}%`}</span></div></div><button type="button" className="btn-secondary text-xs" onClick={() => onOpenStudent(row.student_id)}>{locale === 'ar' ? 'فتح ملف الطالب' : 'Open student'}</button></div>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">{row.reasons.map((reason) => <FollowUpReason key={reason.key} reason={reason} locale={locale} />)}</div>
+    </article>)}
+    <p className="text-[11px] text-ink/45">{locale === 'ar' ? `الشروط المفعّلة: ${activeRules || 'لا توجد شروط'}.` : `Active rules: ${activeRules || 'none'}.`}</p>
+  </div>;
+}
+
 export default function AnalyticsTab({ classId }) {
+  const { locale } = useLocale();
   const [snapshot, setSnapshot] = useState(null);
   const [sortBy, setSortBy] = useState('grade');
   const [selectedStudent, setSelectedStudent] = useState('');
@@ -34,8 +73,16 @@ export default function AnalyticsTab({ classId }) {
   const [studentFilter, setStudentFilter] = useState('all');
   const [growth, setGrowth] = useState([]);
   const [detailStudentId, setDetailStudentId] = useState(null);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpSettings, setFollowUpSettings] = useState(() => normalizeFollowUpSettings(readSettingsCache(getTeacherId(), 'follow-up-rules', DEFAULT_FOLLOW_UP_SETTINGS)));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const refreshFollowUpRules = () => setFollowUpSettings(normalizeFollowUpSettings(readSettingsCache(getTeacherId(), 'follow-up-rules', DEFAULT_FOLLOW_UP_SETTINGS)));
+    window.addEventListener('educore-follow-up-rules-updated', refreshFollowUpRules);
+    return () => window.removeEventListener('educore-follow-up-rules-updated', refreshFollowUpRules);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +113,7 @@ export default function AnalyticsTab({ classId }) {
     });
   }, [roster, studentSearch, studentFilter]);
   const sortedRoster = useMemo(() => [...filteredRoster].sort(SORT_OPTIONS[sortBy]), [filteredRoster, sortBy]);
+  const followUpRows = useMemo(() => buildFollowUpRows(snapshot, classId, followUpSettings), [snapshot, classId, followUpSettings]);
   const analyticsKpis = useMemo(() => {
     const graded = roster.filter((row) => row.finalGrade !== null);
     const attendance = roster.filter((row) => row.attendanceRate !== null);
@@ -73,9 +121,9 @@ export default function AnalyticsTab({ classId }) {
       students: roster.length,
       average: graded.length ? Math.round(graded.reduce((sum, row) => sum + row.finalGrade, 0) / graded.length) : null,
       attendance: attendance.length ? Math.round(attendance.reduce((sum, row) => sum + row.attendanceRate, 0) / attendance.length) : null,
-      needsAttention: roster.filter((row) => row.finalGrade !== null && row.finalGrade < 60 || row.behaviorScore < 0).length,
+      needsAttention: followUpRows.length,
     };
-  }, [roster]);
+  }, [roster, followUpRows]);
 
   const growthCategories = useMemo(() => [...new Set(growth.map((item) => item.category).filter(Boolean))].map((label) => ({ id: label, label })), [growth]);
 
@@ -94,8 +142,12 @@ export default function AnalyticsTab({ classId }) {
         <div className="analytics-kpi"><span>إجمالي الطلاب</span><strong>{analyticsKpis.students}</strong><small>في الصف الحالي</small></div>
         <div className="analytics-kpi analytics-kpi--primary"><span>متوسط الدرجات</span><strong>{analyticsKpis.average === null ? '—' : `${analyticsKpis.average}%`}</strong><small>للطلبة المرصودين</small></div>
         <div className="analytics-kpi analytics-kpi--accent"><span>متوسط الحضور</span><strong>{analyticsKpis.attendance === null ? '—' : `${analyticsKpis.attendance}%`}</strong><small>من السجلات المتاحة</small></div>
-        <div className="analytics-kpi analytics-kpi--danger"><span>يحتاجون متابعة</span><strong>{analyticsKpis.needsAttention}</strong><small>درجة منخفضة أو سلوك سلبي</small></div>
+        <button type="button" className={`analytics-kpi analytics-kpi--danger text-right ${followUpOpen ? 'ring-2 ring-danger/20' : ''}`} onClick={() => setFollowUpOpen((open) => !open)}><span>يحتاجون متابعة</span><strong>{analyticsKpis.needsAttention}</strong><small>اضغط لعرض الطلاب والأسباب</small></button>
       </div>
+      {followUpOpen && <div className="card p-4 border-t-3 border-danger/70">
+        <div className="flex items-start justify-between gap-3 mb-3"><div><h3 className="font-bold">الطلاب الذين يحتاجون متابعة</h3><p className="text-xs text-ink/50 mt-1">تظهر هنا أسباب المتابعة مع تفاصيل السلوك والدرجات والحضور والتأخير. اضغط على الطالب لفتح ملفه الكامل.</p></div><button type="button" className="btn-secondary text-xs" onClick={() => setFollowUpOpen(false)}>إغلاق</button></div>
+        <FollowUpList rows={followUpRows} onOpenStudent={setDetailStudentId} locale={locale} settings={followUpSettings} />
+      </div>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="card p-4">
         <h3 className="font-bold mb-1">توزيع درجات الفصل</h3>
@@ -173,9 +225,9 @@ export default function AnalyticsTab({ classId }) {
           </div>
         </div>
         <div className="mb-2 text-xs text-ink/50">عرض {sortedRoster.length} من {roster.length} طالب</div>
-        <div className="overflow-x-auto max-h-72 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-surface sticky top-0"><tr>
+        <div className="table-scroll-sticky max-h-72">
+          <table className="table-head-sticky w-full text-sm">
+            <thead><tr>
               <th className="text-right px-3 py-2">الطالب</th>
               <th className="text-right px-3 py-2">الدرجة النهائية</th>
               <th className="text-right px-3 py-2">نقاط السلوك</th>

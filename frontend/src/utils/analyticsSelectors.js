@@ -129,14 +129,87 @@ export function calculateAttendanceRate(studentId, snapshot) {
 export function buildClassRoster(snapshot, classId) {
   const { students, categories } = getClassData(snapshot, classId);
   const gradeMap = buildGradeMap(snapshot);
-  return students.map((student) => ({
-    student_id: student.id,
-    full_name: student.full_name,
-    finalGrade: calculateFinalGrade(student.id, categories, gradeMap),
-    behaviorScore: calculateBehaviorScore(student.id, snapshot),
-    attendanceRate: calculateAttendanceRate(student.id, snapshot),
-  }));
+  const sessions = new Map((snapshot?.attendance_sessions || []).map((session) => [session.id, session]));
+  return students.map((student) => {
+    const attendanceRecords = (snapshot?.attendance_records || []).filter((record) => record.student_id === student.id && sessions.has(record.session_id));
+    return {
+      student_id: student.id,
+      full_name: student.full_name,
+      finalGrade: calculateFinalGrade(student.id, categories, gradeMap),
+      behaviorScore: calculateBehaviorScore(student.id, snapshot),
+      attendanceRate: calculateAttendanceRate(student.id, snapshot),
+      absentCount: attendanceRecords.filter((record) => record.status === 'absent').length,
+      lateCount: attendanceRecords.filter((record) => record.status === 'late').length,
+      attendanceRecords,
+    };
+  });
 }
+
+export const DEFAULT_FOLLOW_UP_SETTINGS = {
+  enabled: { behavior: true, grade: true, missingGrade: true, absence: true, late: true },
+  thresholds: { behaviorScore: -4, finalGrade: 60, absentDays: 3, lateDays: 3 },
+};
+
+export function normalizeFollowUpSettings(input = {}) {
+  const source = input || {};
+  const enabled = { ...DEFAULT_FOLLOW_UP_SETTINGS.enabled, ...(source.enabled || {}) };
+  const thresholds = { ...DEFAULT_FOLLOW_UP_SETTINGS.thresholds, ...(source.thresholds || {}) };
+  return {
+    enabled,
+    thresholds: Object.fromEntries(Object.entries(thresholds).map(([key, value]) => [key, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_FOLLOW_UP_SETTINGS.thresholds[key]])),
+  };
+}
+
+function formatFollowUpValue(value, suffix = '') {
+  return `${value}${suffix}`;
+}
+
+export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_UP_SETTINGS) {
+  const normalized = normalizeFollowUpSettings(settings);
+  const { students } = getClassData(snapshot, classId);
+  const roster = buildClassRoster(snapshot, classId);
+  return students.map((student) => {
+    const base = roster.find((row) => row.student_id === student.id);
+    const report = buildStudentReport(snapshot, student.id);
+    if (!base || !report) return null;
+    const reasons = [];
+    const negativeLogs = report.behaviorLogs.filter((log) => log.polarity === 'negative');
+    const gradeDetails = report.gradesByCategory.map((category) => ({
+      category: category.category,
+      percent: category.categoryPercent,
+      weight: category.weight_percent,
+      items: category.items.map((item) => ({ title: item.title, score: item.score, max: item.max_score, comment: item.comment })),
+    }));
+    const behaviorDetails = negativeLogs.slice(0, 8).map((log) => ({ label: log.label || 'سلوك سلبي', points: Math.abs(Number(log.points || 0)), note: log.note_text || '', occurred_at: log.occurred_at }));
+    const attendanceDetails = report.attendance.slice().sort((a, b) => String(b.session_date || '').localeCompare(String(a.session_date || ''))).map((record) => ({ status: record.status, session_date: record.session_date }));
+
+    if (normalized.enabled.behavior && base.behaviorScore <= normalized.thresholds.behaviorScore) {
+      reasons.push({ key: 'behavior', label: 'سلوك سلبي', value: formatFollowUpValue(base.behaviorScore, ' نقطة'), details: behaviorDetails });
+    }
+    if (normalized.enabled.grade && base.finalGrade !== null && base.finalGrade < normalized.thresholds.finalGrade) {
+      reasons.push({ key: 'grade', label: 'إجمالي الدرجة', value: formatFollowUpValue(base.finalGrade, '%'), details: gradeDetails });
+    }
+    if (normalized.enabled.missingGrade && base.finalGrade === null) {
+      reasons.push({ key: 'missing-grade', label: 'لا توجد درجة نهائية', value: 'غير مكتملة', details: gradeDetails });
+    }
+    if (normalized.enabled.absence && base.absentCount >= normalized.thresholds.absentDays) {
+      reasons.push({ key: 'absence', label: 'الغياب', value: formatFollowUpValue(base.absentCount, ' يوم'), details: attendanceDetails.filter((item) => item.status === 'absent').slice(0, 8) });
+    }
+    if (normalized.enabled.late && base.lateCount >= normalized.thresholds.lateDays) {
+      reasons.push({ key: 'late', label: 'التأخير', value: formatFollowUpValue(base.lateCount, ' يوم'), details: attendanceDetails.filter((item) => item.status === 'late').slice(0, 8) });
+    }
+    return {
+      ...base,
+      student,
+      reasons,
+      gradeDetails,
+      behaviorDetails,
+      attendanceDetails,
+      needsFollowUp: reasons.length > 0,
+    };
+  }).filter(Boolean).filter((row) => row.needsFollowUp);
+}
+
 
 export function buildDistribution(roster) {
   const buckets = { '0-59': 0, '60-69': 0, '70-79': 0, '80-89': 0, '90-100': 0 };

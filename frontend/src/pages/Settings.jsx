@@ -10,6 +10,7 @@ import SchemesManager from '../components/SchemesManager.jsx';
 import BehaviorTemplateManager from '../components/BehaviorTemplateManager.jsx';
 import BackupManager from '../components/BackupManager.jsx';
 import LocalStorageManager from '../components/LocalStorageManager.jsx';
+import { DEFAULT_FOLLOW_UP_SETTINGS, normalizeFollowUpSettings } from '../utils/analyticsSelectors.js';
 
 const CATEGORIES = [
   { id: 'grade', key: 'grades' },
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'schemes', key: 'schemes' },
   { id: 'behavior', key: 'behaviorTemplates' },
   { id: 'recommendations', key: 'finalRecommendations' },
+  { id: 'follow-up', key: 'followUpRules', label: { ar: 'شروط المتابعة', en: 'Follow-up rules' } },
   { id: 'templates', key: 'gradeTemplates' },
   { id: 'backup', key: 'backup' },
 ];
@@ -200,6 +202,79 @@ function RecommendationsTab() {
   );
 }
 
+function FollowUpRulesTab() {
+  const { locale } = useLocale();
+  const teacherId = getTeacherId();
+  const [settings, setSettings] = useState(() => normalizeFollowUpSettings(readSettingsCache(teacherId, 'follow-up-rules', DEFAULT_FOLLOW_UP_SETTINGS)));
+  const [saved, setSaved] = useState(false);
+  const isArabic = locale === 'ar';
+  const labels = isArabic ? {
+    title: 'شروط الطلاب الذين يحتاجون متابعة',
+    description: 'حدّد متى يظهر الطالب في بطاقة «يحتاجون متابعة» داخل التحليلات والتقارير. تحفظ التعديلات محليًا على جهازك وتطبق فورًا.',
+    enabled: 'تفعيل الشرط',
+    threshold: 'القيمة المحددة',
+    behavior: 'السلوك السلبي',
+    behaviorHelp: 'يظهر الطالب عندما يكون صافي نقاط السلوك مساويًا أو أقل من القيمة.',
+    grade: 'إجمالي الدرجة',
+    gradeHelp: 'يظهر الطالب عندما تكون الدرجة النهائية أقل من النسبة المحددة.',
+    missingGrade: 'درجة غير مكتملة',
+    missingGradeHelp: 'يظهر الطالب الذي لم تكتمل له درجة نهائية بعد.',
+    absence: 'أيام الغياب',
+    absenceHelp: 'يظهر الطالب عند بلوغ عدد أيام الغياب أو تجاوزه.',
+    late: 'أيام التأخير',
+    lateHelp: 'يظهر الطالب عند بلوغ عدد مرات التأخير أو تجاوزه.',
+    saved: 'تم حفظ شروط المتابعة على الجهاز',
+    reset: 'إعادة القيم الافتراضية',
+    points: 'نقطة',
+    percent: '%',
+    days: 'يومًا',
+  } : {
+    title: 'Students who need follow-up',
+    description: 'Choose when a student appears in the Follow-up card in analytics and reports. Changes are saved locally and apply immediately.',
+    enabled: 'Enable rule',
+    threshold: 'Threshold',
+    behavior: 'Negative behavior',
+    behaviorHelp: 'Shows a student when net behavior points are equal to or below this value.',
+    grade: 'Overall grade',
+    gradeHelp: 'Shows a student when the final grade is below this percentage.',
+    missingGrade: 'Incomplete grade',
+    missingGradeHelp: 'Shows a student with no completed final grade.',
+    absence: 'Absence days',
+    absenceHelp: 'Shows a student when absence days reach this value.',
+    late: 'Late days',
+    lateHelp: 'Shows a student when late records reach this value.',
+    saved: 'Follow-up rules saved on this device',
+    reset: 'Reset defaults',
+    points: 'points',
+    percent: '%',
+    days: 'days',
+  };
+  const persist = (next) => {
+    const normalized = normalizeFollowUpSettings(next);
+    setSettings(normalized);
+    writeSettingsCache(teacherId, 'follow-up-rules', normalized);
+    setSaved(true);
+    window.dispatchEvent(new CustomEvent('educore-follow-up-rules-updated'));
+    window.setTimeout(() => setSaved(false), 2200);
+  };
+  const updateEnabled = (key, value) => persist({ ...settings, enabled: { ...settings.enabled, [key]: value } });
+  const updateThreshold = (key, value) => persist({ ...settings, thresholds: { ...settings.thresholds, [key]: value } });
+  const ruleRows = [
+    { key: 'behavior', label: labels.behavior, help: labels.behaviorHelp, input: 'behaviorScore', suffix: labels.points },
+    { key: 'grade', label: labels.grade, help: labels.gradeHelp, input: 'finalGrade', suffix: labels.percent },
+    { key: 'missingGrade', label: labels.missingGrade, help: labels.missingGradeHelp, input: null, suffix: '' },
+    { key: 'absence', label: labels.absence, help: labels.absenceHelp, input: 'absentDays', suffix: labels.days },
+    { key: 'late', label: labels.late, help: labels.lateHelp, input: 'lateDays', suffix: labels.days },
+  ];
+  return <div className="card p-5 settings-follow-up-rules">
+    <div className="settings-panel__heading"><div><span className="settings-eyebrow">{isArabic ? 'تنبيهات ذكية' : 'Smart alerts'}</span><h3>{labels.title}</h3><p>{labels.description}</p></div><span className="settings-panel__icon">!</span></div>
+    <div className="space-y-2">
+      {ruleRows.map((rule) => <div key={rule.key} className="settings-follow-up-rule"><label className="flex items-start gap-3 flex-1 cursor-pointer"><input type="checkbox" checked={Boolean(settings.enabled[rule.key])} onChange={(event) => updateEnabled(rule.key, event.target.checked)} /><span><strong className="block text-sm">{rule.label}</strong><small className="block text-xs text-ink/55 mt-1">{rule.help}</small></span></label>{rule.input && <div className="flex items-center gap-1"><span className="text-[11px] text-ink/45">{labels.threshold}</span><input className="input text-sm w-24 text-center" type="number" step="any" value={settings.thresholds[rule.input]} onChange={(event) => updateThreshold(rule.input, event.target.value)} aria-label={rule.label} /><span className="text-xs text-ink/45">{rule.suffix}</span></div>}</div>)}
+    </div>
+    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3"><button type="button" className="btn-secondary text-xs" onClick={() => persist(DEFAULT_FOLLOW_UP_SETTINGS)}>{labels.reset}</button>{saved && <span className="text-primary text-xs">{labels.saved}</span>}</div>
+  </div>;
+}
+
 function TemplatesTab() {
   const { t } = useLocale();
   const teacherId = getTeacherId();
@@ -292,7 +367,7 @@ export default function Settings() {
           {TABS.map((tabItem) => (
             <button key={tabItem.id} type="button" onClick={() => setTab(tabItem.id)}
               className={`settings-tab ${tab === tabItem.id ? 'is-active' : ''}`}>
-              <span>{String(TABS.findIndex((item) => item.id === tabItem.id) + 1).padStart(2, '0')}</span>{t(tabItem.key)}
+              <span>{String(TABS.findIndex((item) => item.id === tabItem.id) + 1).padStart(2, '0')}</span>{tabItem.label?.[locale] || t(tabItem.key)}
             </button>
           ))}
         </nav>
@@ -301,8 +376,9 @@ export default function Settings() {
         {tab === 'profile' && <ProfileTab />}
         {tab === 'schemes' && <SchemesManager />}
         {tab === 'behavior' && <BehaviorTemplateManager />}
-        {tab === 'recommendations' && <RecommendationsTab />}
-        {tab === 'templates' && <TemplatesTab />}
+      {tab === 'recommendations' && <RecommendationsTab />}
+      {tab === 'follow-up' && <FollowUpRulesTab />}
+      {tab === 'templates' && <TemplatesTab />}
         {tab === 'backup' && (
           <>
             <BackupManager />
