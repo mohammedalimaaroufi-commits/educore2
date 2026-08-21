@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { APP_NAME } from '../constants.js';
+import PublicAnnouncement from '../components/PublicAnnouncement.jsx';
 
 export default function Login() {
   const { login } = useAuth();
@@ -31,6 +32,7 @@ export default function Login() {
   return (
     <div className="auth-shell" dir={ar ? 'rtl' : 'ltr'}>
       <div className="auth-decoration auth-decoration--one" /><div className="auth-decoration auth-decoration--two" />
+      <PublicAnnouncement placement="public" />
       <div className="auth-layout">
         <section className="auth-intro">
           <div className="brand-lockup"><div className="brand-mark">س</div><div><div className="brand-title">{APP_NAME}</div><div className="brand-subtitle">{ar ? 'إدارة الفصل الذكي' : 'Smart classroom management'}</div></div></div>
@@ -38,6 +40,7 @@ export default function Login() {
           <h1>{ar ? <>نظّم صفوفك،<br /><em>وتابع أثر تعلمك.</em></> : <>Organize your classes,<br /><em>follow learning impact.</em></>}</h1>
           <p>{ar ? 'لوحة خفيفة وسريعة للمعلمين، تحفظ عملك محليًا وتبقيك مستعدًا حتى عند انقطاع الاتصال.' : 'A lightweight teacher workspace that saves locally and keeps you ready when connectivity drops.'}</p>
           <div className="auth-feature-list"><div><span>01</span><strong>{ar ? 'إدارة بسيطة' : 'Simple management'}</strong><small>{ar ? 'طلاب ودرجات وحضور في مكان واحد.' : 'Students, grades, and attendance in one place.'}</small></div><div><span>02</span><strong>{ar ? 'بياناتك لك' : 'Your data stays yours'}</strong><small>{ar ? 'حفظ محلي ومزامنة مرنة عند الحاجة.' : 'Local-first storage with flexible sync.'}</small></div></div>
+          <div className="auth-platforms"><div className="auth-platforms__heading"><strong>{ar ? 'منصات EduCore' : 'EduCore platforms'}</strong><small>{ar ? 'الويب متاح الآن، وتطبيقات الهاتف في الطريق.' : 'Web is available now; mobile apps are on the way.'}</small></div><div className="auth-platforms__grid"><div className="auth-platform-card is-live"><span className="auth-platform-card__icon">⌁</span><strong>Web / PWA</strong><small>{ar ? 'متاح الآن' : 'Available now'}</small></div><div className="auth-platform-card is-soon"><span className="auth-platform-card__icon">A</span><strong>Android</strong><small>{ar ? 'قريبًا' : 'Coming soon'}</small></div><div className="auth-platform-card is-future"><span className="auth-platform-card__icon"></span><strong>iOS</strong><small>{ar ? 'خطة مستقبلية' : 'Future plan'}</small></div></div></div>
         </section>
         <section className="auth-panel">
           <div className="auth-panel__heading"><div className="flex items-start justify-between gap-3"><div><span className="eyebrow">{ar ? 'مرحبًا بعودتك' : 'Welcome back'}</span><h2>{ar ? 'تسجيل الدخول' : 'Sign in'}</h2></div><select className="input w-28 text-xs" value={locale} onChange={(e) => void changeLocale(e.target.value)} aria-label={t('languageChoice')}><option value="ar">العربية</option><option value="en">English</option></select></div><p>{ar ? 'أدخل بياناتك للعودة إلى لوحة صفوفك.' : 'Enter your details to return to your classes.'}</p></div>

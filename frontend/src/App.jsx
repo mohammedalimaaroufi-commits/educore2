@@ -15,6 +15,7 @@ const AdminLogin = lazy(() => import('./pages/AdminLogin.jsx'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard.jsx'));
 const ChatWidget = lazy(() => import('./components/ChatWidget.jsx'));
 const OnboardingTutorial = lazy(() => import('./components/OnboardingTutorial.jsx'));
+const PublicAnnouncement = lazy(() => import('./components/PublicAnnouncement.jsx'));
 
 function LoadingScreen() {
   const { t } = useLocale();
@@ -35,6 +36,7 @@ function ProtectedRoute({ children }) {
   return (
     <>
       <OfflineBanner />
+      <Suspense fallback={null}><PublicAnnouncement placement="global" /></Suspense>
       {children}
       <Suspense fallback={null}><ChatWidget /></Suspense>
       <Suspense fallback={null}><OnboardingTutorial /></Suspense>

@@ -127,6 +127,7 @@ export default function Subscription() {
   const { t, locale } = useLocale();
   const [plans, setPlans] = useState([]);
   const [phone, setPhone] = useState('');
+  const [payment, setPayment] = useState({});
   const [trialDays, setTrialDays] = useState(14);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [referenceNote, setReferenceNote] = useState('');
@@ -144,7 +145,8 @@ export default function Subscription() {
   useEffect(() => {
     api.get('/auth/plans').then(({ data }) => {
       setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
-      setPhone(data.payment_phone || '');
+      setPhone(data.payment_phone || data.payment?.phone || '');
+      setPayment(data.payment || {});
       setTrialDays(Number(data.trial_days || 14));
     }).catch(() => setPlans(FALLBACK_PLANS));
     loadRequests().catch(() => setMyRequests([]));
@@ -212,7 +214,7 @@ export default function Subscription() {
         })}
       </div>
 
-      {selected && <section ref={activationRef} className="subscription-activation-card scroll-mt-6"><div className="subscription-activation-card__heading"><div><span className="subscription-eyebrow">{t('activationTitle')}</span><h3>{planLabel(selected.id, t)}</h3></div><strong>{omrWithEquivalent(priceFor(selected))}</strong></div><ol className="list-decimal list-inside text-sm text-ink/80 space-y-2 mb-5"><li>{t('activationStep1')} <span className="font-bold text-primary">{omrWithEquivalent(priceFor(selected))}</span> — <span className="font-bold">{phone}</span></li><li>{t('activationStep2')}</li><li>{t('activationStep3')}</li></ol>{submitted ? <p className="text-primary font-medium">{t('requestSent')}</p> : <form onSubmit={submitRequest} className="space-y-3"><div><label className="label">{t('transferReference')}</label><input className="input" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} placeholder={locale === 'ar' ? 'مثال: تحويل باسم أحمد - 123456' : 'e.g. Transfer by Ahmed - 123456'} /></div><div><label className="label">{t('receiptOptional')}</label><input type="file" accept="image/*" onChange={handleReceipt} className="text-sm" />{receiptImage && <img src={receiptImage} alt={t('receiptOptional')} className="mt-2 max-h-40 rounded-lg border border-line" />}</div><div className="flex gap-2"><button className="btn-primary" disabled={busy} type="submit">{busy ? '...' : t('submitActivation')}</button><button className="btn-secondary" type="button" onClick={() => setSelectedPlan(null)}>{t('cancel')}</button></div></form>}</section>}
+      {selected && <section ref={activationRef} className="subscription-activation-card scroll-mt-6"><div className="subscription-activation-card__heading"><div><span className="subscription-eyebrow">{t('activationTitle')}</span><h3>{planLabel(selected.id, t)}</h3></div><strong>{omrWithEquivalent(priceFor(selected))}</strong></div><div className="subscription-payment-details"><div><span>{locale === 'ar' ? 'رقم التحويل' : 'Transfer number'}</span><strong>{payment.phone || phone}</strong></div>{payment.recipient && <div><span>{locale === 'ar' ? 'المستلم' : 'Recipient'}</span><strong>{payment.recipient}</strong></div>}{payment.method && <div><span>{locale === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span><strong>{payment.method}</strong></div>}{payment.account && <div><span>{locale === 'ar' ? 'الحساب / IBAN' : 'Account / IBAN'}</span><strong>{payment.account}</strong></div>}</div><ol className="list-decimal list-inside text-sm text-ink/80 space-y-2 mb-5"><li>{t('activationStep1')} <span className="font-bold text-primary">{omrWithEquivalent(priceFor(selected))}</span> — <span className="font-bold">{payment.phone || phone}</span></li><li>{t('activationStep2')}</li><li>{t('activationStep3')}</li></ol>{(payment.note_ar || payment.note_en) && <p className="subscription-payment-note">{locale === 'ar' ? payment.note_ar || payment.note_en : payment.note_en || payment.note_ar}</p>}{submitted ? <p className="text-primary font-medium">{t('requestSent')}</p> : <form onSubmit={submitRequest} className="space-y-3"><div><label className="label">{t('transferReference')}</label><input className="input" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} placeholder={locale === 'ar' ? 'مثال: تحويل باسم أحمد - 123456' : 'e.g. Transfer by Ahmed - 123456'} /></div><div><label className="label">{t('receiptOptional')}</label><input type="file" accept="image/*" onChange={handleReceipt} className="text-sm" />{receiptImage && <img src={receiptImage} alt={t('receiptOptional')} className="mt-2 max-h-40 rounded-lg border border-line" />}</div><div className="flex gap-2"><button className="btn-primary" disabled={busy} type="submit">{busy ? '...' : t('submitActivation')}</button><button className="btn-secondary" type="button" onClick={() => setSelectedPlan(null)}>{t('cancel')}</button></div></form>}</section>}
       <p className="subscription-footnote">{t('manualActivationNote')}</p>
     </div>
   );

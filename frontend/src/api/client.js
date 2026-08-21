@@ -22,6 +22,7 @@ function canUseLocalCache(config = {}) {
     && !url.startsWith('/admin')
     && !url.startsWith('/backup')
     && !url.includes('/auth/plans')
+    && !url.includes('/auth/public-config')
     && !url.includes('/payment-requests');
 }
 

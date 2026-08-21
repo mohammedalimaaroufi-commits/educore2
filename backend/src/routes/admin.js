@@ -4,6 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
 
 const router = express.Router();
 
@@ -23,6 +24,23 @@ router.post('/login', (req, res) => {
 });
 
 router.use(requireAdmin);
+
+// GET /api/admin/public-config -> payment details and announcement editor state
+router.get('/public-config', (req, res) => {
+  res.json({ config: getAdminPublicConfig() });
+});
+
+// PATCH /api/admin/public-config -> saves payment details and announcement fields in app_settings
+router.patch('/public-config', (req, res) => {
+  const input = req.body || {};
+  if (input.payment_phone !== undefined && String(input.payment_phone).trim().length < 3) return res.status(400).json({ error: 'رقم التحويل غير صالح' });
+  if (input.announcement_enabled !== undefined && !['0', '1', 'true', 'false', true, false].includes(input.announcement_enabled)) return res.status(400).json({ error: 'حالة الإعلان غير صالحة' });
+  if (input.announcement_starts_at && Number.isNaN(new Date(input.announcement_starts_at).getTime())) return res.status(400).json({ error: 'تاريخ بداية الإعلان غير صالح' });
+  if (input.announcement_ends_at && Number.isNaN(new Date(input.announcement_ends_at).getTime())) return res.status(400).json({ error: 'تاريخ نهاية الإعلان غير صالح' });
+  if (input.announcement_starts_at && input.announcement_ends_at && new Date(input.announcement_ends_at) < new Date(input.announcement_starts_at)) return res.status(400).json({ error: 'تاريخ نهاية الإعلان يجب أن يأتي بعد تاريخ البداية' });
+  const config = savePublicConfig(input);
+  res.json({ config });
+});
 
 // GET /api/admin/subscription-config -> current trial setting, plans, and active offers
 router.get('/subscription-config', (req, res) => {

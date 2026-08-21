@@ -5,6 +5,7 @@ const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getPublicConfig } = require('../utils/publicConfig');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -232,7 +233,21 @@ const PAYMENT_PHONE = process.env.PAYMENT_PHONE || '00968737448';
 // GET /api/auth/plans  -> public pricing info shown on the subscription page
 router.get('/plans', (req, res) => {
   const plans = getPublicPlans();
-  res.json({ plans, prices_omr: Object.fromEntries(plans.map((plan) => [plan.id, plan.price_omr])), base_prices_omr: getBasePrices(), payment_phone: PAYMENT_PHONE, trial_days: getTrialDays() });
+  const publicConfig = getPublicConfig();
+  res.json({
+    plans,
+    prices_omr: Object.fromEntries(plans.map((plan) => [plan.id, plan.price_omr])),
+    base_prices_omr: getBasePrices(),
+    payment_phone: publicConfig.payment.phone || PAYMENT_PHONE,
+    payment: publicConfig.payment,
+    announcement: publicConfig.announcement,
+    trial_days: getTrialDays(),
+  });
+});
+
+// GET /api/auth/public-config -> public announcement and payment display data
+router.get('/public-config', (req, res) => {
+  res.json(getPublicConfig());
 });
 
 // POST /api/auth/payment-requests  { plan, reference_note, receipt_image }
