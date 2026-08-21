@@ -31,12 +31,28 @@ function readInitialSession() {
 }
 
 const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
-const PLAN_ALIASES = { annual: 'yearly', year: 'yearly', '12_months': 'yearly', '6_month': '6_months', '6months': '6_months', '6-months': '6_months', forever: 'lifetime', permanent: 'lifetime' };
+const PLAN_ALIASES = {
+  annual: 'yearly', year: 'yearly', '12_months': 'yearly', '12-months': 'yearly',
+  '6_month': '6_months', '6months': '6_months', '6-months': '6_months',
+  '6 أشهر': '6_months', 'باقة 6 أشهر': '6_months', 'ستة أشهر': '6_months',
+  سنوية: 'yearly', 'باقة سنوية': 'yearly', 'الباقة السنوية': 'yearly',
+  'مدى الحياة': 'lifetime', 'باقة مدى الحياة': 'lifetime', forever: 'lifetime', permanent: 'lifetime',
+  trial: 'trial', 'free trial': 'trial', 'فترة تجريبية': 'trial', تجربة: 'trial',
+};
+
+function canonicalPlan(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const normalized = raw.toLowerCase().normalize('NFKC');
+  return VALID_SUBSCRIPTION_PLANS.has(normalized) ? normalized : PLAN_ALIASES[raw] || PLAN_ALIASES[normalized] || null;
+}
 
 function normalizeSubscriptionSession(data) {
   const rawSubscription = data?.subscription || null;
-  const canonicalPlan = rawSubscription ? (PLAN_ALIASES[String(rawSubscription.plan || '').trim().toLowerCase()] || String(rawSubscription.plan || '').trim()) : null;
-  const normalizedRaw = rawSubscription && canonicalPlan !== rawSubscription.plan ? { ...rawSubscription, plan: canonicalPlan } : rawSubscription;
+  const rawPlan = canonicalPlan(rawSubscription?.plan);
+  const infoPlan = canonicalPlan(data?.subscriptionInfo?.plan);
+  const selectedPlan = VALID_SUBSCRIPTION_PLANS.has(rawPlan) ? rawPlan : infoPlan;
+  const normalizedRaw = rawSubscription ? { ...rawSubscription, plan: selectedPlan || rawSubscription.plan } : null;
   const hasTrialShape = normalizedRaw?.trial_end_date && !normalizedRaw.current_period_start && !normalizedRaw.current_period_end;
   const shouldUseTrial = !normalizedRaw
     || !VALID_SUBSCRIPTION_PLANS.has(String(normalizedRaw.plan || '').trim())
@@ -44,9 +60,19 @@ function normalizeSubscriptionSession(data) {
   const subscription = shouldUseTrial
     ? { ...(normalizedRaw || {}), plan: 'trial', status: normalizedRaw?.status || 'active' }
     : normalizedRaw;
-  const subscriptionInfo = data?.subscriptionInfo
-    ? { ...data.subscriptionInfo, plan: shouldUseTrial ? 'trial' : (PLAN_ALIASES[String(data.subscriptionInfo.plan || '').trim().toLowerCase()] || data.subscriptionInfo.plan), status: data.subscriptionInfo.status || subscription.status || 'active' }
-    : { plan: subscription.plan, status: subscription.status || 'active', startDate: subscription.trial_start_date || null, endDate: subscription.trial_end_date || null, daysLeft: null, expired: false };
+  const suppliedInfo = data?.subscriptionInfo || {};
+  const startDate = suppliedInfo.startDate || (subscription.plan === 'trial' ? subscription.trial_start_date : subscription.current_period_start) || null;
+  const endDate = suppliedInfo.endDate || (subscription.plan === 'trial' ? subscription.trial_end_date : subscription.current_period_end) || null;
+  const calculatedDaysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+  const subscriptionInfo = {
+    ...suppliedInfo,
+    plan: shouldUseTrial ? 'trial' : (selectedPlan || subscription.plan),
+    status: suppliedInfo.status || subscription.status || 'active',
+    startDate,
+    endDate,
+    daysLeft: suppliedInfo.daysLeft ?? calculatedDaysLeft,
+    expired: suppliedInfo.expired ?? (calculatedDaysLeft !== null && calculatedDaysLeft <= 0),
+  };
   const trialInfo = data?.trialInfo || (subscriptionInfo.plan === 'trial' && subscriptionInfo.endDate
     ? (() => {
         const daysLeft = Math.ceil((new Date(subscriptionInfo.endDate) - new Date()) / (1000 * 60 * 60 * 24));

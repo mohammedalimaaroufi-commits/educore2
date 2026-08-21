@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -86,7 +86,7 @@ router.post('/register', async (req, res) => {
                                   VALUES (?, ?, ?, ?, ?, ?)`);
   defaultRules.forEach((r, i) => insertRule.run(uuid(), id, r.min, r.max, r.text, i));
 
-  const teacher = db.prepare('SELECT id, full_name, email, locale FROM teachers WHERE id = ?').get(id);
+  const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(id);
   const token = signToken(teacher);
   res.status(201).json({ token, teacher });
 });
@@ -100,8 +100,9 @@ router.post('/login', async (req, res) => {
   const valid = await bcrypt.compare(password || '', teacher.password_hash);
   if (!valid) return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
 
-  const token = signToken(teacher);
-  res.json({ token, teacher: { id: teacher.id, full_name: teacher.full_name, email: teacher.email, locale: teacher.locale } });
+  const publicTeacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(teacher.id);
+  const token = signToken(publicTeacher);
+  res.json({ token, teacher: publicTeacher });
 });
 
 // POST /api/auth/forgot-password { email }
@@ -141,13 +142,33 @@ router.post('/reset-password', async (req, res) => {
   res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' });
 });
 
+function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
+  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY reviewed_at DESC, created_at DESC LIMIT 1").get(teacherId);
+  if (!approved) return rawSub;
+  const definitions = getPlanDefinitions();
+  const canonicalPlan = resolvePlanId(approved.plan, { definitions, offerId: approved.offer_id, amount: approved.amount_omr, originalAmount: approved.original_amount_omr });
+  const selectedPlan = definitions.find((plan) => plan.id === canonicalPlan);
+  const currentPlan = normalizePlanId(rawSub?.plan);
+  const needsRepair = !rawSub || !isPaidPlanId(currentPlan) || !rawSub.current_period_start;
+  if (!selectedPlan || !isPaidPlanId(canonicalPlan) || !needsRepair) return rawSub;
+  const start = approved.reviewed_at || approved.created_at || new Date().toISOString();
+  const end = selectedPlan.duration_days === null ? null : addDays(start, selectedPlan.duration_days);
+  if (rawSub) {
+    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL, current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`).run(canonicalPlan, start, end, approved.reference_note || null, new Date().toISOString(), rawSub.id);
+  } else {
+    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?)`).run(uuid(), teacherId, canonicalPlan, start, end, approved.reference_note || null);
+  }
+  return db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(teacherId);
+}
+
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
   const rawSub = db.prepare('SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1').get(req.teacherId);
+  const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
   // Always return a concrete subscription. Empty/unknown legacy rows are repaired in-place
   // as the administrator-configured trial so the UI can never display an undefined package.
-  const sub = ensureTrialSubscription(req.teacherId, rawSub);
+  const sub = ensureTrialSubscription(req.teacherId, repairedSub);
 
   let trialInfo = null;
   if (sub && sub.plan === 'trial') {

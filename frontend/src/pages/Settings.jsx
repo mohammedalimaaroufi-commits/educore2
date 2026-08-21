@@ -50,7 +50,7 @@ function ProfileTab() {
     if (draftMatchesServer) removeProfileDraft(teacher.id);
     setProfile(draftMatchesServer ? serverProfile : (localDraft || serverProfile));
     setDraftDirty(Boolean(localDraft && !draftMatchesServer));
-  }, [teacher?.id]);
+  }, [teacher?.id, teacher?.full_name, teacher?.subject, teacher?.school_stage, teacher?.school_name, teacher?.locale, locale]);
 
   useEffect(() => {
     if (teacher?.id && draftDirty && profile.full_name) saveProfileDraft(teacher.id, profile);
@@ -78,6 +78,7 @@ function ProfileTab() {
       const savedTeacher = data?.teacher || { ...teacher, ...profile };
       updateLocalTeacher(savedTeacher);
       await invalidateApiCache('/auth/me');
+      await refreshMe({ force: true });
       removeProfileDraft(teacher.id);
       setDraftDirty(false);
       setProfile({ full_name: savedTeacher.full_name || '', subject: savedTeacher.subject || '', school_stage: savedTeacher.school_stage || '', school_name: savedTeacher.school_name || '', locale: savedTeacher.locale || locale });

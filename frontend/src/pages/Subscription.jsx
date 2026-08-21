@@ -13,6 +13,11 @@ const FALLBACK_PLANS = [
 ];
 const STATUS_LABELS = { active: 'مفعّل', pending: 'قيد المراجعة', approved: 'مُفعّل ✓', rejected: 'مرفوض', expired: 'منتهي' };
 const PLAN_LABELS = { trial: 'فترة تجريبية', '6_months': 'باقة 6 أشهر', yearly: 'الباقة السنوية', lifetime: 'مدى الحياة' };
+const PLAN_ALIASES = { annual: 'yearly', year: 'yearly', '12_months': 'yearly', '6_month': '6_months', '6months': '6_months', '6-months': '6_months', '6 أشهر': '6_months', 'باقة 6 أشهر': '6_months', سنوية: 'yearly', 'الباقة السنوية': 'yearly', 'مدى الحياة': 'lifetime', 'فترة تجريبية': 'trial' };
+function canonicalPlanForUi(value) {
+  const raw = String(value || '').trim();
+  return PLAN_LABELS[raw] ? raw : PLAN_ALIASES[raw] || PLAN_ALIASES[raw.toLowerCase()] || raw || 'trial';
+}
 
 function formatDate(iso, locale) {
   if (!iso) return '—';
@@ -20,12 +25,13 @@ function formatDate(iso, locale) {
 }
 
 function planLabel(plan, t) {
+  const canonical = canonicalPlanForUi(plan);
   return {
     trial: t('planTrial'),
     '6_months': t('planSixMonths'),
     yearly: t('planYearly'),
     lifetime: t('planLifetime'),
-  }[plan] || plan || t('planTrial');
+  }[canonical] || String(plan || t('planTrial'));
 }
 
 function statusLabel(status, t) {
@@ -43,7 +49,7 @@ function SubscriptionDetailsCard() {
   const { t, locale } = useLocale();
   if (!subscriptionInfo) return null;
   const { plan, status, startDate, endDate, daysLeft, expired } = subscriptionInfo;
-  const normalizedPlan = PLAN_LABELS[plan] ? plan : 'trial';
+  const normalizedPlan = canonicalPlanForUi(plan);
   const isTrial = normalizedPlan === 'trial';
   const currentStatusLabel = expired ? t('statusExpired') : (statusLabel(status, t) || (isTrial ? t('statusActive') : t('statusUnknown')));
   return (
@@ -125,7 +131,7 @@ export default function Subscription() {
     <div className="subscription-page-shell">
       <div className="subscription-page-topline"><Link to="/" className="subscription-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="subscription-local-note">{locale === 'ar' ? 'تفعيل يدوي آمن · بياناتك محفوظة محليًا' : 'Secure manual activation · data saved locally'}</span></div>
       <header className="subscription-page-hero"><div><span className="subscription-eyebrow">{t('subscriptionJourney')}</span><h1>{t('subscription')}</h1><p>{t('subscriptionDescription')}</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
-      <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscription?.plan ? statusLabel(subscription.status, t) : t('planTrial')}</strong><small>{t('defaultTrial', '', { days: trialDays })}</small></div>
+      <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{subscription?.plan ? planLabel(subscription.plan, t) : t('planTrial')}</strong><small>{subscription?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscription?.status, t)}</small></div>
 
       <SubscriptionDetailsCard />
 
