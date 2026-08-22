@@ -214,29 +214,44 @@ router.get('/me', requireAuth, (req, res) => {
   // Generic activation details for ANY plan (trial or paid), used on "إدارة الاشتراك" to show
   // متبقي حتى الانتهاء regardless of which package the teacher is on.
   let subscriptionInfo = null;
+  let presentedSub = sub;
   if (sub) {
-    const startDate = sub.plan === 'trial' ? sub.trial_start_date : sub.current_period_start;
-    const endDate = sub.plan === 'trial' ? sub.trial_end_date : sub.current_period_end;
+    const presentation = getSubscriptionPresentation(req.teacherId, sub);
+    const presentationPlan = resolvePlanId(presentation.plan, { definitions: getPlanDefinitions() });
+    // A paid approved request is stronger than a legacy trial-shaped row. This
+    // defensive branch keeps the API response correct even during the first request
+    // that repairs an old row, so the UI cannot show a paid title with trial dates.
+    if (isPaidPlanId(presentationPlan) && !isPaidPlanId(sub.plan)) {
+      const definition = getPlanDefinitions().find((item) => item.id === presentationPlan);
+      const paidStart = presentation.approvedAt || sub.updated_at || sub.created_at || new Date().toISOString();
+      const paidEnd = definition?.duration_days === null ? null : definition && paidStart ? addDays(paidStart, definition.duration_days) : null;
+      db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL,
+                  current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', updated_at = ? WHERE id = ?`)
+        .run(presentationPlan, paidStart, paidEnd, new Date().toISOString(), sub.id);
+      presentedSub = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(sub.id) || { ...sub, plan: presentationPlan, status: 'active', trial_start_date: null, trial_end_date: null, current_period_start: paidStart, current_period_end: paidEnd };
+    }
+    const startDate = presentedSub.plan === 'trial' ? presentedSub.trial_start_date : presentedSub.current_period_start;
+    const endDate = presentedSub.plan === 'trial' ? presentedSub.trial_end_date : presentedSub.current_period_end;
     const daysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
     subscriptionInfo = {
-      ...getSubscriptionPresentation(req.teacherId, sub),
-      subscriptionId: sub.id,
-      plan: sub.plan,
-      status: sub.status,
+      ...getSubscriptionPresentation(req.teacherId, presentedSub),
+      subscriptionId: presentedSub.id,
+      plan: presentedSub.plan,
+      status: presentedSub.status,
       startDate,
       endDate, // null for lifetime -> no expiry
-      trialStartDate: sub.trial_start_date || null,
-      trialEndDate: sub.trial_end_date || null,
-      currentPeriodStart: sub.current_period_start || null,
-      currentPeriodEnd: sub.current_period_end || null,
+      trialStartDate: presentedSub.trial_start_date || null,
+      trialEndDate: presentedSub.trial_end_date || null,
+      currentPeriodStart: presentedSub.current_period_start || null,
+      currentPeriodEnd: presentedSub.current_period_end || null,
       daysLeft, // null for lifetime
       expired: daysLeft !== null && daysLeft <= 0,
     };
   }
 
-  const restrictions = getEffectiveRestrictions(req.teacherId, sub);
+  const restrictions = getEffectiveRestrictions(req.teacherId, presentedSub);
   if (subscriptionInfo) subscriptionInfo.restrictions = restrictions;
-  res.json({ teacher, subscription: sub, trialInfo, subscriptionInfo, restrictions });
+  res.json({ teacher, subscription: presentedSub, trialInfo: presentedSub?.plan === 'trial' ? trialInfo : null, subscriptionInfo, restrictions });
 });
 
 // Package prices in OMR (Omani Rial). Activation is manual: the teacher transfers the amount
