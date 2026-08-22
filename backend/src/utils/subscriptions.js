@@ -134,14 +134,14 @@ function getSetting(key, fallback = null) {
 function normalizePlan(raw, fallback) {
   const source = { ...fallback, ...(raw || {}) };
   const basePrice = Number(source.base_price_omr);
-  const duration = source.duration_days === null || source.duration_days === '' || source.duration_days === undefined
-    ? null
-    : Number(source.duration_days);
+  // Subscription periods are product rules, not editable display metadata.
+  // Keep the canonical duration (182/365/null) even if an older app_settings row
+  // contains an accidental value such as 7 days.
   return {
     id: fallback.id,
     title: String(source.title || fallback.title).trim() || fallback.title,
     base_price_omr: Number.isFinite(basePrice) && basePrice > 0 ? basePrice : fallback.base_price_omr,
-    duration_days: duration === null ? null : (Number.isInteger(duration) && duration > 0 ? duration : fallback.duration_days),
+    duration_days: fallback.duration_days,
     note: String(source.note || '').trim(),
     features: Array.isArray(source.features)
       ? source.features.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)

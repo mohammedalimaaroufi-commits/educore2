@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import TrialBanner from '../components/TrialBanner.jsx';
 import Icon from '../components/Icon.jsx';
+import NotificationBell from '../components/NotificationBell.jsx';
 import { APP_NAME } from '../constants.js';
 
 const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86'];
@@ -339,6 +340,7 @@ export default function Dashboard() {
           <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? t('online') : t('offlineMode')}</span>
           <span className="utility-date">{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
           <nav className="dashboard-nav-actions" aria-label="روابط الحساب">
+            <NotificationBell />
             <Link to="/subscription" className="topbar-nav-link"><Icon name="subscription" className="w-4 h-4" /><span>{t('subscription')}</span></Link>
             <Link to="/settings" className="topbar-nav-link"><Icon name="settings" className="w-4 h-4" /><span>{t('settings')}</span></Link>
             <button type="button" className="topbar-nav-link topbar-nav-link--danger" onClick={logout}><Icon name="logout" className="w-4 h-4" /><span>{t('logout')}</span></button>

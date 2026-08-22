@@ -21,7 +21,6 @@ function buildContent(item, locale, fallbackPrefix = 'legacy') {
 export default function PublicAnnouncement({ placement = 'global' }) {
   const { locale } = useLocale();
   const [announcement, setAnnouncement] = useState(null);
-  const [notifications, setNotifications] = useState([]);
   const [dismissed, setDismissed] = useState({});
 
   useEffect(() => {
@@ -29,15 +28,11 @@ export default function PublicAnnouncement({ placement = 'global' }) {
     api.get('/auth/public-config').then(({ data }) => {
       if (!active) return;
       setAnnouncement(data.announcement || null);
-      setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
     }).catch(() => {});
     return () => { active = false; };
   }, []);
 
-  const contents = useMemo(() => [
-    buildContent(announcement, locale, 'legacy'),
-    ...notifications.map((item) => buildContent(item, locale, 'notification')),
-  ].filter(Boolean), [announcement, notifications, locale]);
+  const contents = useMemo(() => [buildContent(announcement, locale, 'legacy')].filter(Boolean), [announcement, locale]);
 
   const dismiss = (key) => {
     setDismissed((current) => ({ ...current, [key]: true }));

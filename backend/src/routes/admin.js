@@ -319,7 +319,7 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 router.get('/teachers', (req, res) => {
   const definitions = getPlanDefinitions();
   const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
-                              s.plan, s.status, s.trial_start_date, s.trial_end_date,
+                              s.id AS subscription_id, s.plan, s.status, s.trial_start_date, s.trial_end_date,
                               s.current_period_start, s.current_period_end
                             FROM teachers t
                             LEFT JOIN subscriptions s ON s.id = (
@@ -330,13 +330,18 @@ router.get('/teachers', (req, res) => {
                               LIMIT 1
                             )
                             ORDER BY t.created_at DESC`).all().map((row) => {
-                              const repairedRow = repairPaidSubscriptionPeriod(row, { definitions });
+                              const repairedSubscription = row.subscription_id
+                                ? repairPaidSubscriptionPeriod({ ...row, id: row.subscription_id }, { definitions })
+                                : null;
+                              const repairedRow = repairedSubscription
+                                ? { ...row, ...repairedSubscription, id: row.id, subscription_id: repairedSubscription.id || row.subscription_id }
+                                : row;
                               const plan = resolvePlanId(repairedRow.plan, { definitions }) || repairedRow.plan || 'trial';
                               const definition = definitions.find((item) => item.id === plan);
                               const startDate = plan === 'trial' ? repairedRow.trial_start_date : repairedRow.current_period_start;
                               const endDate = plan === 'trial' ? repairedRow.trial_end_date : repairedRow.current_period_end;
                               const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-                              const accountStatus = getAccountStatus(repairedRow.id);
+                              const accountStatus = getAccountStatus(row.id);
                               return {
                                 ...repairedRow,
                                 plan,

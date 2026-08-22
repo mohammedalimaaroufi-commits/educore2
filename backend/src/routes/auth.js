@@ -147,6 +147,12 @@ router.post('/reset-password', async (req, res) => {
   res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' });
 });
 
+function enforceSingleActiveSubscription(teacherId, keepId) {
+  if (!teacherId || !keepId) return;
+  db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'")
+    .run(new Date().toISOString(), teacherId, keepId);
+}
+
 function getSubscriptionPresentation(teacherId, sub) {
   const definitions = getPlanDefinitions();
   const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all(teacherId);
@@ -228,6 +234,7 @@ router.get('/me', requireAuth, (req, res) => {
   // Always return a concrete subscription, but only fall back to trial when there is no
   // valid paid subscription and no approved paid request to reconcile.
   const sub = ensureTrialSubscription(req.teacherId, periodReadySub);
+  if (sub?.status === 'active') enforceSingleActiveSubscription(req.teacherId, sub.id);
 
   let trialInfo = null;
   if (sub && sub.plan === 'trial') {

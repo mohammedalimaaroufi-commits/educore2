@@ -119,31 +119,6 @@ function SubscriptionDetailsCard() {
   );
 }
 
-function RequestHistory({ requests, t, locale }) {
-  const [open, setOpen] = useState(false);
-  if (!requests.length) return null;
-  return (
-    <section className="subscription-requests-card">
-      <button type="button" className="subscription-collapsible-trigger" onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-        <span><span className="subscription-eyebrow">{t('requestHistory')}</span><strong>{t('subscriptionRequests')}</strong></span>
-        <span className="subscription-collapsible-summary">{t('requestsCount', '', { count: requests.length })}<b aria-hidden="true">{open ? '−' : '+'}</b></span>
-      </button>
-      {open && <div className="subscription-requests-list">
-        {requests.map((request) => {
-          const plan = canonicalPlanForUi(request.plan);
-          const title = request.plan_title || planLabel(plan, t);
-          const original = priceNumber(request.original_amount_omr);
-          const amount = priceNumber(request.amount_omr);
-          return <article key={request.id} className="subscription-request-row">
-            <div className="subscription-request-row__identity"><strong>{title}</strong>{request.offer_title && <span className="subscription-request-offer">{request.offer_title}</span>}<small>{t('submittedAt', 'أُرسل في')}: {formatDate(request.created_at, locale, true)}</small></div>
-            <div className="subscription-request-row__meta"><span>{amount ? omrWithEquivalent(amount) : '—'} {original > amount && <del>{omrWithEquivalent(original)}</del>}</span><span className={request.status === 'approved' ? 'is-good' : request.status === 'rejected' ? 'is-danger' : 'is-warning'}>{statusLabel(request.status, t)}</span></div>
-          </article>;
-        })}
-      </div>}
-    </section>
-  );
-}
-
 export default function Subscription() {
   const { subscription, subscriptionInfo, refreshMe } = useAuth();
   const { t, locale } = useLocale();
@@ -154,16 +129,10 @@ export default function Subscription() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [referenceNote, setReferenceNote] = useState('');
   const [receiptImage, setReceiptImage] = useState('');
-  const [myRequests, setMyRequests] = useState([]);
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [requestError, setRequestError] = useState('');
   const activationRef = useRef(null);
-
-  const loadRequests = async () => {
-    const { data } = await api.get('/auth/payment-requests');
-    setMyRequests(data.requests || []);
-  };
 
   useEffect(() => {
     api.get('/auth/plans').then(({ data }) => {
@@ -172,7 +141,6 @@ export default function Subscription() {
       setPayment(data.payment || {});
       setTrialDays(Number(data.trial_days || 14));
     }).catch(() => setPlans(FALLBACK_PLANS));
-    loadRequests().catch(() => setMyRequests([]));
     refreshMe({ force: true }).catch(() => undefined);
   }, [refreshMe]);
 
@@ -204,7 +172,6 @@ export default function Subscription() {
       setSelectedPlan(null);
       setReferenceNote('');
       setReceiptImage('');
-      await loadRequests();
       await refreshMe({ force: true });
     } catch (error) {
       setRequestError(error.response?.data?.error || (locale === 'ar' ? 'تعذر إرسال طلب التفعيل. تحقق من الاتصال وحاول مرة أخرى.' : 'Unable to submit the activation request. Please try again.'));
@@ -223,7 +190,6 @@ export default function Subscription() {
       <main className="subscription-page-content">
         <SubscriptionDetailsCard />
         {subscriptionInfo?.status === 'active' && canonicalPlanForUi(subscriptionInfo.plan) !== 'trial' && <div className="subscription-active-notice" role="status">{locale === 'ar' ? 'لديك اشتراك مدفوع نشط حاليًا. يمكنك إرسال طلب تجديد أو تغيير، وسيتم اعتماد باقة واحدة فقط بعد مراجعة الطلب.' : 'You currently have one active paid subscription. You may submit a renewal or change request; only one package will remain active after approval.'}</div>}
-        <RequestHistory requests={myRequests} t={t} locale={locale} />
         <div className="subscription-section-heading subscription-plans-heading"><div><span className="subscription-eyebrow">{t('flexiblePlans')}</span><h2>{t('choosePlan')}</h2><p>{t('plansDescription')}</p></div></div>
         <div className="subscription-plans-grid">
         {visiblePlans.map((plan) => {
