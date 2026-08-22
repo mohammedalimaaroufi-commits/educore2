@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
 const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
 const { RESTRICTABLE_FEATURES, getConfiguredRestrictions, saveTeacherRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, saveAccountStatus } = require('../utils/accountStatus');
@@ -244,7 +244,8 @@ router.delete('/teachers/:teacherId', (req, res) => {
 router.get('/teachers/:teacherId/restrictions', (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email FROM teachers WHERE id = ?').get(req.params.teacherId);
   if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
-  const subscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
+  const rawSubscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
+  const subscription = repairPaidSubscriptionPeriod(reconcileApprovedSubscription(teacher.id, rawSubscription), { definitions: getPlanDefinitions() });
   res.json({ teacher, restrictions: getConfiguredRestrictions(teacher.id), effective: getEffectiveRestrictions(teacher.id, subscription), features: RESTRICTABLE_FEATURES });
 });
 
@@ -330,8 +331,12 @@ router.get('/teachers', (req, res) => {
                               LIMIT 1
                             )
                             ORDER BY t.created_at DESC`).all().map((row) => {
-                              const repairedSubscription = row.subscription_id
-                                ? repairPaidSubscriptionPeriod({ ...row, id: row.subscription_id }, { definitions })
+                              const rawSubscription = row.subscription_id ? { ...row, id: row.subscription_id } : null;
+                              const reconciledSubscription = rawSubscription
+                                ? reconcileApprovedSubscription(row.id, rawSubscription)
+                                : reconcileApprovedSubscription(row.id, null);
+                              const repairedSubscription = reconciledSubscription
+                                ? repairPaidSubscriptionPeriod(reconciledSubscription, { definitions })
                                 : null;
                               const repairedRow = repairedSubscription
                                 ? { ...row, ...repairedSubscription, id: row.id, subscription_id: repairedSubscription.id || row.subscription_id }

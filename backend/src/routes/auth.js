@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
@@ -187,42 +187,7 @@ function getSubscriptionPresentation(teacherId, sub) {
 }
 
 function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
-  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC LIMIT 1").get(teacherId);
-  if (!approved) return rawSub;
-  const definitions = getPlanDefinitions();
-  const canonicalPlan = resolvePlanId(approved.plan, { definitions, offerId: approved.offer_id, amount: approved.amount_omr, originalAmount: approved.original_amount_omr });
-  const selectedPlan = definitions.find((plan) => plan.id === canonicalPlan);
-  if (!selectedPlan || !isPaidPlanId(canonicalPlan)) return rawSub;
-  const approvedAt = approved.reviewed_at || approved.created_at || new Date().toISOString();
-  const subscriptionUpdatedAt = rawSub?.updated_at ? new Date(rawSub.updated_at).getTime() : 0;
-  const approvedTimestamp = new Date(approvedAt).getTime();
-  const currentPlan = normalizePlanId(rawSub?.plan);
-  const expectedEnd = selectedPlan.duration_days === null ? null : addDays(approvedAt, selectedPlan.duration_days);
-  const periodStartMatches = rawSub?.current_period_start && Math.abs(new Date(rawSub.current_period_start).getTime() - new Date(approvedAt).getTime()) <= 1000;
-  const periodEndMatches = selectedPlan.duration_days === null
-    ? !rawSub?.current_period_end
-    : rawSub?.current_period_end && Math.abs(new Date(rawSub.current_period_end).getTime() - new Date(expectedEnd).getTime()) <= 1000;
-  const alreadyMatches = currentPlan === canonicalPlan
-    && rawSub?.status === 'active'
-    && periodStartMatches
-    && periodEndMatches;
-  const isNewerApprovedRequest = Number.isFinite(approvedTimestamp) && approvedTimestamp > subscriptionUpdatedAt;
-  if (alreadyMatches && !isNewerApprovedRequest) {
-    db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'").run(new Date().toISOString(), teacherId, rawSub.id);
-    return rawSub;
-  }
-  const end = expectedEnd;
-  const now = new Date().toISOString();
-  const values = [canonicalPlan, approvedAt, end, approved.reference_note || null, now];
-  let subscriptionId = rawSub?.id;
-  if (rawSub) {
-    db.prepare(`UPDATE subscriptions SET plan = ?, status = 'active', trial_start_date = NULL, trial_end_date = NULL, current_period_start = ?, current_period_end = ?, payment_provider = 'bank_transfer', payment_reference = ?, updated_at = ? WHERE id = ?`).run(...values, rawSub.id);
-  } else {
-    subscriptionId = uuid();
-    db.prepare(`INSERT INTO subscriptions (id, teacher_id, plan, status, current_period_start, current_period_end, payment_provider, payment_reference, updated_at) VALUES (?, ?, ?, 'active', ?, ?, 'bank_transfer', ?, ?)`).run(subscriptionId, teacherId, canonicalPlan, approvedAt, end, approved.reference_note || null, now);
-  }
-  db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND status = 'active'").run(now, teacherId, subscriptionId);
-  return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscriptionId);
+  return reconcileApprovedSubscription(teacherId, rawSub);
 }
 
 // GET /api/auth/me
