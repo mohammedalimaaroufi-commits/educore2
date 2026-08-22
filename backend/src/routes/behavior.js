@@ -30,6 +30,37 @@ router.post('/types', (req, res) => {
   res.status(201).json({ type: db.prepare('SELECT * FROM behavior_types WHERE id = ?').get(id) });
 });
 
+function getOwnedType(id, teacherId) {
+  return db.prepare(`SELECT bt.* FROM behavior_types bt JOIN classes c ON bt.class_id = c.id WHERE bt.id = ? AND c.teacher_id = ?`).get(id, teacherId);
+}
+
+// PATCH /api/behavior/types/:id  -> edit a custom type owned by the teacher
+router.patch('/types/:id', (req, res) => {
+  const type = getOwnedType(req.params.id, req.teacherId);
+  if (!type) return res.status(404).json({ error: 'نوع السلوك غير موجود' });
+  if (Number(type.is_default)) return res.status(400).json({ error: 'الأنواع الافتراضية لا يمكن تعديلها من دفتر الصف' });
+  const label = req.body.label === undefined ? type.label : String(req.body.label || '').trim();
+  const polarity = req.body.polarity === undefined ? type.polarity : (req.body.polarity === 'negative' ? 'negative' : 'positive');
+  const points = req.body.points === undefined ? Math.abs(Number(type.points || 1)) : Math.abs(Number(req.body.points || 0));
+  const icon = req.body.icon === undefined ? type.icon : String(req.body.icon || 'star');
+  if (!label) return res.status(400).json({ error: 'اسم السلوك مطلوب' });
+  if (!Number.isFinite(points) || points <= 0) return res.status(400).json({ error: 'نقاط السلوك يجب أن تكون أكبر من صفر' });
+  db.prepare('UPDATE behavior_types SET label = ?, polarity = ?, points = ?, icon = ? WHERE id = ?')
+    .run(label, polarity, polarity === 'negative' ? -points : points, icon, type.id);
+  res.json({ type: db.prepare('SELECT * FROM behavior_types WHERE id = ?').get(type.id) });
+});
+
+// DELETE /api/behavior/types/:id  -> remove a custom type only when it has no historical logs
+router.delete('/types/:id', (req, res) => {
+  const type = getOwnedType(req.params.id, req.teacherId);
+  if (!type) return res.status(404).json({ error: 'نوع السلوك غير موجود' });
+  if (Number(type.is_default)) return res.status(400).json({ error: 'الأنواع الافتراضية لا يمكن حذفها من دفتر الصف' });
+  const logs = db.prepare('SELECT COUNT(*) AS count FROM behavior_logs WHERE behavior_type_id = ?').get(type.id).count;
+  if (Number(logs) > 0) return res.status(409).json({ error: 'لا يمكن حذف سلوك مرتبط بسجلات طلاب. يمكنك تعديل اسمه أو تركه محفوظًا للتاريخ.', log_count: Number(logs) });
+  db.prepare('DELETE FROM behavior_types WHERE id = ?').run(type.id);
+  res.json({ success: true });
+});
+
 // POST /api/behavior/log  (one-tap log, optional note text/audio)
 router.post('/log', (req, res) => {
   const { id: requestedId, student_id, behavior_type_id, note_text, note_audio_url } = req.body;

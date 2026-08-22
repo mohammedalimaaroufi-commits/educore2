@@ -8,6 +8,7 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { buildClassRoster, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
+import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 function localId(prefix) {
@@ -64,6 +65,7 @@ function buildSummary(snapshot, classId) {
 
 export default function BehaviorTab({ classId }) {
   const { t, locale } = useLocale();
+  const teacherId = getTeacherId();
   const [snapshot, setSnapshot] = useState(null);
   const [students, setStudents] = useState([]);
   const [types, setTypes] = useState([]);
@@ -75,10 +77,13 @@ export default function BehaviorTab({ classId }) {
   const [summary, setSummary] = useState([]);
   const [feedback, setFeedback] = useState('');
   const [newType, setNewType] = useState({ label: '', polarity: 'positive', points: 1, icon: 'star' });
+  const [templates, setTemplates] = useState(() => readSettingsCache(teacherId, 'behavior-templates', []));
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showTypeForm, setShowTypeForm] = useState(false);
+  const [editingTypeId, setEditingTypeId] = useState(null);
+  const [editingType, setEditingType] = useState(null);
   const [detailStudentId, setDetailStudentId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const teacherId = getTeacherId();
 
   const load = async () => {
     const data = await getOrSyncSnapshot(teacherId);
@@ -87,6 +92,14 @@ export default function BehaviorTab({ classId }) {
     setStudents(classData.students);
     setTypes((data.behavior_types || []).filter((type) => type.class_id === classId));
     setSummary(buildSummary(data, classId));
+    try {
+      const { data: templateData } = await api.get('/settings/behavior-templates');
+      const nextTemplates = templateData.templates || [];
+      setTemplates(nextTemplates);
+      writeSettingsCache(teacherId, 'behavior-templates', nextTemplates);
+    } catch {
+      // Cached templates remain available when the teacher is offline.
+    }
     setLoading(false);
   };
 
@@ -155,6 +168,72 @@ export default function BehaviorTab({ classId }) {
     }
   };
 
+  const updateType = async (typeId) => {
+    const type = types.find((item) => item.id === typeId);
+    if (!type || Number(type.is_default)) return;
+    const label = String(editingType?.label || '').trim();
+    const polarity = editingType?.polarity === 'negative' ? 'negative' : 'positive';
+    const points = Math.abs(Number(editingType?.points || 0));
+    if (!label || !Number.isFinite(points) || points <= 0) return;
+    const patch = { label, polarity, points, icon: editingType?.icon || type.icon || 'star' };
+    const next = { ...snapshot, behavior_types: (snapshot?.behavior_types || []).map((item) => item.id === typeId ? { ...item, ...patch, points: polarity === 'negative' ? -points : points } : item) };
+    applySnapshot(next);
+    setEditingTypeId(null);
+    setEditingType(null);
+    setFeedback(t('behaviorTypeSaved'));
+    try {
+      await api.patch(`/behavior/types/${typeId}`, patch);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'PATCH', url: `/behavior/types/${typeId}`, data: patch });
+    }
+  };
+
+  const deleteType = async (type) => {
+    if (Number(type.is_default)) return;
+    const hasLogs = (snapshot?.behavior_logs || []).some((log) => log.behavior_type_id === type.id);
+    if (hasLogs) {
+      setFeedback(t('behaviorTypeHasLogs'));
+      return;
+    }
+    if (!confirm(t('deleteBehaviorTypeConfirm'))) return;
+    const next = { ...snapshot, behavior_types: (snapshot?.behavior_types || []).filter((item) => item.id !== type.id) };
+    applySnapshot(next);
+    setTypes((current) => current.filter((item) => item.id !== type.id));
+    try {
+      await api.delete(`/behavior/types/${type.id}`);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'DELETE', url: `/behavior/types/${type.id}` });
+    }
+  };
+
+  const applyTemplate = async () => {
+    const template = templates.find((item) => String(item.id) === String(selectedTemplateId));
+    if (!template) {
+      setFeedback(t('noBehaviorTemplateSelected'));
+      return;
+    }
+    const alreadyExists = types.some((type) => type.label.trim().toLowerCase() === String(template.label).trim().toLowerCase());
+    if (alreadyExists) {
+      setFeedback(t('behaviorAlreadyInClass'));
+      return;
+    }
+    const points = Math.abs(Number(template.points || 1));
+    const entry = { id: localId('behavior-type'), class_id: classId, label: template.label, polarity: template.polarity === 'negative' ? 'negative' : 'positive', points: template.polarity === 'negative' ? -points : points, icon: template.icon || 'star', is_default: 0 };
+    const next = { ...snapshot, behavior_types: [...(snapshot?.behavior_types || []), entry] };
+    applySnapshot(next);
+    setSelectedTemplateId('');
+    setFeedback(t('behaviorTemplateApplied'));
+    try {
+      await api.post('/behavior/types', entry);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'POST', url: '/behavior/types', data: entry });
+      setFeedback(t('behaviorTemplateQueued'));
+    }
+  };
+
   const iconOptions = newType.polarity === 'positive' ? POSITIVE_BEHAVIOR_ICONS : NEGATIVE_BEHAVIOR_ICONS;
   if (loading) return <p className="text-ink/50">{t('behaviorLoading')}</p>;
 
@@ -191,7 +270,12 @@ export default function BehaviorTab({ classId }) {
                 {openStudent === student.id && (
                   <div className="px-3 pb-3 pt-1 border-t border-line bg-surface/50">
                     <p className="text-xs text-ink/50 mb-2">{t('clickBehavior', '', { name: student.full_name })}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">{types.map((type) => <button key={type.id} onClick={() => logBehavior(student.id, type.id)} className={`px-3 py-2 rounded-xl2 text-sm font-medium border flex items-center justify-center gap-2 ${type.polarity === 'positive' ? 'border-primary/40 text-primary hover:bg-primary/10' : 'border-danger/40 text-danger hover:bg-danger/10'}`}><Icon name={type.icon} className="w-4 h-4" />{type.label} ({type.points > 0 ? '+' : ''}{type.points})</button>)}</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">{types.map((type) => (
+                      <div key={type.id} className="flex items-stretch gap-1 min-w-0">
+                        <button type="button" onClick={() => logBehavior(student.id, type.id)} className={`min-w-0 flex-1 px-3 py-2 rounded-xl2 text-sm font-medium border flex items-center justify-center gap-2 ${type.polarity === 'positive' ? 'border-primary/40 text-primary hover:bg-primary/10' : 'border-danger/40 text-danger hover:bg-danger/10'}`}><Icon name={type.icon} className="w-4 h-4 shrink-0" /><span className="truncate">{type.label} ({type.points > 0 ? '+' : ''}{type.points})</span></button>
+                        {!Number(type.is_default) && <div className="flex flex-col gap-1 shrink-0"><button type="button" className="px-1.5 rounded border border-line text-[10px] text-ink/55 hover:text-primary" title={t('editBehaviorType')} onClick={() => { setEditingTypeId(type.id); setEditingType({ label: type.label, polarity: type.polarity, points: Math.abs(Number(type.points || 1)), icon: type.icon || 'star' }); }}>{t('edit')}</button><button type="button" className="px-1.5 rounded border border-line text-danger text-sm leading-none hover:bg-danger/10" title={t('deleteBehaviorType')} onClick={() => deleteType(type)}>×</button></div>}
+                      </div>
+                    ))}</div>
                     <textarea className="input text-xs behavior-note-input" rows={2} placeholder={t('quickNote')} value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
                     {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">{t('latestDetails')}</p>{row.latest_logs.map((log) => <div key={log.id} className="flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || t('noTextNote')}</span><span className="text-ink/30">{formatWhen(log.occurred_at, locale)}</span></div>)}</div>}
                     <button className="text-primary text-xs mt-2" onClick={() => setDetailStudentId(student.id)}>{t('fullBehaviorRecord')}</button>
@@ -202,6 +286,11 @@ export default function BehaviorTab({ classId }) {
           })}
           {filteredStudents.length === 0 && <p className="text-ink/50 text-sm py-4 text-center">{t('noMatchingStudent')}</p>}
         </div>
+        {editingTypeId && editingType && <form className="behavior-type-editor mt-3 pt-3 border-t border-line space-y-2" onSubmit={(event) => { event.preventDefault(); void updateType(editingTypeId); }}>
+          <div className="flex flex-wrap gap-2"><input className="input text-sm flex-1" value={editingType.label} onChange={(event) => setEditingType({ ...editingType, label: event.target.value })} aria-label={t('behaviorName')} required /><select className="input text-sm w-32" value={editingType.polarity} onChange={(event) => setEditingType({ ...editingType, polarity: event.target.value, icon: event.target.value === 'positive' ? 'star' : 'clock' })}><option value="positive">{t('positiveLabel')}</option><option value="negative">{t('negativeLabel')}</option></select><input className="input text-sm w-20" type="number" min="1" step="1" value={editingType.points} onChange={(event) => setEditingType({ ...editingType, points: Number(event.target.value) })} /></div>
+          <div className="flex flex-wrap gap-2 items-center">{(editingType.polarity === 'positive' ? POSITIVE_BEHAVIOR_ICONS : NEGATIVE_BEHAVIOR_ICONS).map((icon) => <button key={icon} type="button" onClick={() => setEditingType({ ...editingType, icon })} className={`p-2 rounded-lg border ${editingType.icon === icon ? 'border-primary bg-primary/10' : 'border-line'}`}><Icon name={icon} className="w-4 h-4" /></button>)}<button className="btn-secondary text-sm mr-auto" type="submit">{t('saveBehavior')}</button><button className="text-ink/55 text-sm" type="button" onClick={() => { setEditingTypeId(null); setEditingType(null); }}>{t('cancel')}</button></div>
+        </form>}
+        {templates.length > 0 && <div className="behavior-template-adoption mt-3 pt-3 border-t border-line"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold text-ink/60">{t('adoptBehaviorTemplate')}</span><select className="input text-sm flex-1 min-w-[12rem]" value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)} aria-label={t('selectBehaviorTemplate')}><option value="">{t('selectBehaviorTemplate')}</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.label} ({template.points > 0 ? '+' : ''}{template.points})</option>)}</select><button className="btn-secondary text-sm" type="button" onClick={() => void applyTemplate()} disabled={!selectedTemplateId}>{t('applyBehaviorTemplate')}</button></div></div>}
         {!showTypeForm ? <button className="text-primary text-sm mt-3" onClick={() => setShowTypeForm(true)}>+ {t('addCustomBehavior')}</button> : <form onSubmit={addType} className="space-y-2 mt-3 pt-3 border-t border-line"><div className="flex flex-wrap gap-2"><input className="input text-sm flex-1" placeholder={t('behaviorName')} required value={newType.label} onChange={(event) => setNewType({ ...newType, label: event.target.value })} /><select className="input text-sm w-32" value={newType.polarity} onChange={(event) => setNewType({ ...newType, polarity: event.target.value, icon: event.target.value === 'positive' ? 'star' : 'clock' })}><option value="positive">{t('positiveLabel')}</option><option value="negative">{t('negativeLabel')}</option></select><input className="input text-sm w-20" type="number" value={newType.points} onChange={(event) => setNewType({ ...newType, points: Number(event.target.value) })} /></div><div className="flex gap-2">{iconOptions.map((icon) => <button key={icon} type="button" onClick={() => setNewType({ ...newType, icon })} className={`p-2 rounded-lg border ${newType.icon === icon ? 'border-primary bg-primary/10' : 'border-line'}`}><Icon name={icon} className="w-4 h-4" /></button>)}<button className="btn-secondary text-sm mr-auto" type="submit">{t('saveBehavior')}</button></div></form>}
       </div>
       <StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} />

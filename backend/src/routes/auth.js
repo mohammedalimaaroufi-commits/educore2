@@ -145,7 +145,7 @@ router.post('/reset-password', async (req, res) => {
 
 function getSubscriptionPresentation(teacherId, sub) {
   const definitions = getPlanDefinitions();
-  const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY datetime(COALESCE(reviewed_at, created_at)) DESC, created_at DESC").all(teacherId);
+  const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all(teacherId);
   const activePlan = resolvePlanId(sub?.plan, { definitions });
   const requestWithMatchingPlan = requests.find((candidate) => resolvePlanId(candidate.plan, {
     definitions,
@@ -177,7 +177,7 @@ function getSubscriptionPresentation(teacherId, sub) {
 }
 
 function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
-  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY datetime(COALESCE(reviewed_at, created_at)) DESC, created_at DESC LIMIT 1").get(teacherId);
+  const approved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC LIMIT 1").get(teacherId);
   if (!approved) return rawSub;
   const definitions = getPlanDefinitions();
   const canonicalPlan = resolvePlanId(approved.plan, { definitions, offerId: approved.offer_id, amount: approved.amount_omr, originalAmount: approved.original_amount_omr });

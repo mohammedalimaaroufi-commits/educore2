@@ -485,3 +485,45 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 
 .subscription-active-notice { margin: 0 0 1rem; padding: .85rem 1rem; color: #1f5d50; background: rgba(46,125,107,.09); border: 1px solid rgba(46,125,107,.2); border-radius: .85rem; font-size: .82rem; line-height: 1.7; }
 .subscription-form-error { margin: .45rem 0 0; padding: .55rem .7rem; color: #a53f2d; background: rgba(193,85,61,.08); border: 1px solid rgba(193,85,61,.18); border-radius: .65rem; font-size: .78rem; }
+
+
+/* Mobile class workspace: keep the fixed chrome useful without consuming the gradebook viewport. */
+@media (max-width: 760px) {
+  .class-page-shell { width: min(100% - .7rem, 1420px); padding-top: .45rem; }
+  .class-page-topline { flex-direction: row; align-items: center; gap: .45rem; margin-bottom: .45rem; }
+  .class-page-back { min-width: 0; font-size: .62rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .class-page-status { padding: .24rem .4rem; font-size: .54rem; white-space: nowrap; }
+  .class-page-status__dot { width: .32rem; height: .32rem; }
+  .class-page-header { display: block; min-height: 0; margin-bottom: .45rem; border-radius: .85rem; }
+  .class-page-header__visual { min-height: 5rem; padding: .72rem .9rem .62rem; justify-content: center; }
+  .class-page-header__symbol { display: none; }
+  .class-page-header__eyebrow { font-size: .58rem; }
+  .class-page-header h1 { margin: .16rem 0 .12rem; font-size: 1.34rem; line-height: 1.2; }
+  .class-page-header__visual p { font-size: .64rem; }
+  .class-page-header__side { display: block; padding: .42rem .65rem .5rem; border-top: 1px solid rgba(255,255,255,.12); }
+  .class-page-header__side > .class-page-header__tag,
+  .class-page-header__side > p { display: none; }
+  .class-page-mini-stats { grid-template-columns: repeat(4, 1fr); gap: .25rem; }
+  .class-page-mini-stats span { padding: .3rem .18rem; border-radius: .45rem; }
+  .class-page-mini-stats strong { font-size: .82rem; }
+  .class-page-mini-stats small { font-size: .48rem; line-height: 1.2; }
+  .class-tabs { top: .1rem; gap: .18rem; padding: .24rem; margin-bottom: .45rem; border-radius: .72rem; }
+  .class-tab { min-height: 2.12rem; padding: .36rem .56rem; gap: .24rem; font-size: .6rem; border-radius: .52rem; }
+  .class-tab .lucide, .class-tab svg { width: .82rem; height: .82rem; }
+  .class-tab.is-active::after { bottom: -.25rem; height: .1rem; }
+  .class-tab-panel--gradebook > div:first-child { margin-bottom: .5rem; }
+  .class-tab-panel--gradebook .gradebook-subtabs { margin-bottom: .5rem; }
+  .grade-matrix-hint { max-width: 100%; font-size: .54rem; }
+  .grading-scheme-controls { grid-template-columns: 1fr; }
+  .grading-scheme-controls select, .grading-scheme-controls button { width: 100%; }
+  .category-manager-grid { grid-template-columns: minmax(0, 1fr) 6.3rem; }
+  .category-manager-add { grid-template-columns: minmax(0, 1fr) 6.3rem auto; gap: .4rem; }
+}
+@media (max-width: 420px) {
+  .class-page-back { max-width: 52%; }
+  .class-page-status { max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+  .class-page-header__visual { min-height: 4.55rem; }
+  .class-page-header h1 { font-size: 1.2rem; }
+  .class-page-mini-stats small { font-size: .43rem; }
+  .class-tab { padding-inline: .46rem; font-size: .56rem; }
+}

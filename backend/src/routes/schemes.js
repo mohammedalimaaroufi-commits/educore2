@@ -6,6 +6,23 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
+const ASSIGNMENTS_KEY_PREFIX = 'grading_scheme_assignments:';
+
+function readAssignments(teacherId) {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(`${ASSIGNMENTS_KEY_PREFIX}${teacherId}`);
+  try {
+    const parsed = row?.value ? JSON.parse(row.value) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeAssignments(teacherId, assignments) {
+  db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+    .run(`${ASSIGNMENTS_KEY_PREFIX}${teacherId}`, JSON.stringify(assignments));
+}
+
 function loadScheme(id, teacherId) {
   const scheme = db.prepare('SELECT * FROM grading_schemes WHERE id = ? AND teacher_id = ?').get(id, teacherId);
   if (!scheme) return null;
@@ -21,6 +38,11 @@ router.get('/', (req, res) => {
     categories: db.prepare('SELECT * FROM grading_scheme_categories WHERE scheme_id = ? ORDER BY sort_order').all(s.id),
   }));
   res.json({ schemes: withCategories });
+});
+
+// GET /api/schemes/assignments -> last selected scheme per class for this teacher
+router.get('/assignments', (req, res) => {
+  res.json({ assignments: readAssignments(req.teacherId) });
 });
 
 // POST /api/schemes  { name, categories: [{name, weight_percent, grading_type}] }  -> create a scheme from scratch
@@ -138,7 +160,11 @@ router.post('/:id/apply', (req, res) => {
   });
   apply();
 
-  res.json({ success: true, categories: db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id) });
+  const assignments = readAssignments(req.teacherId);
+  assignments[class_id] = { scheme_id: scheme.id, scheme_name: scheme.name, mode: replace ? 'replace' : 'append', updated_at: new Date().toISOString() };
+  writeAssignments(req.teacherId, assignments);
+
+  res.json({ success: true, scheme: { id: scheme.id, name: scheme.name }, assignment: assignments[class_id], categories: db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id) });
 });
 
 module.exports = router;
