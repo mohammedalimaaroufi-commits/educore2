@@ -31,6 +31,7 @@ function readInitialSession() {
 }
 
 const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
+const PAID_PLAN_DURATIONS = { '6_months': 182, yearly: 365, lifetime: null };
 const PLAN_ALIASES = {
   annual: 'yearly', year: 'yearly', '12_months': 'yearly', '12-months': 'yearly',
   '6_month': '6_months', '6months': '6_months', '6-months': '6_months',
@@ -47,35 +48,60 @@ function canonicalPlan(value) {
   return VALID_SUBSCRIPTION_PLANS.has(normalized) ? normalized : PLAN_ALIASES[raw] || PLAN_ALIASES[normalized] || null;
 }
 
+function addDays(value, days) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+function validDate(value) {
+  if (!value) return null;
+  return Number.isFinite(new Date(value).getTime()) ? value : null;
+}
+
 function normalizeSubscriptionSession(data) {
   const rawSubscription = data?.subscription || null;
   const rawPlan = canonicalPlan(rawSubscription?.plan);
   const infoPlan = canonicalPlan(data?.subscriptionInfo?.plan);
   const rawLooksLikeTrial = rawPlan === 'trial' && Boolean(rawSubscription?.trial_end_date) && !rawSubscription?.current_period_start && !rawSubscription?.current_period_end;
-  // A paid presentation from the server is stronger than a legacy trial row. This is
-  // essential for accounts whose original trial row was updated asynchronously.
-  const selectedPlan = infoPlan && infoPlan !== 'trial' && (rawLooksLikeTrial || !rawPlan) ? infoPlan : (rawPlan || infoPlan);
   const suppliedInfo = data?.subscriptionInfo || {};
-  const startDate = suppliedInfo.startDate || (selectedPlan === 'trial' ? rawSubscription?.trial_start_date : rawSubscription?.current_period_start) || null;
-  const endDate = suppliedInfo.endDate || (selectedPlan === 'trial' ? rawSubscription?.trial_end_date : rawSubscription?.current_period_end) || null;
+  const paidInfoHasPeriod = infoPlan && infoPlan !== 'trial' && Boolean(suppliedInfo.startDate || suppliedInfo.currentPeriodStart || suppliedInfo.current_period_start);
+  // A paid presentation from the server is stronger than any legacy trial row.
+  // This prevents an old trial record from winning during an async reconciliation.
+  const selectedPlan = paidInfoHasPeriod || (infoPlan && infoPlan !== 'trial' && (rawLooksLikeTrial || !rawPlan))
+    ? infoPlan
+    : (rawPlan || infoPlan);
+  const startDate = validDate(suppliedInfo.startDate || (selectedPlan === 'trial' ? rawSubscription?.trial_start_date : rawSubscription?.current_period_start) || null);
+  const storedEndDate = validDate(suppliedInfo.endDate || (selectedPlan === 'trial' ? rawSubscription?.trial_end_date : rawSubscription?.current_period_end) || null);
+  const canonicalDuration = PAID_PLAN_DURATIONS[selectedPlan];
+  const endDate = selectedPlan !== 'trial' && canonicalDuration !== undefined && canonicalDuration !== null && startDate
+    ? addDays(startDate, canonicalDuration)
+    : selectedPlan === 'lifetime' ? null : storedEndDate;
   const calculatedDaysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
   const hasPaidPresentation = Boolean(infoPlan && infoPlan !== 'trial' && suppliedInfo.startDate);
   const shouldUseTrial = !selectedPlan || !VALID_SUBSCRIPTION_PLANS.has(selectedPlan) || (!hasPaidPresentation && selectedPlan === 'trial' && !endDate);
   const effectivePlan = shouldUseTrial ? 'trial' : selectedPlan;
+  const effectiveDuration = PAID_PLAN_DURATIONS[effectivePlan];
+  const effectiveEndDate = effectivePlan !== 'trial' && effectiveDuration !== undefined && effectiveDuration !== null && startDate
+    ? addDays(startDate, effectiveDuration)
+    : effectivePlan === 'lifetime' ? null : endDate;
   const subscription = {
     ...(rawSubscription || {}),
     plan: effectivePlan,
     status: suppliedInfo.status || rawSubscription?.status || 'active',
-    ...(effectivePlan !== 'trial' && startDate ? { current_period_start: startDate, current_period_end: endDate, trial_start_date: null, trial_end_date: null } : {}),
+    ...(effectivePlan !== 'trial' && startDate ? { current_period_start: startDate, current_period_end: effectiveEndDate, trial_start_date: null, trial_end_date: null } : {}),
   };
   const subscriptionInfo = {
     ...suppliedInfo,
     plan: effectivePlan,
     status: suppliedInfo.status || subscription.status || 'active',
     startDate,
-    endDate,
-    daysLeft: suppliedInfo.daysLeft ?? calculatedDaysLeft,
-    expired: suppliedInfo.expired ?? (calculatedDaysLeft !== null && calculatedDaysLeft <= 0),
+    endDate: effectiveEndDate,
+    currentPeriodStart: effectivePlan !== 'trial' ? startDate : suppliedInfo.currentPeriodStart,
+    currentPeriodEnd: effectivePlan !== 'trial' ? effectiveEndDate : suppliedInfo.currentPeriodEnd,
+    daysLeft: effectiveEndDate ? Math.ceil((new Date(effectiveEndDate) - new Date()) / (1000 * 60 * 60 * 24)) : null,
+    expired: effectiveEndDate ? Math.ceil((new Date(effectiveEndDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 0 : false,
   };
   const restrictions = data?.restrictions || subscriptionInfo.restrictions || null;
   const trialInfo = data?.trialInfo || (subscriptionInfo.plan === 'trial' && subscriptionInfo.endDate

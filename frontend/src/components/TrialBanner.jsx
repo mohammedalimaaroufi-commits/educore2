@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function TrialBanner() {
-  const { subscription, trialInfo } = useAuth();
-  if (!subscription || subscription.plan !== 'trial' || !trialInfo) return null;
+  const { subscription, subscriptionInfo, trialInfo } = useAuth();
+  // A paid server presentation is authoritative during reconciliation; never
+  // show a stale trial countdown above an already activated paid package.
+  const effectivePlan = subscriptionInfo?.plan || subscription?.plan;
+  if (!subscription || effectivePlan !== 'trial' || !trialInfo) return null;
 
   const { daysLeft, alertLevel } = trialInfo;
   if (alertLevel === 'none') return null; // only nudge on day 10 / 13 / 14 window
