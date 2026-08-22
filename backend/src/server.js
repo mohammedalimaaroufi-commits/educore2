@@ -44,6 +44,7 @@ const syncRoutes = require('./routes/sync');
 
 
 const app = express();
+const BUILD_VERSION = process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || 'ca0a49f';
 
 app.use(cors());
 
@@ -55,6 +56,7 @@ app.get('/api/health', (req, res) => res.json({
   status: 'ok',
   name: 'EduCore Manager API',
   database: process.env.LIBSQL_URL ? 'turso' : 'sqlite',
+  build: BUILD_VERSION,
 }));
 
 
