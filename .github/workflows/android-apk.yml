@@ -69,8 +69,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete educore-android-latest --yes --cleanup-tag || true
+          set -euo pipefail
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/tags/educore-android-latest" >/dev/null 2>&1 || true
+          gh release delete educore-android-latest --yes --cleanup-tag >/dev/null 2>&1 || true
           gh release create educore-android-latest EduCore.apk \
             --target "$GITHUB_SHA" \
             --title "EduCore Android APK (latest)" \
-            --notes "آخر نسخة Android من EduCore. API: https://educore-qvxl.onrender.com"
+            --notes "آخر نسخة Android من EduCore. API: https://educore-qvxl.onrender.com" \
+            --latest
