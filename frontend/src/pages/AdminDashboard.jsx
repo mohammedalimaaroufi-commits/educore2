@@ -4,6 +4,7 @@ import adminApi from '../api/adminClient';
 import { connectSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 import AdminPublicConfig from '../components/AdminPublicConfig.jsx';
+import { useConfirmDialog, useTextDialog } from '../components/ConfirmDialog.jsx';
 
 const PLAN_LABELS = { '6_months': 'planSixMonths', yearly: 'planYearly', lifetime: 'planLifetime' };
 const STATUS_LABELS = { pending: 'statusPending', approved: 'statusApproved', rejected: 'statusRejected' };
@@ -73,6 +74,8 @@ function mergeChatMessage(current, incoming) {
 
 function PaymentRequests() {
   const { t, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
+  const { askText, textDialog } = useTextDialog();
   const [requests, setRequests] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [showArchived, setShowArchived] = useState(false);
@@ -95,7 +98,8 @@ function PaymentRequests() {
   });
 
   const approve = async (id) => {
-    if (!confirm(t('confirmActivation'))) return;
+    const accepted = await confirm({ title: t('activate'), message: t('confirmActivation'), confirmLabel: t('activate'), cancelLabel: t('cancel'), danger: false });
+    if (!accepted) return;
     setBusyId(id);
     setActionMessage('');
     try {
@@ -109,7 +113,8 @@ function PaymentRequests() {
     }
   };
   const reject = async (id) => {
-    const note = prompt(t('rejectReason')) || '';
+    const note = await askText({ title: t('reject'), message: t('rejectReason'), placeholder: t('rejectReason'), confirmLabel: t('reject'), cancelLabel: t('cancel') });
+    if (note === null) return;
     setBusyId(id);
     try { await adminApi.post(`/admin/payment-requests/${id}/reject`, { admin_note: note }); await load(); } finally { setBusyId(null); }
   };
@@ -122,13 +127,16 @@ function PaymentRequests() {
     load();
   };
   const remove = async (id) => {
-    if (!confirm('حذف هذا الطلب نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+    const accepted = await confirm({ title: 'حذف طلب التفعيل', message: 'حذف هذا الطلب نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.', confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     await adminApi.delete(`/admin/payment-requests/${id}`);
     load();
   };
 
   return (
     <>
+      {confirmDialog}
+      {textDialog}
       {actionMessage && <div className={`admin-action-feedback ${actionMessage === t('activationSuccess') ? 'is-success' : 'is-error'}`} role="status">{actionMessage}</div>}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex gap-2">
@@ -200,6 +208,7 @@ function PaymentRequests() {
 
 function SubscriptionConfig() {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [config, setConfig] = useState({ trial_days: 14, plans: [], plan_definitions: DEFAULT_PLAN_EDITOR, offers: [] });
   const [planDrafts, setPlanDrafts] = useState(DEFAULT_PLAN_EDITOR);
   const [trialDays, setTrialDays] = useState(14);
@@ -263,9 +272,10 @@ function SubscriptionConfig() {
   };
   const cancelEditOffer = () => { setEditingOfferId(null); setOffer(EMPTY_OFFER); };
   const toggleOffer = async (item) => { setBusy(true); try { await adminApi.patch(`/admin/offers/${item.id}`, { enabled: !item.enabled }); await load(); } finally { setBusy(false); } };
-  const removeOffer = async (id) => { if (!confirm('حذف هذا العرض؟')) return; await adminApi.delete(`/admin/offers/${id}`); load(); };
+  const removeOffer = async (id) => { const accepted = await confirm({ title: 'حذف العرض', message: 'حذف هذا العرض؟', confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true }); if (!accepted) return; await adminApi.delete(`/admin/offers/${id}`); load(); };
 
   return <div className="admin-subscription-config">
+    {confirmDialog}
     <div className="admin-config-card admin-config-card--plans">
       <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">المنتج الأساسي</span><h3>تحرير الباقات الأساسية</h3><p>غيّر اسم الباقة وسعرها وخصائصها. مدة المنتج ثابتة لضمان أن تاريخ الانتهاء يطابق الباقة المفعّلة دائمًا.</p></div><span className="admin-config-icon">◇</span></div>
       <div className="admin-base-plans-grid">{planDrafts.map((plan) => <article key={plan.id} className={`admin-base-plan-editor ${plan.highlight ? 'is-featured' : ''}`}>
@@ -304,6 +314,7 @@ function PasswordResetRequests() {
 
 function TeachersList({ onMessage }) {
   const { t, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [teachers, setTeachers] = useState([]);
   const [search, setSearch] = useState('');
   const [openTeacherId, setOpenTeacherId] = useState(null);
@@ -365,7 +376,8 @@ function TeachersList({ onMessage }) {
     } finally { setAccountBusy(false); }
   };
   const deleteTeacher = async (teacher) => {
-    if (!window.confirm(t('deleteAccountConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteAccount'), message: t('deleteAccountConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     setAccountBusy(true);
     setRestrictionMessage('');
     try {
@@ -381,6 +393,7 @@ function TeachersList({ onMessage }) {
 
   return (
     <div>
+      {confirmDialog}
       <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع باسم المعلم أو البريد أو المدرسة' : 'Quick search by teacher, email, or school'} aria-label={locale === 'ar' ? 'بحث في المعلمين' : 'Search teachers'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
       <div className="card overflow-x-auto">
       <table className="w-full text-sm">
@@ -423,6 +436,7 @@ function TeachersList({ onMessage }) {
 }
 
 function BroadcastComposer({ onSent }) {
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -431,7 +445,8 @@ function BroadcastComposer({ onSent }) {
   const send = async (e) => {
     e.preventDefault();
     if (!text.trim()) return;
-    if (!confirm('سيتم إرسال هذه الرسالة إلى جميع المعلمين المسجلين. متابعة؟')) return;
+    const accepted = await confirm({ title: 'إرسال إعلان جماعي', message: 'سيتم إرسال هذه الرسالة إلى جميع المعلمين المسجلين. متابعة؟', confirmLabel: 'إرسال', cancelLabel: 'إلغاء', danger: false });
+    if (!accepted) return;
     setBusy(true);
     try {
       const { data } = await adminApi.post('/admin/broadcast', { text });
@@ -446,6 +461,7 @@ function BroadcastComposer({ onSent }) {
 
   return (
     <div className="card p-3 mb-3">
+      {confirmDialog}
       {!open ? (
         <button className="text-primary text-sm font-medium" onClick={() => setOpen(true)}>📢 إرسال رسالة جماعية لكل المعلمين</button>
       ) : (
@@ -627,7 +643,7 @@ export default function AdminDashboard() {
   return (
     <div className="admin-page-shell">
       <div className="admin-page-fixed-header">
-        <header className="admin-page-hero"><div><span className="admin-eyebrow">مركز التشغيل</span><h1>لوحة تحكم المسؤول</h1><p>أدر طلبات التفعيل، العروض، المعلمين، الدعم، وإعدادات التجربة من مساحة واحدة.</p></div><div className="admin-hero-stamp"><span>ADMIN</span><small>EduCore control room</small></div><button className="btn-secondary text-sm admin-logout" onClick={logout}>تسجيل الخروج</button></header>
+        <header className="admin-page-hero"><div className="admin-page-hero__brand"><div className="brand-mark brand-mark--image"><img src="/educore-logo.webp" alt="EduCore" /></div><div><span className="admin-eyebrow">مركز التشغيل</span><h1>لوحة تحكم المسؤول</h1><p>أدر طلبات التفعيل، العروض، المعلمين، الدعم، وإعدادات التجربة من مساحة واحدة.</p></div></div><div className="admin-hero-stamp"><span>ADMIN</span><small>EduCore control room</small></div><button className="btn-secondary text-sm admin-logout" onClick={logout}>تسجيل الخروج</button></header>
         <nav className="admin-tabs" aria-label="أقسام لوحة المسؤول">
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>طلبات التفعيل</button>
           <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>كل المعلمين</button>

@@ -4,11 +4,13 @@ import { getTeacherId } from '../utils/localCache.js';
 import { queueMutation } from '../utils/snapshotSync.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 const localId = (prefix) => `local-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 export default function SchemesManager({ classId, onApplied }) {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
   const [schemes, setSchemes] = useState(() => readSettingsCache(teacherId, 'grading-schemes', []));
   const [saveAsName, setSaveAsName] = useState('');
@@ -65,8 +67,8 @@ export default function SchemesManager({ classId, onApplied }) {
   };
 
   const applyScheme = async (schemeId, replace) => {
-    const msg = replace ? t('replaceSchemeConfirm') : t('appendSchemeConfirm');
-    if (!confirm(msg)) return;
+    const accepted = await confirm({ title: t('applySavedScheme'), message: replace ? t('replaceSchemeConfirm') : t('appendSchemeConfirm'), confirmLabel: t('apply'), cancelLabel: t('cancel'), danger: false });
+    if (!accepted) return;
     try {
       await api.post(`/schemes/${schemeId}/apply`, { class_id: classId, replace });
       onApplied?.();
@@ -77,7 +79,8 @@ export default function SchemesManager({ classId, onApplied }) {
   };
 
   const deleteScheme = async (id) => {
-    if (!confirm(t('deleteSchemeConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteScheme'), message: t('deleteSchemeConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     persist(schemes.filter((scheme) => scheme.id !== id));
     try {
       if (!String(id).startsWith('local-')) await api.delete(`/schemes/${id}`);
@@ -141,6 +144,7 @@ export default function SchemesManager({ classId, onApplied }) {
 
   return (
     <div className="space-y-5">
+      {confirmDialog}
       {feedback && <p className="text-primary text-xs">{feedback}</p>}
       {classId && <div className="card p-4"><h3 className="font-bold mb-2">{t('saveClassAsScheme')}</h3><p className="text-xs text-ink/60 mb-3">{t('saveClassAsSchemeText')}</p><form onSubmit={saveCurrentAsScheme} className="flex gap-2"><input className="input text-sm flex-1" placeholder={t('schemeNamePlaceholder')} value={saveAsName} onChange={(event) => setSaveAsName(event.target.value)} required /><button className="btn-primary text-sm" type="submit">{t('saveAsScheme')}</button></form></div>}
       <div className="card p-4">

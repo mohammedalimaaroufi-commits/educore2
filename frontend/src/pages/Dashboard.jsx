@@ -10,6 +10,7 @@ import { useLocale } from '../context/LocaleContext.jsx';
 import TrialBanner from '../components/TrialBanner.jsx';
 import Icon from '../components/Icon.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
+import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
 import { APP_NAME } from '../constants.js';
 
 const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86'];
@@ -161,6 +162,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
 export default function Dashboard() {
   const { teacher, logout } = useAuth();
   const { t, direction, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -279,7 +281,8 @@ export default function Dashboard() {
 
   const archiveClass = async (e, id) => {
     e.preventDefault(); e.stopPropagation();
-    if (!confirm(t('confirmArchive'))) return;
+    const accepted = await confirm({ title: t('archiveClass'), message: t('confirmArchive'), confirmLabel: t('archive'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
     await saveSnapshot(teacherId, { ...snapshot, classes: (snapshot.classes || []).map((item) => item.id === id ? { ...item, archived: 1, updated_at: new Date().toISOString() } : item) });
@@ -291,7 +294,8 @@ export default function Dashboard() {
 
   const deleteClassPermanently = async (e, id) => {
     e.preventDefault(); e.stopPropagation();
-    if (!confirm(t('confirmDeleteClass'))) return;
+    const accepted = await confirm({ title: t('deleteClass'), message: t('confirmDeleteClass'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
     const studentIds = new Set((snapshot.students || []).filter((student) => student.class_id === id).map((student) => student.id));
@@ -323,9 +327,10 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-shell" dir={direction}>
+      {confirmDialog}
       <div className="dashboard-topbar">
         <div className="brand-lockup">
-          <div className="brand-mark">س</div>
+          <div className="brand-mark brand-mark--image"><img src="/educore-logo.webp" alt="EduCore" /></div>
           <div>
             <div className="brand-title">{APP_NAME}</div>
             <div className="brand-subtitle">{t('appSubtitle')}</div>

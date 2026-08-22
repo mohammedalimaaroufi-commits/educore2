@@ -10,6 +10,7 @@ import { buildClassRoster, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 function localId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -65,6 +66,7 @@ function buildSummary(snapshot, classId) {
 
 export default function BehaviorTab({ classId }) {
   const { t, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
   const [snapshot, setSnapshot] = useState(null);
   const [students, setStudents] = useState([]);
@@ -153,7 +155,9 @@ export default function BehaviorTab({ classId }) {
   };
 
   const deleteBehaviorLog = async (log) => {
-    if (!log?.id || !confirm(t('deleteBehaviorLogConfirm'))) return;
+    if (!log?.id) return;
+    const accepted = await confirm({ title: t('deleteBehaviorLog'), message: t('deleteBehaviorLogConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const next = { ...snapshot, behavior_logs: (snapshot?.behavior_logs || []).filter((item) => item.id !== log.id) };
     applySnapshot(next);
     setFeedback(t('behaviorLogDeleted'));
@@ -209,7 +213,8 @@ export default function BehaviorTab({ classId }) {
       setFeedback(t('behaviorTypeHasLogs'));
       return;
     }
-    if (!confirm(t('deleteBehaviorTypeConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteBehaviorType'), message: t('deleteBehaviorTypeConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const next = { ...snapshot, behavior_types: (snapshot?.behavior_types || []).filter((item) => item.id !== type.id) };
     applySnapshot(next);
     setTypes((current) => current.filter((item) => item.id !== type.id));
@@ -252,6 +257,7 @@ export default function BehaviorTab({ classId }) {
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div><h3 className="font-bold">{t('behaviorOneClick')}</h3><p className="text-xs text-ink/50 mt-1">{t('behaviorSubtitle')}</p></div>

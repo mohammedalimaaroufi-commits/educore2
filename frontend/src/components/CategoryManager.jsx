@@ -6,6 +6,7 @@ import { getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 function categorySignature(items = []) {
   return items.map((item) => `${String(item.name || '').trim().toLowerCase()}::${Number(item.weight_percent || 0).toFixed(4)}`).join('|');
@@ -15,6 +16,7 @@ const localCategoryId = () => `local-category-${Date.now()}-${Math.random().toSt
 
 export default function CategoryManager({ classId, refreshKey, onChange }) {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
   const [categories, setCategories] = useState([]);
   const [totalWeight, setTotalWeight] = useState(0);
@@ -100,7 +102,8 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
   };
 
   const deleteCategory = async (id) => {
-    if (!confirm(t('deleteCategoryConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteCategory'), message: t('deleteCategoryConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     await api.delete(`/grades/categories/${id}`);
     await refreshLocalSnapshot();
     await load();
@@ -171,7 +174,8 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
       return;
     }
     const replace = applyMode === 'replace';
-    if (!confirm(t(replace ? 'replaceSchemeConfirm' : 'appendSchemeConfirm'))) return;
+    const accepted = await confirm({ title: t('applySavedScheme'), message: t(replace ? 'replaceSchemeConfirm' : 'appendSchemeConfirm'), confirmLabel: t('apply'), cancelLabel: t('cancel'), danger: false });
+    if (!accepted) return;
     setApplyingScheme(true);
     try {
       await api.post(`/schemes/${scheme.id}/apply`, { class_id: classId, replace });
@@ -191,6 +195,7 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
 
   return (
     <div className="card p-5">
+      {confirmDialog}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h3 className="font-bold text-lg">{t('gradeCategories')}</h3>

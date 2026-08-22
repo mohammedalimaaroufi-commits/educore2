@@ -7,6 +7,7 @@ import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapsho
 import { getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 const EMPTY_FORM = {
   full_name: '',
@@ -27,6 +28,7 @@ function apiError(error, fallback) {
 
 export default function StudentsTab({ classId }) {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [snapshot, setSnapshot] = useState(null);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +122,8 @@ export default function StudentsTab({ classId }) {
   };
 
   const removeStudent = async (id) => {
-    if (!confirm(t('confirmArchiveStudent'))) return;
+    const accepted = await confirm({ title: t('archiveStudent'), message: t('confirmArchiveStudent'), confirmLabel: t('archive'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const next = { ...snapshot, students: (snapshot.students || []).map((student) => student.id === id ? { ...student, archived: 1 } : student) };
     applySnapshot(next);
     try {
@@ -191,6 +194,7 @@ export default function StudentsTab({ classId }) {
 
   return (
     <div>
+      {confirmDialog}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h3 className="text-lg font-bold">{t('studentsTitle')} ({students.length})</h3>

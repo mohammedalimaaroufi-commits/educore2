@@ -10,6 +10,7 @@ import SchemesManager from '../components/SchemesManager.jsx';
 import BehaviorTemplateManager from '../components/BehaviorTemplateManager.jsx';
 import BackupManager from '../components/BackupManager.jsx';
 import LocalStorageManager from '../components/LocalStorageManager.jsx';
+import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
 import { DEFAULT_FOLLOW_UP_SETTINGS, normalizeFollowUpSettings } from '../utils/analyticsSelectors.js';
 
 const CATEGORIES = [
@@ -116,6 +117,7 @@ function ProfileTab() {
 
 function RecommendationsTab() {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
   const [rules, setRules] = useState(() => readSettingsCache(teacherId, 'grade-recommendations', []));
   const [newRule, setNewRule] = useState({ min_score: '', max_score: '', text: '' });
@@ -157,7 +159,8 @@ function RecommendationsTab() {
   };
 
   const deleteRule = async (id) => {
-    if (!confirm(t('deleteRuleConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteRule'), message: t('deleteRuleConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const next = rules.filter((item) => item.id !== id);
     persistRules(next);
     try {
@@ -169,6 +172,7 @@ function RecommendationsTab() {
 
   return (
     <div className="card p-5">
+      {confirmDialog}
       <h3 className="font-bold mb-1">{t('recommendationsTitle')}</h3>
       <p className="text-xs text-ink/60 mb-4">{t('recommendationsText')}</p>
 

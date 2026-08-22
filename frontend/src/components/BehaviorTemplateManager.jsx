@@ -6,12 +6,14 @@ import { getTeacherId } from '../utils/localCache.js';
 import { queueMutation } from '../utils/snapshotSync.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 const localId = () => `local-behavior-template-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 const CACHE_SECTION = 'behavior-templates';
 
 export default function BehaviorTemplateManager() {
   const { t } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
   const [templates, setTemplates] = useState(() => readSettingsCache(teacherId, CACHE_SECTION, []));
   const [loading, setLoading] = useState(false);
@@ -67,7 +69,8 @@ export default function BehaviorTemplateManager() {
   };
 
   const deleteType = async (id) => {
-    if (!confirm(t('deleteBehaviorConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteBehavior'), message: t('deleteBehaviorConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     const next = templates.filter((item) => item.id !== id);
     persist(next);
     try {
@@ -83,6 +86,7 @@ export default function BehaviorTemplateManager() {
 
   return (
     <div className="card p-5">
+      {confirmDialog}
       <h3 className="font-bold text-lg mb-1">{t('behaviorTemplates')}</h3>
       <p className="text-xs text-ink/60 mb-4">{t('behaviorTemplatesDescription')}</p>
       {feedback && <p className="text-primary text-xs mb-3">{feedback}</p>}

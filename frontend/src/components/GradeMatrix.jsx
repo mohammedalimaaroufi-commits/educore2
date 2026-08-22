@@ -6,6 +6,7 @@ import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapsho
 import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
 
@@ -66,6 +67,7 @@ function snapshotWithoutAssessment(snapshot, assessmentId) {
 
 export default function GradeMatrix({ classId, className }) {
   const { t, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [students, setStudents] = useState([]);
   const [categories, setCategories] = useState([]);
   const [grades, setGrades] = useState({});
@@ -100,17 +102,14 @@ export default function GradeMatrix({ classId, className }) {
   const categoryColor = (index) => CATEGORY_COLORS[index % CATEGORY_COLORS.length];
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
   const itemsFor = (category) => {
-    const items = getCategoryAssessments(category);
-    if (category?.grading_mode !== 'detailed') return items;
-    // Keep an already-entered category-level score visible after the first detail is
-    // added. The summary row is retained as a safe fallback until the teacher enters
-    // at least one detail for that student; it is never deleted or silently discarded.
-    const summary = (category.assessments || []).find((assessment) => Number(assessment.is_summary));
-    const hasSavedSummary = summary && students.some((student) => {
-      const value = gradeMap.get(cellKey(summary.id, student.id))?.score_numeric;
-      return value !== null && value !== undefined && value !== '';
-    });
-    return hasSavedSummary ? [summary, ...items] : items;
+    const assessments = category?.assessments || [];
+    const details = assessments.filter((assessment) => !Number(assessment.is_summary));
+    const summary = assessments.find((assessment) => Number(assessment.is_summary));
+    // Once a category has details, show only those details in the editable grid.
+    // The summary assessment and its grades remain in the snapshot as a safe fallback
+    // for students without detail scores; they are deliberately not rendered twice.
+    if (details.length > 0) return details;
+    return summary ? [summary] : getCategoryAssessments(category);
   };
   const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
   const coverageLabel = (coverage) => coverage.percent === null ? t('noGrading') : t('gradingCoverage', '', { percent: coverage.percent, entered: coverage.entered_count, total: coverage.total_students });
@@ -247,10 +246,11 @@ export default function GradeMatrix({ classId, className }) {
 
   const deleteAssessment = async (assessment) => {
     if (Number(assessment.is_summary)) {
-      alert(t('cannotDeleteSummary'));
+      await confirm({ title: t('cannotDeleteSummaryTitle'), message: t('cannotDeleteSummary'), confirmLabel: t('understood'), cancelLabel: t('close'), danger: false });
       return;
     }
-    if (!confirm(t('deleteAssessmentConfirm'))) return;
+    const accepted = await confirm({ title: t('deleteAssessmentTitle'), message: t('deleteAssessmentConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
     setCategories((current) => current.map((category) => ({
       ...category,
       assessments: (category.assessments || []).filter((item) => item.id !== assessment.id),
@@ -372,6 +372,7 @@ export default function GradeMatrix({ classId, className }) {
 
   return (
     <div>
+      {confirmDialog}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 print:hidden">
         <div>
           <h3 className="font-bold">{t('fullGradeTable')}</h3>
@@ -462,7 +463,7 @@ export default function GradeMatrix({ classId, className }) {
                         </td>
                       );
                     })}
-                    <td></td>
+                    <td className="grade-matrix-add-spacer" aria-hidden="true"></td>
                   </React.Fragment>
                 ))}
                 <td className={`px-3 py-2 text-center font-bold ${gradeColor(finalGrade(student.id))}`}>{finalGrade(student.id) ?? '—'}</td>
