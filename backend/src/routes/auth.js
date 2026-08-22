@@ -7,6 +7,7 @@ const { signToken, requireAuth } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
+const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -101,6 +102,8 @@ router.post('/login', async (req, res) => {
 
   const valid = await bcrypt.compare(password || '', teacher.password_hash);
   if (!valid) return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+  const accountStatus = getAccountStatus(teacher.id);
+  if (isAccountBlocked(accountStatus.status)) return res.status(403).json({ error: accountStatusMessage(accountStatus.status), code: 'ACCOUNT_BLOCKED', account_status: accountStatus.status });
 
   const publicTeacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(teacher.id);
   const token = signToken(publicTeacher);
@@ -259,10 +262,15 @@ router.get('/me', requireAuth, (req, res) => {
     const daysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
     subscriptionInfo = {
       ...getSubscriptionPresentation(req.teacherId, sub),
+      subscriptionId: sub.id,
       plan: sub.plan,
       status: sub.status,
       startDate,
       endDate, // null for lifetime -> no expiry
+      trialStartDate: sub.trial_start_date || null,
+      trialEndDate: sub.trial_end_date || null,
+      currentPeriodStart: sub.current_period_start || null,
+      currentPeriodEnd: sub.current_period_end || null,
       daysLeft, // null for lifetime
       expired: daysLeft !== null && daysLeft <= 0,
     };

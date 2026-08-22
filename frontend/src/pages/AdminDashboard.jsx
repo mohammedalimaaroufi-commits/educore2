@@ -310,6 +310,7 @@ function TeachersList({ onMessage }) {
   const [restrictionDraft, setRestrictionDraft] = useState(null);
   const [restrictionBusy, setRestrictionBusy] = useState(false);
   const [restrictionMessage, setRestrictionMessage] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
   useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers || [])).catch(() => setTeachers([])); }, []);
   const filteredTeachers = teachers.filter((teacher) => {
     const term = search.trim().toLowerCase();
@@ -351,6 +352,32 @@ function TeachersList({ onMessage }) {
       setRestrictionMessage(t('restrictionSaveFailed'));
     } finally { setRestrictionBusy(false); }
   };
+  const updateAccountStatus = async (teacher, status) => {
+    setAccountBusy(true);
+    setRestrictionMessage('');
+    try {
+      const { data } = await adminApi.patch(`/admin/teachers/${teacher.id}/account-status`, { status, note: restrictionDraft?.note || '' });
+      setTeachers((current) => current.map((item) => item.id === teacher.id ? { ...item, account_status: data.account_status.status, account_note: data.account_status.note } : item));
+      setRestrictionDraft((current) => current ? { ...current, account_status: data.account_status.status } : current);
+      setRestrictionMessage(t('accountStatusSaved'));
+    } catch {
+      setRestrictionMessage(t('accountStatusSaveFailed'));
+    } finally { setAccountBusy(false); }
+  };
+  const deleteTeacher = async (teacher) => {
+    if (!window.confirm(t('deleteAccountConfirm'))) return;
+    setAccountBusy(true);
+    setRestrictionMessage('');
+    try {
+      await adminApi.delete(`/admin/teachers/${teacher.id}`);
+      setTeachers((current) => current.filter((item) => item.id !== teacher.id));
+      setOpenTeacherId(null);
+      setRestrictionDraft(null);
+      setRestrictionMessage(t('accountStatusSaved'));
+    } catch {
+      setRestrictionMessage(t('accountStatusSaveFailed'));
+    } finally { setAccountBusy(false); }
+  };
 
   return (
     <div>
@@ -362,6 +389,7 @@ function TeachersList({ onMessage }) {
           <th className="text-right px-4 py-2">{locale === 'ar' ? 'البريد' : 'Email'}</th>
           <th className="text-right px-4 py-2">{t('plan')}</th>
           <th className="text-right px-4 py-2">{t('status')}</th>
+          <th className="text-right px-4 py-2">{t('accountStatus')}</th>
           <th className="px-4 py-2"></th>
         </tr></thead>
         <tbody>
@@ -371,13 +399,15 @@ function TeachersList({ onMessage }) {
               <td className="px-4 py-2 text-ink/60">{teacher.email}</td>
               <td className="px-4 py-2">{teacher.plan_title || planLabel(t, teacher.plan) || '—'}</td>
               <td className="px-4 py-2">{teacher.status}</td>
+              <td className="px-4 py-2"><span className={`admin-account-status admin-account-status--${teacher.account_status || 'active'}`}>{t({ active: 'accountStatusActive', disabled: 'accountStatusDisabled', banned: 'accountStatusBanned' }[teacher.account_status] || 'accountStatusActive')}</span></td>
               <td className="px-4 py-2 text-left"><div className="flex gap-3 justify-end"><button className="text-primary text-xs" onClick={() => onMessage(teacher)}>{locale === 'ar' ? 'مراسلة' : 'Message'}</button><button className="text-accent text-xs" onClick={() => openRestrictions(teacher)}>{openTeacherId === teacher.id ? '×' : t('restrictionsTitle')}</button></div></td>
             </tr>
-            {openTeacherId === teacher.id && <tr key={`${teacher.id}-restrictions`}><td colSpan="5" className="px-4 pb-4"><div className="admin-restrictions-panel">
-              <div className="admin-restrictions-panel__heading"><div><strong>{t('restrictionsFor')}: {teacher.full_name}</strong><small>{restrictionDraft?.expired ? t('statusExpired') : t('noRestrictions')}</small></div><button type="button" className="text-ink/50 text-xs" onClick={() => setOpenTeacherId(null)}>×</button></div>
+            {openTeacherId === teacher.id && <tr key={`${teacher.id}-restrictions`}><td colSpan="6" className="px-4 pb-4"><div className="admin-restrictions-panel">
+              <div className="admin-restrictions-panel__heading"><div><strong>{t('subscriberDetails')}: {teacher.full_name}</strong><small>{teacher.plan_title || planLabel(t, teacher.plan)} · {teacher.activated_at ? new Date(teacher.activated_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : '—'} → {teacher.expires_at ? new Date(teacher.expires_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : t('noExpiry')} · {teacher.days_left === null ? t('noExpiry') : teacher.days_left <= 0 ? t('statusExpired') : t('days', '', { count: teacher.days_left })}</small><small>{t('accountStatus')}: {t({ active: 'accountStatusActive', disabled: 'accountStatusDisabled', banned: 'accountStatusBanned' }[teacher.account_status] || 'accountStatusActive')}</small></div><button type="button" className="text-ink/50 text-xs" onClick={() => setOpenTeacherId(null)}>×</button></div>
               {restrictionBusy && !restrictionDraft ? <p className="text-xs text-ink/50">...</p> : restrictionDraft && <>
                 <label className="admin-restriction-toggle"><input type="checkbox" checked={Boolean(restrictionDraft.enabled)} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, enabled: event.target.checked })} /><span>{t('enableRestrictions')}</span></label>
                 <label className="admin-restriction-toggle"><input type="checkbox" checked={restrictionDraft.apply_when_expired !== false} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, apply_when_expired: event.target.checked })} /><span>{t('applyRestrictionsOnExpiry')}</span></label>
+                <div className="admin-account-actions"><span className="admin-restrictions-label">{t('accountStatus')}</span><button type="button" className="text-primary text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'active')}>{t('restoreAccount')}</button><button type="button" className="text-accent text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'disabled')}>{t('disableAccount')}</button><button type="button" className="text-danger text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'banned')}>{t('banAccount')}</button><button type="button" className="text-danger text-xs font-bold" disabled={accountBusy} onClick={() => deleteTeacher(teacher)}>× {t('deleteAccount')}</button></div>
                 <p className="admin-restrictions-label">{t('blockedFeatures')}</p><div className="admin-restrictions-grid">{RESTRICTION_FEATURE_OPTIONS.map((feature) => <label key={feature.id} className="admin-restriction-option"><input type="checkbox" checked={restrictionDraft.blocked_features.includes(feature.id)} onChange={() => toggleRestrictionFeature(feature.id)} /><span>{t(feature.key)}</span></label>)}</div>
                 <label className="label">{t('restrictionNote')}<textarea className="input" rows="2" value={restrictionDraft.note || ''} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, note: event.target.value })} /></label>
                 <div className="flex items-center gap-3"><button type="button" className="btn-primary text-xs" disabled={restrictionBusy} onClick={saveRestrictions}>{restrictionBusy ? '...' : t('saveRestrictions')}</button>{restrictionMessage && <span className="text-xs text-primary">{restrictionMessage}</span>}</div>

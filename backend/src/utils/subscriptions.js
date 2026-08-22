@@ -209,6 +209,12 @@ function getPublicPlans() {
       ...definition,
       price_omr: offer ? Number(offer.offer_price_omr) : definition.base_price_omr,
       original_price_omr: offer ? Number(offer.original_price_omr || definition.base_price_omr) : definition.base_price_omr,
+      has_offer: Boolean(offer),
+      offer_id: offer?.id || null,
+      offer_title: offer?.title || null,
+      offer_description: offer?.description || null,
+      offer_starts_at: offer?.starts_at || null,
+      offer_ends_at: offer?.ends_at || null,
       offer: offer ? {
         id: offer.id,
         title: offer.title,

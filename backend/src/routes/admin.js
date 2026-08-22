@@ -6,6 +6,7 @@ const { signAdminToken, requireAdmin } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
 const { RESTRICTABLE_FEATURES, getConfiguredRestrictions, saveTeacherRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
+const { getAccountStatus, saveAccountStatus } = require('../utils/accountStatus');
 
 const router = express.Router();
 
@@ -197,6 +198,48 @@ router.delete('/payment-requests/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// PATCH /api/admin/teachers/:teacherId/account-status { status: active|disabled|banned, note }
+router.patch('/teachers/:teacherId/account-status', (req, res) => {
+  const teacher = db.prepare('SELECT id FROM teachers WHERE id = ?').get(req.params.teacherId);
+  if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  const accountStatus = saveAccountStatus(teacher.id, { status: req.body?.status, note: req.body?.note });
+  res.json({ account_status: accountStatus });
+});
+
+// DELETE /api/admin/teachers/:teacherId -> permanently remove a teacher and owned records
+router.delete('/teachers/:teacherId', (req, res) => {
+  const teacher = db.prepare('SELECT id, email FROM teachers WHERE id = ?').get(req.params.teacherId);
+  if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  const removeOwnedData = db.transaction(() => {
+    const teacherId = teacher.id;
+    db.prepare(`DELETE FROM grades WHERE assessment_id IN (
+      SELECT a.id FROM assessments a
+      JOIN grade_categories gc ON gc.id = a.category_id
+      JOIN classes c ON c.id = gc.class_id
+      WHERE c.teacher_id = ?
+    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
+    db.prepare(`DELETE FROM behavior_logs WHERE behavior_type_id IN (
+      SELECT bt.id FROM behavior_types bt JOIN classes c ON c.id = bt.class_id WHERE c.teacher_id = ?
+    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
+    db.prepare(`DELETE FROM attendance_records WHERE session_id IN (SELECT ats.id FROM attendance_sessions ats JOIN classes c ON c.id = ats.class_id WHERE c.teacher_id = ?) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
+    db.prepare('DELETE FROM assessments WHERE category_id IN (SELECT gc.id FROM grade_categories gc JOIN classes c ON c.id = gc.class_id WHERE c.teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM grade_categories WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM behavior_types WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM attendance_sessions WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM students WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM classes WHERE teacher_id = ?').run(teacherId);
+    db.prepare('DELETE FROM grading_scheme_categories WHERE scheme_id IN (SELECT id FROM grading_schemes WHERE teacher_id = ?)').run(teacherId);
+    db.prepare('DELETE FROM grading_schemes WHERE teacher_id = ?').run(teacherId);
+    for (const table of ['subscriptions', 'comment_templates', 'payment_requests', 'grade_recommendation_rules', 'messages', 'password_resets', 'password_reset_requests', 'behavior_type_templates']) {
+      db.prepare(`DELETE FROM ${table} WHERE teacher_id = ?`).run(teacherId);
+    }
+    db.prepare('DELETE FROM app_settings WHERE key IN (?, ?)').run(`teacher_restrictions:${teacherId}`, `teacher_account_status:${teacherId}`);
+    db.prepare('DELETE FROM teachers WHERE id = ?').run(teacherId);
+  });
+  removeOwnedData();
+  res.json({ success: true, deleted_teacher_id: teacher.id, email: teacher.email });
+});
+
 // GET /api/admin/teachers/:teacherId/restrictions
 router.get('/teachers/:teacherId/restrictions', (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email FROM teachers WHERE id = ?').get(req.params.teacherId);
@@ -276,7 +319,8 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 router.get('/teachers', (req, res) => {
   const definitions = getPlanDefinitions();
   const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
-                              s.plan, s.status, s.trial_end_date, s.current_period_end
+                              s.plan, s.status, s.trial_start_date, s.trial_end_date,
+                              s.current_period_start, s.current_period_end
                             FROM teachers t
                             LEFT JOIN subscriptions s ON s.id = (
                               SELECT s2.id FROM subscriptions s2
@@ -285,12 +329,25 @@ router.get('/teachers', (req, res) => {
                                        datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
                               LIMIT 1
                             )
-                            ORDER BY t.created_at DESC`).all().map((row) => ({
-                              ...row,
-                              plan: resolvePlanId(row.plan, { definitions }) || row.plan,
-                              plan_title: definitions.find((plan) => plan.id === resolvePlanId(row.plan, { definitions }))?.title || null,
-                              restrictions: getConfiguredRestrictions(row.id),
-                            }));
+                            ORDER BY t.created_at DESC`).all().map((row) => {
+                              const plan = resolvePlanId(row.plan, { definitions }) || row.plan || 'trial';
+                              const definition = definitions.find((item) => item.id === plan);
+                              const startDate = plan === 'trial' ? row.trial_start_date : row.current_period_start;
+                              const endDate = plan === 'trial' ? row.trial_end_date : row.current_period_end;
+                              const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+                              const accountStatus = getAccountStatus(row.id);
+                              return {
+                                ...row,
+                                plan,
+                                plan_title: definition?.title || plan,
+                                activated_at: startDate || null,
+                                expires_at: endDate || null,
+                                days_left: daysLeft,
+                                account_status: accountStatus.status,
+                                account_note: accountStatus.note,
+                                restrictions: getConfiguredRestrictions(row.id),
+                              };
+                            });
   res.json({ teachers: rows });
 });
 

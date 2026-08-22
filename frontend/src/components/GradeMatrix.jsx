@@ -53,8 +53,15 @@ function gradeColor(grade) {
 
 function snapshotWithGrade(snapshot, entry) {
   const key = `${entry.assessment_id}:${entry.student_id}`;
-  const old = (snapshot.grades || []).filter((grade) => `${grade.assessment_id}:${grade.student_id}` !== key);
+  const source = Array.isArray(snapshot.grades) ? snapshot.grades : Object.values(snapshot.grades || {});
+  const old = source.filter((grade) => `${grade.assessment_id}:${grade.student_id}` !== key);
   return { ...snapshot, grades: [...old, { ...entry, id: `${entry.assessment_id}:${entry.student_id}` }] };
+}
+
+function snapshotWithoutAssessment(snapshot, assessmentId) {
+  const source = Array.isArray(snapshot?.grades) ? snapshot.grades : Object.values(snapshot?.grades || {});
+  const filtered = source.filter((grade) => String(grade.assessment_id) !== String(assessmentId));
+  return { ...snapshot, grades: filtered };
 }
 
 export default function GradeMatrix({ classId, className }) {
@@ -253,7 +260,7 @@ export default function GradeMatrix({ classId, className }) {
       const nextSnapshot = {
         ...snapshot,
         assessments: (snapshot.assessments || []).filter((item) => item.id !== assessment.id),
-        grades: (snapshot.grades || []).filter((grade) => grade.assessment_id !== assessment.id),
+        grades: snapshotWithoutAssessment(snapshot, assessment.id).grades,
       };
       setSnapshot(nextSnapshot);
       void saveSnapshot(teacherId, nextSnapshot);
@@ -404,9 +411,12 @@ export default function GradeMatrix({ classId, className }) {
                             <button type="button" className="text-[10px] text-primary" onClick={() => setEditingAssessmentId(null)}>{t('saveNote')}</button>
                           </div>
                         ) : (
-                          <button type="button" className="grade-subassessment-chip" title={`${assessment.title} · ${assessment.max_score}`} onClick={() => setEditingAssessmentId(assessment.id)}>
-                            <span>{assessment.title}</span><b>({assessment.max_score})</b>
-                          </button>
+                          <div className="grade-subassessment-chip-wrap">
+                            <button type="button" className="grade-subassessment-chip" title={`${assessment.title} · ${assessment.max_score}`} onClick={() => setEditingAssessmentId(assessment.id)}>
+                              <span>{assessment.title}</span><b>({assessment.max_score})</b>
+                            </button>
+                            <button type="button" className="grade-subassessment-delete print:hidden" title={t('deleteSubAssessment')} aria-label={`${t('deleteSubAssessment')} ${assessment.title}`} onClick={(event) => { event.stopPropagation(); deleteAssessment(assessment); }}>×</button>
+                          </div>
                         )}
                       </div>
                     </th>

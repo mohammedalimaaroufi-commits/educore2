@@ -69,11 +69,13 @@ function SubscriptionDetailsCard() {
   const plan = canonicalPlanForUi(subscriptionInfo.plan);
   const isTrial = plan === 'trial';
   const isLifetime = plan === 'lifetime';
-  const daysLeft = subscriptionInfo.daysLeft === null || subscriptionInfo.daysLeft === undefined ? null : Number(subscriptionInfo.daysLeft);
+  const startDate = subscriptionInfo.startDate || subscriptionInfo.currentPeriodStart || subscriptionInfo.current_period_start || subscriptionInfo.trialStartDate || subscriptionInfo.trial_start_date || null;
+  const endDate = subscriptionInfo.endDate || subscriptionInfo.currentPeriodEnd || subscriptionInfo.current_period_end || subscriptionInfo.trialEndDate || subscriptionInfo.trial_end_date || null;
+  const daysLeft = subscriptionInfo.daysLeft === null || subscriptionInfo.daysLeft === undefined ? (endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null) : Number(subscriptionInfo.daysLeft);
   const expired = Boolean(subscriptionInfo.expired || (daysLeft !== null && daysLeft <= 0));
   const currentStatusLabel = expired ? t('statusExpired') : statusLabel(subscriptionInfo.status, t);
   const planTitle = subscriptionInfo.planTitle || planLabel(plan, t);
-  const offerTitle = subscriptionInfo.offerTitle;
+  const offerTitle = subscriptionInfo.offerTitle || subscriptionInfo.offer_title || null;
 
   return (
     <section className="subscription-current-card">
@@ -87,8 +89,8 @@ function SubscriptionDetailsCard() {
         {subscriptionInfo.amount !== null && subscriptionInfo.amount !== undefined && <div><span>{t('paidAmount', 'المبلغ')}</span><strong>{omrWithEquivalent(subscriptionInfo.amount)}</strong></div>}
       </div>
       <div className="subscription-details-grid">
-        <div><p>{t('activatedAt')}</p><strong>{formatDate(subscriptionInfo.startDate, locale)}</strong></div>
-        <div><p>{t('expiresAt')}</p><strong>{isLifetime ? t('planLifetime') : formatDate(subscriptionInfo.endDate, locale)}</strong></div>
+        <div><p>{t('activatedAt')}</p><strong>{formatDate(startDate, locale)}</strong></div>
+        <div><p>{t('expiresAt')}</p><strong>{isLifetime ? t('planLifetime') : formatDate(endDate, locale)}</strong></div>
         <div><p>{t('remaining')}</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isLifetime ? t('unlimited') : isTrial ? t('trialPending') : '—') : expired ? t('statusExpired') : t('days', '', { count: daysLeft })}</strong></div>
         <div><p>{t('status')}</p><strong>{currentStatusLabel}</strong></div>
       </div>
@@ -163,8 +165,9 @@ export default function Subscription() {
     if (selectedPlan) activationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [selectedPlan]);
 
-  const priceFor = (plan) => priceNumber(plan?.price_omr ?? plan?.base_price_omr);
-  const originalPriceFor = (plan) => priceNumber(plan?.original_price_omr ?? plan?.base_price_omr ?? priceFor(plan));
+  const priceFor = (plan) => priceNumber(plan?.price_omr ?? plan?.offer_price_omr ?? plan?.base_price_omr);
+  const originalPriceFor = (plan) => priceNumber(plan?.original_price_omr ?? plan?.offer?.original_price_omr ?? plan?.base_price_omr ?? priceFor(plan));
+  const offerFor = (plan) => plan?.offer || (plan?.offer_id ? { id: plan.offer_id, title: plan.offer_title, description: plan.offer_description, original_price_omr: plan.original_price_omr, offer_price_omr: plan.price_omr, starts_at: plan.offer_starts_at, ends_at: plan.offer_ends_at } : null);
 
   const handleReceipt = async (e) => {
     const file = e.target.files[0];
@@ -209,13 +212,14 @@ export default function Subscription() {
           const price = priceFor(plan);
           const original = originalPriceFor(plan);
           const discount = discountPercent(original, price);
-          const hasOffer = discount > 0 || Boolean(plan.offer?.id || plan.offer?.title);
+          const offerData = offerFor(plan);
+          const hasOffer = Boolean(plan.has_offer || offerData?.id || offerData?.title || discount > 0);
           return <article key={plan.id} className={`subscription-plan-card ${plan.highlight ? 'is-highlighted' : ''} ${hasOffer ? 'has-offer' : ''} ${selectedPlan === plan.id ? 'is-selected' : ''}`}>
-            {hasOffer && <div className="subscription-plan-offer-top"><span>{plan.offer?.title || t('specialOffer')}</span>{discount > 0 && <b>{discount}% {t('discount', 'خصم')}</b>}</div>}
+            {hasOffer && <div className="subscription-plan-offer-top"><span>{offerData?.title || plan.offer_title || t('specialOffer')}</span>{discount > 0 && <b>{discount}% {t('discount', 'خصم')}</b>}</div>}
             {plan.highlight && !hasOffer && <span className="subscription-plan-ribbon">{t('mostAttractive')}</span>}
             <div className="subscription-plan-card__heading"><span className="subscription-plan-index">{plan.id === 'yearly' ? '02' : plan.id === 'lifetime' ? '03' : '01'}</span><h3>{planLabel(plan, t)}</h3></div>
             <div className="subscription-plan-price-block">{hasOffer && <del>{omrWithEquivalent(original)}</del>}<strong>{price ? omrWithEquivalent(price) : '...'}</strong></div>
-            {hasOffer && <p className="subscription-offer-description">{plan.offer?.description || t('specialOfferDescription', 'عرض محدود لفترة محدودة')}</p>}
+            {hasOffer && <p className="subscription-offer-description">{offerData?.description || plan.offer_description || t('specialOfferDescription', 'عرض محدود لفترة محدودة')}</p>}
             {plan.note && <p className="subscription-plan-note">{plan.note}</p>}
             {Array.isArray(plan.features) && plan.features.length > 0 && <ul className="subscription-plan-features">{plan.features.map((feature) => <li key={feature}><span>✓</span>{feature}</li>)}</ul>}
             <p className="subscription-plan-duration">{plan.duration_days === null || plan.duration_days === undefined ? t('unlimitedAccess') : t('planValidity', '', { days: plan.duration_days })}</p>

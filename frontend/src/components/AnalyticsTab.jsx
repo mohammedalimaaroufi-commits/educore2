@@ -156,10 +156,10 @@ export default function AnalyticsTab({ classId }) {
         <h3 className="font-bold mb-1">متوسط الأداء حسب فئة التقييم</h3>
         <p className="text-xs text-ink/50 mb-3">يُحسب محليًا من آخر snapshot محفوظ على جهاز المعلم.</p>
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 42, left: 10, bottom: 12 }}>
+          <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 58, left: 178, bottom: 12 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
             <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} />
-            <YAxis type="category" dataKey="category" width={110} tick={{ fontSize: 12 }} />
+            <YAxis type="category" dataKey="category" width={168} interval={0} tickMargin={8} tick={{ fontSize: 12, textAnchor: 'end' }} />
             <Tooltip formatter={(v, n, p) => [v === null ? 'لا توجد درجات بعد' : `${v}%`, `متوسط ${p.payload.category}`]} />
             <Bar dataKey="averagePercent" radius={[0, 6, 6, 0]} name="المتوسط %">
               {categoryAverages.map((category, index) => (

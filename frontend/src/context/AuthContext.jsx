@@ -154,9 +154,22 @@ export function AuthProvider({ children }) {
           setOffline(false);
         }).catch(() => undefined);
       }
-    } catch {
-      // Keep the locally cached session visible so the dashboard remains usable offline.
-      setOffline(true);
+    } catch (error) {
+      const responseStatus = error?.response?.status;
+      const blocked = error?.response?.data?.code === 'ACCOUNT_BLOCKED';
+      if (responseStatus === 401 || blocked) {
+        localStorage.removeItem('educore_token');
+        localStorage.removeItem('educore_teacher');
+        setTeacher(null);
+        setSubscription(null);
+        setTrialInfo(null);
+        setSubscriptionInfo(null);
+        setRestrictions(null);
+        setOffline(false);
+      } else {
+        // Keep the locally cached session visible so the dashboard remains usable offline.
+        setOffline(true);
+      }
     } finally {
       setLoading(false);
     }

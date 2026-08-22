@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
 
 const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 const EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -13,7 +14,10 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'غير مصرح - الرجاء تسجيل الدخول' });
   try {
     const payload = jwt.verify(token, SECRET);
+    const accountStatus = getAccountStatus(payload.id);
+    if (isAccountBlocked(accountStatus.status)) return res.status(403).json({ error: accountStatusMessage(accountStatus.status), code: 'ACCOUNT_BLOCKED', account_status: accountStatus.status });
     req.teacherId = payload.id;
+    req.accountStatus = accountStatus;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'انتهت صلاحية الجلسة، الرجاء تسجيل الدخول مجدداً' });
