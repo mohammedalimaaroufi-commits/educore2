@@ -119,7 +119,13 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
       setFeedback(t('savedAndSynced'));
       setTimeout(() => setSavedScheme(false), 1800);
     } catch {
-      setFeedback(t('serverUnavailable'));
+      const localScheme = { id: `local-scheme-${Date.now()}`, name: saveAsName.trim(), categories: categories.map((category) => ({ name: category.name, weight_percent: Number(category.weight_percent || 0), grading_type: category.grading_type || 'numeric' })), is_default: 0 };
+      persistSchemes([localScheme, ...schemes]);
+      await queueMutation(teacherId, { method: 'POST', url: '/schemes/from-class', data: { class_id: classId, name: saveAsName.trim() } });
+      setSaveAsName('');
+      setSavedScheme(true);
+      setFeedback(t('savedLocally'));
+      setTimeout(() => setSavedScheme(false), 1800);
     }
   };
 
