@@ -76,11 +76,25 @@ export function buildAssessmentCoverage(snapshot, classId) {
 
 export function calculateCategoryPercent(studentId, category, gradeMap) {
   const assessments = getCategoryAssessments(category);
+  const detailed = assessments.filter((assessment) => !Number(assessment.is_summary));
+  const enteredDetails = detailed.filter((assessment) => {
+    const grade = gradeMap.get(`${assessment.id}:${studentId}`);
+    return hasGradeValue(grade);
+  });
+  // Adding a detail must never blank an already-entered category score. Use the
+  // summary value until this student has at least one real detail score; the
+  // summary row remains stored and can be replaced naturally by detail scores.
+  const rows = enteredDetails.length > 0
+    ? detailed
+    : (() => {
+        const summary = (category?.assessments || []).find((assessment) => Number(assessment.is_summary));
+        return summary && hasGradeValue(gradeMap.get(`${summary.id}:${studentId}`)) ? [summary] : detailed;
+      })();
   let earned = 0;
   let possible = 0;
-  assessments.forEach((assessment) => {
+  rows.forEach((assessment) => {
     const grade = gradeMap.get(`${assessment.id}:${studentId}`);
-    if (grade && grade.score_numeric !== null && grade.score_numeric !== undefined && grade.score_numeric !== '') {
+    if (hasGradeValue(grade)) {
       earned += Number(grade.score_numeric);
       possible += getAssessmentMaxScore(category, assessment);
     }

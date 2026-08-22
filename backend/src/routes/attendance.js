@@ -2,9 +2,11 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/restrictions');
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requireFeature('attendance'));
 
 function assertClassOwnership(classId, teacherId) {
   return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);

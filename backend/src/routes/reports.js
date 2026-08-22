@@ -1,31 +1,46 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/restrictions');
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requireFeature('reports'));
 
 function assertClassOwnership(classId, teacherId) {
   return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
 }
 
+function hasScore(row) {
+  return row && row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '';
+}
+
+function effectiveCategoryRows(category, rows = []) {
+  const detailed = rows.filter((row) => !Number(row.is_summary));
+  const summaries = rows.filter((row) => Number(row.is_summary));
+  if (category?.grading_mode === 'detailed' && detailed.some(hasScore)) return detailed;
+  if (summaries.some(hasScore)) return summaries;
+  return category?.grading_mode === 'detailed' ? detailed : (summaries.length ? summaries : rows);
+}
+
 function buildClassRoster(classId) {
   const students = db.prepare('SELECT id, full_name FROM students WHERE class_id = ? AND archived = 0 ORDER BY full_name COLLATE NOCASE').all(classId);
-  const categories = db.prepare('SELECT id, name, weight_percent, sort_order FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(classId);
+  const categories = db.prepare('SELECT id, name, weight_percent, grading_mode, sort_order FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(classId);
   const gradeRows = db.prepare(`
-    SELECT g.student_id, gc.id as category_id, gc.weight_percent,
-           SUM(g.score_numeric) as earned, SUM(a.max_score) as possible
-    FROM grades g
-    JOIN assessments a ON a.id = g.assessment_id
+    SELECT g.student_id, gc.id as category_id, gc.weight_percent, gc.grading_mode,
+           a.max_score, a.is_summary, g.score_numeric
+    FROM assessments a
     JOIN grade_categories gc ON gc.id = a.category_id
+    LEFT JOIN grades g ON g.assessment_id = a.id
     JOIN students s ON s.id = g.student_id AND s.class_id = ? AND s.archived = 0
-    WHERE gc.class_id = ? AND g.score_numeric IS NOT NULL
-    GROUP BY g.student_id, gc.id, gc.weight_percent
+    WHERE gc.class_id = ?
   `).all(classId, classId);
   const gradeByStudent = new Map();
   gradeRows.forEach((row) => {
     if (!gradeByStudent.has(row.student_id)) gradeByStudent.set(row.student_id, new Map());
-    gradeByStudent.get(row.student_id).set(row.category_id, row);
+    const categoryRows = gradeByStudent.get(row.student_id).get(row.category_id) || [];
+    categoryRows.push(row);
+    gradeByStudent.get(row.student_id).set(row.category_id, categoryRows);
   });
   const behaviorRows = db.prepare(`
     SELECT bl.student_id, COALESCE(SUM(bt.points), 0) as score
@@ -51,9 +66,12 @@ function buildClassRoster(classId) {
     let weightedTotal = 0;
     let weightUsed = 0;
     categories.forEach((category) => {
-      const row = categoryMap.get(category.id);
-      if (row && Number(row.possible) > 0) {
-        const percent = (Number(row.earned) / Number(row.possible)) * 100;
+      const rows = effectiveCategoryRows(category, categoryMap.get(category.id) || []);
+      const scored = rows.filter(hasScore);
+      const possible = scored.reduce((sum, row) => sum + Number(row.max_score || 0), 0);
+      const earned = scored.reduce((sum, row) => sum + Number(row.score_numeric || 0), 0);
+      if (possible > 0) {
+        const percent = (earned / possible) * 100;
         weightedTotal += percent * (Number(category.weight_percent) / 100);
         weightUsed += Number(category.weight_percent);
       }
@@ -123,7 +141,7 @@ router.get('/student/:id', (req, res) => {
   if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
   const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(student.class_id);
   const gradeRows = db.prepare(`
-    SELECT gc.id as category_id, gc.name as category, gc.weight_percent,
+    SELECT gc.id as category_id, gc.name as category, gc.weight_percent, gc.grading_mode,
            a.id as assessment_id, a.title, a.max_score, a.date, a.created_at,
            g.score_numeric, g.comment
     FROM grade_categories gc
@@ -134,8 +152,8 @@ router.get('/student/:id', (req, res) => {
   `).all(student.id, student.class_id);
   const categoryMap = new Map();
   gradeRows.forEach((row) => {
-    if (!categoryMap.has(row.category_id)) categoryMap.set(row.category_id, { category: row.category, weight_percent: row.weight_percent, items: [] });
-    if (row.assessment_id) categoryMap.get(row.category_id).items.push({ title: row.title, max_score: row.max_score, score: row.score_numeric ?? null, comment: row.comment ?? null });
+    if (!categoryMap.has(row.category_id)) categoryMap.set(row.category_id, { category: row.category, weight_percent: row.weight_percent, grading_mode: row.grading_mode, items: [] });
+    if (row.assessment_id) categoryMap.get(row.category_id).items.push({ title: row.title, max_score: row.max_score, score: row.score_numeric ?? null, score_numeric: row.score_numeric ?? null, is_summary: row.is_summary, comment: row.comment ?? null });
   });
   const gradesByCategory = [...categoryMap.values()];
   const behaviorLogs = db.prepare(`SELECT bl.occurred_at, bt.label, bt.polarity, bt.points, bl.note_text FROM behavior_logs bl JOIN behavior_types bt ON bl.behavior_type_id = bt.id WHERE bl.student_id = ? ORDER BY bl.occurred_at DESC`).all(student.id);
@@ -145,7 +163,7 @@ router.get('/student/:id', (req, res) => {
   let weightedTotal = 0;
   let weightUsed = 0;
   gradesByCategory.forEach((category) => {
-    const scored = category.items.filter((item) => item.score !== null);
+    const scored = effectiveCategoryRows(category, category.items).filter((item) => item.score !== null);
     const possible = scored.reduce((sum, item) => sum + Number(item.max_score || 0), 0);
     const earned = scored.reduce((sum, item) => sum + Number(item.score || 0), 0);
     if (possible > 0) { weightedTotal += (earned / possible) * 100 * (Number(category.weight_percent) / 100); weightUsed += Number(category.weight_percent); }

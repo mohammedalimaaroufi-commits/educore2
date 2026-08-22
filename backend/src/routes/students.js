@@ -5,9 +5,11 @@ const XLSX = require('xlsx');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/restrictions');
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requireFeature('students'));
 const upload = multer({ storage: multer.memoryStorage() });
 
 const HEADER_ALIASES = {

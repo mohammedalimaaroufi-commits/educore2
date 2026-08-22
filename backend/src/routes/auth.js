@@ -6,6 +6,7 @@ require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
+const { getEffectiveRestrictions } = require('../utils/restrictions');
 
 const router = express.Router();
 const RESET_TOKEN_MINUTES = 30;
@@ -143,6 +144,25 @@ router.post('/reset-password', async (req, res) => {
   res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' });
 });
 
+function ensurePaidSubscriptionPeriod(rawSub) {
+  if (!rawSub || !isPaidPlanId(rawSub.plan) || rawSub.status === 'canceled') return rawSub;
+  const canonicalPlan = resolvePlanId(rawSub.plan);
+  const definition = getPlanDefinitions().find((item) => item.id === canonicalPlan);
+  if (!definition) return rawSub;
+  const start = rawSub.current_period_start || rawSub.updated_at || rawSub.created_at || new Date().toISOString();
+  const end = definition.duration_days === null ? null : (rawSub.current_period_end || addDays(start, definition.duration_days));
+  const needsRepair = rawSub.plan !== canonicalPlan
+    || !rawSub.current_period_start
+    || (definition.duration_days !== null && !rawSub.current_period_end)
+    || (definition.duration_days === null && rawSub.current_period_end);
+  if (!needsRepair) return rawSub;
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE subscriptions SET plan = ?, trial_start_date = NULL, trial_end_date = NULL,
+              current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?`)
+    .run(canonicalPlan, start, end, now, rawSub.id);
+  return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(rawSub.id);
+}
+
 function getSubscriptionPresentation(teacherId, sub) {
   const definitions = getPlanDefinitions();
   const requests = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all(teacherId);
@@ -215,9 +235,10 @@ router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
   const rawSub = db.prepare("SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1").get(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
+  const periodReadySub = ensurePaidSubscriptionPeriod(repairedSub);
   // Always return a concrete subscription, but only fall back to trial when there is no
   // valid paid subscription and no approved paid request to reconcile.
-  const sub = ensureTrialSubscription(req.teacherId, repairedSub);
+  const sub = ensureTrialSubscription(req.teacherId, periodReadySub);
 
   let trialInfo = null;
   if (sub && sub.plan === 'trial') {
@@ -247,7 +268,9 @@ router.get('/me', requireAuth, (req, res) => {
     };
   }
 
-  res.json({ teacher, subscription: sub, trialInfo, subscriptionInfo });
+  const restrictions = getEffectiveRestrictions(req.teacherId, sub);
+  if (subscriptionInfo) subscriptionInfo.restrictions = restrictions;
+  res.json({ teacher, subscription: sub, trialInfo, subscriptionInfo, restrictions });
 });
 
 // Package prices in OMR (Omani Rial). Activation is manual: the teacher transfers the amount

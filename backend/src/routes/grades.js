@@ -2,9 +2,11 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/restrictions');
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requireFeature('gradebook'));
 
 function assertClassOwnership(classId, teacherId) {
   return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
@@ -50,7 +52,8 @@ function weightedPercent(studentId, category) {
   const detailRows = direct ? [] : db.prepare(`SELECT a.max_score, g.score_numeric
     FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
     WHERE a.category_id = ? AND a.is_summary = 0`).all(studentId, category.id);
-  const rows = detailRows.length > 0 ? detailRows : db.prepare(`SELECT a.max_score, g.score_numeric
+  const hasEnteredDetail = detailRows.some((row) => row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '');
+  const rows = hasEnteredDetail ? detailRows : db.prepare(`SELECT a.max_score, g.score_numeric
     FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
     WHERE a.category_id = ? AND a.is_summary = 1`).all(studentId, category.id);
   let earned = 0;

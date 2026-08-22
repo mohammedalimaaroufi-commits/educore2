@@ -12,19 +12,30 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
 import Icon from '../components/Icon.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const TAB_KEYS = [
-  { id: 'students', key: 'students', icon: 'user' },
-  { id: 'gradebook', key: 'gradebook', icon: 'fileCheck' },
-  { id: 'behavior', key: 'behavior', icon: 'heart' },
-  { id: 'attendance', key: 'attendance', icon: 'check' },
-  { id: 'analytics', key: 'analytics', icon: 'analytics' },
-  { id: 'reports', key: 'reports', icon: 'reports' },
+  { id: 'students', key: 'students', icon: 'user', feature: 'students' },
+  { id: 'gradebook', key: 'gradebook', icon: 'fileCheck', feature: 'gradebook' },
+  { id: 'behavior', key: 'behavior', icon: 'heart', feature: 'behavior' },
+  { id: 'attendance', key: 'attendance', icon: 'check', feature: 'attendance' },
+  { id: 'analytics', key: 'analytics', icon: 'analytics', feature: 'analytics' },
+  { id: 'reports', key: 'reports', icon: 'reports', feature: 'reports' },
 ];
+
+const RESTRICTION_LABELS = {
+  students: 'featureStudents',
+  gradebook: 'featureGradebook',
+  behavior: 'featureBehavior',
+  attendance: 'featureAttendance',
+  analytics: 'featureAnalytics',
+  reports: 'featureReports',
+};
 
 export default function ClassDetail() {
   const { id } = useParams();
   const { t, locale, direction } = useLocale();
+  const { restrictions } = useAuth();
   const [cls, setCls] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [tab, setTab] = useState('students');
@@ -55,6 +66,12 @@ export default function ClassDetail() {
   const assessmentsCount = (snapshot?.assessments || []).filter((assessment) => (snapshot?.grade_categories || []).some((category) => category.id === assessment.category_id && category.class_id === id)).length;
   const attendanceSessionsCount = (snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length;
   const isArabic = locale === 'ar';
+  const blockedFeatures = new Set(restrictions?.active ? (restrictions.blocked_features || []) : []);
+  const visibleTabs = TAB_KEYS.filter((item) => !blockedFeatures.has(item.feature));
+  const isBlockedTab = (tabId) => blockedFeatures.has(TAB_KEYS.find((item) => item.id === tabId)?.feature);
+  useEffect(() => {
+    if (isBlockedTab(tab)) setTab(visibleTabs[0]?.id || null);
+  }, [tab, restrictions?.active, restrictions?.blocked_features?.join(','), visibleTabs.length]);
 
   return (
     <div className="class-page-shell" dir={direction}>
@@ -66,17 +83,18 @@ export default function ClassDetail() {
           <div className="class-page-header__side"><span className="class-page-header__tag">{isArabic ? 'إدارة يومية' : 'Daily management'}</span><p>{isArabic ? 'تابع الطلاب والدرجات والحضور والسلوك في لوحة واحدة.' : 'Track students, grades, attendance, and behavior in one workspace.'}</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{isArabic ? 'طالب' : 'Students'}</small></span><span><strong>{categoriesCount}</strong><small>{isArabic ? 'فئة' : 'Categories'}</small></span><span><strong>{assessmentsCount}</strong><small>{isArabic ? 'تقييم' : 'Assessments'}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{isArabic ? 'جلسة حضور' : 'Attendance sessions'}</small></span></div></div>
         </header>}
         <TrialBanner />
-        <nav className="class-tabs" aria-label={isArabic ? 'أقسام الصف' : 'Class sections'}>{TAB_KEYS.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{t(item.key)}</span></button>)}</nav>
+        {blockedFeatures.size > 0 && <div className="class-page-restriction-banner" role="status"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{[...blockedFeatures].map((feature) => t(RESTRICTION_LABELS[feature] || feature)).join(' · ')}</small></div>}
+        <nav className="class-tabs" aria-label={isArabic ? 'أقسام الصف' : 'Class sections'}>{visibleTabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{t(item.key)}</span></button>)}</nav>
       </div>
-      <main className={`class-tab-panel class-tab-panel--${tab}`}>
-        <Suspense fallback={<div className="class-page-loading">{isArabic ? 'جارِ تحميل التبويب...' : 'Loading section...'}</div>}>
+      <main className={`class-tab-panel class-tab-panel--${tab || 'restricted'}`}>
+        {visibleTabs.length === 0 ? <div className="class-page-restricted-empty"><strong>{t('restrictedFeature')}</strong><span>{t('restrictionsNotice')}</span></div> : <Suspense fallback={<div className="class-page-loading">{isArabic ? 'جارِ تحميل التبويب...' : 'Loading section...'}</div>}>
           {tab === 'students' && <StudentsTab classId={id} />}
           {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
           {tab === 'behavior' && <BehaviorTab classId={id} />}
           {tab === 'attendance' && <AttendanceTab classId={id} />}
           {tab === 'analytics' && <AnalyticsTab classId={id} />}
           {tab === 'reports' && <ReportsTab classId={id} className={cls?.name} />}
-        </Suspense>
+        </Suspense>}
       </main>
     </div>
   );

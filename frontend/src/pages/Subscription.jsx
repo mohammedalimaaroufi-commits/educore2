@@ -62,7 +62,7 @@ function discountPercent(original, price) {
 }
 
 function SubscriptionDetailsCard() {
-  const { subscriptionInfo } = useAuth();
+  const { subscriptionInfo, restrictions } = useAuth();
   const { t, locale } = useLocale();
   if (!subscriptionInfo) return null;
 
@@ -94,6 +94,7 @@ function SubscriptionDetailsCard() {
       </div>
       {subscriptionInfo.approvedAt && <p className="subscription-current-card__meta">{t('approvedAt', 'اعتمد في')}: {formatDate(subscriptionInfo.approvedAt, locale, true)}</p>}
       {subscriptionInfo.status !== 'active' && !expired && <p className="subscription-current-card__note">{t('currentStatusNote', '', { status: currentStatusLabel })}</p>}
+      {restrictions?.active && restrictions.blocked_features?.length > 0 && <div className="subscription-restrictions-note"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{restrictions.blocked_features.map((feature) => t({ students: 'featureStudents', gradebook: 'featureGradebook', behavior: 'featureBehavior', attendance: 'featureAttendance', analytics: 'featureAnalytics', reports: 'featureReports' }[feature] || feature)).join(' · ')}</small></div>}
     </section>
   );
 }
@@ -152,7 +153,8 @@ export default function Subscription() {
       setTrialDays(Number(data.trial_days || 14));
     }).catch(() => setPlans(FALLBACK_PLANS));
     loadRequests().catch(() => setMyRequests([]));
-  }, []);
+    refreshMe({ force: true }).catch(() => undefined);
+  }, [refreshMe]);
 
   const visiblePlans = plans.length ? plans : FALLBACK_PLANS;
   const selected = useMemo(() => visiblePlans.find((plan) => plan.id === selectedPlan), [visiblePlans, selectedPlan]);

@@ -77,13 +77,14 @@ function normalizeSubscriptionSession(data) {
     daysLeft: suppliedInfo.daysLeft ?? calculatedDaysLeft,
     expired: suppliedInfo.expired ?? (calculatedDaysLeft !== null && calculatedDaysLeft <= 0),
   };
+  const restrictions = data?.restrictions || subscriptionInfo.restrictions || null;
   const trialInfo = data?.trialInfo || (subscriptionInfo.plan === 'trial' && subscriptionInfo.endDate
     ? (() => {
         const daysLeft = Math.ceil((new Date(subscriptionInfo.endDate) - new Date()) / (1000 * 60 * 60 * 24));
         return { daysLeft, expired: daysLeft <= 0, alertLevel: daysLeft <= 1 ? 'critical' : daysLeft <= 4 ? 'warning' : 'none' };
       })()
     : null);
-  return { ...data, subscription, trialInfo, subscriptionInfo };
+  return { ...data, subscription, trialInfo, subscriptionInfo, restrictions };
 }
 
 function persistTeacher(teacher) {
@@ -97,6 +98,7 @@ export function AuthProvider({ children }) {
   const [subscription, setSubscription] = useState(initialSession.subscription || null);
   const [trialInfo, setTrialInfo] = useState(initialSession.trialInfo || null);
   const [subscriptionInfo, setSubscriptionInfo] = useState(initialSession.subscriptionInfo || null);
+  const [restrictions, setRestrictions] = useState(initialSession.restrictions || initialSession.subscriptionInfo?.restrictions || null);
   const [loading, setLoading] = useState(!initialSession.teacher);
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
 
@@ -120,6 +122,7 @@ export function AuthProvider({ children }) {
       setSubscription(normalized.subscription);
       setTrialInfo(normalized.trialInfo || null);
       setSubscriptionInfo(normalized.subscriptionInfo || null);
+      setRestrictions(normalized.restrictions || normalized.subscriptionInfo?.restrictions || null);
       persistSession(normalized);
     };
 
@@ -196,6 +199,7 @@ export function AuthProvider({ children }) {
     setSubscription(null);
     setTrialInfo(null);
     setSubscriptionInfo(null);
+    setRestrictions(null);
   };
 
   const login = async (email, password) => {
@@ -220,8 +224,8 @@ export function AuthProvider({ children }) {
     if (!nextTeacher?.id) return;
     setTeacher(nextTeacher);
     persistTeacher(nextTeacher);
-    saveSessionCache({ teacher: nextTeacher, subscription, trialInfo, subscriptionInfo });
-  }, [persistSession, subscription, trialInfo, subscriptionInfo]);
+    saveSessionCache({ teacher: nextTeacher, subscription, trialInfo, subscriptionInfo, restrictions });
+  }, [persistSession, subscription, trialInfo, subscriptionInfo, restrictions]);
 
   const clearLocalCache = useCallback(async () => {
     if (!teacher?.id) return;
@@ -236,6 +240,7 @@ export function AuthProvider({ children }) {
     setSubscription(null);
     setTrialInfo(null);
     setSubscriptionInfo(null);
+    setRestrictions(null);
     window.location.href = '/login';
   };
 
@@ -245,6 +250,7 @@ export function AuthProvider({ children }) {
       subscription,
       trialInfo,
       subscriptionInfo,
+      restrictions,
       loading,
       offline,
       login,

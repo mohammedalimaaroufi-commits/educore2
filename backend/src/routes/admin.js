@@ -5,6 +5,7 @@ const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
 const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
+const { RESTRICTABLE_FEATURES, getConfiguredRestrictions, saveTeacherRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
 
 const router = express.Router();
 
@@ -154,7 +155,24 @@ router.get('/payment-requests', (req, res) => {
   if (status) { clauses.push('pr.status = ?'); params.push(status); }
   const query = `SELECT pr.*, t.full_name, t.email FROM payment_requests pr JOIN teachers t ON pr.teacher_id = t.id
                   WHERE ${clauses.join(' AND ')} ORDER BY pr.created_at DESC`;
-  const rows = db.prepare(query).all(...params);
+  const definitions = getPlanDefinitions();
+  const rows = db.prepare(query).all(...params).map((request) => {
+    const plan = resolvePlanId(request.plan, {
+      definitions,
+      offerId: request.offer_id,
+      amount: request.amount_omr,
+      originalAmount: request.original_amount_omr,
+    }) || request.plan;
+    const definition = definitions.find((item) => item.id === plan);
+    const offer = request.offer_id ? db.prepare('SELECT title, description FROM subscription_offers WHERE id = ?').get(request.offer_id) : null;
+    return {
+      ...request,
+      plan,
+      plan_title: definition?.title || request.plan || null,
+      offer_title: offer?.title || null,
+      offer_description: offer?.description || null,
+    };
+  });
   res.json({ requests: rows });
 });
 
@@ -177,6 +195,22 @@ router.delete('/payment-requests/:id', (req, res) => {
   const result = db.prepare('DELETE FROM payment_requests WHERE id = ?').run(req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
   res.json({ success: true });
+});
+
+// GET /api/admin/teachers/:teacherId/restrictions
+router.get('/teachers/:teacherId/restrictions', (req, res) => {
+  const teacher = db.prepare('SELECT id, full_name, email FROM teachers WHERE id = ?').get(req.params.teacherId);
+  if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  const subscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
+  res.json({ teacher, restrictions: getConfiguredRestrictions(teacher.id), effective: getEffectiveRestrictions(teacher.id, subscription), features: RESTRICTABLE_FEATURES });
+});
+
+// PATCH /api/admin/teachers/:teacherId/restrictions
+router.patch('/teachers/:teacherId/restrictions', (req, res) => {
+  const teacher = db.prepare('SELECT id FROM teachers WHERE id = ?').get(req.params.teacherId);
+  if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  const restrictions = saveTeacherRestrictions(teacher.id, req.body?.restrictions || req.body || {});
+  res.json({ restrictions, features: RESTRICTABLE_FEATURES });
 });
 
 // POST /api/admin/payment-requests/:id/approve  { admin_note }
@@ -253,7 +287,9 @@ router.get('/teachers', (req, res) => {
                             )
                             ORDER BY t.created_at DESC`).all().map((row) => ({
                               ...row,
+                              plan: resolvePlanId(row.plan, { definitions }) || row.plan,
                               plan_title: definitions.find((plan) => plan.id === resolvePlanId(row.plan, { definitions }))?.title || null,
+                              restrictions: getConfiguredRestrictions(row.id),
                             }));
   res.json({ teachers: rows });
 });

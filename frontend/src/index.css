@@ -527,3 +527,54 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
   .class-page-mini-stats small { font-size: .43rem; }
   .class-tab { padding-inline: .46rem; font-size: .56rem; }
 }
+
+/* Feature restrictions: visible, compact, and usable on small screens. */
+.admin-restrictions-panel {
+  margin-top: .25rem;
+  padding: 1rem;
+  border: 1px solid rgba(46, 125, 107, .2);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(46, 125, 107, .07), rgba(255,255,255,.8));
+}
+.admin-restrictions-panel__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .85rem;
+}
+.admin-restrictions-panel__heading strong,
+.admin-restrictions-panel__heading small { display: block; }
+.admin-restrictions-panel__heading small { margin-top: .2rem; color: rgba(31, 41, 55, .55); font-size: .75rem; }
+.admin-restriction-toggle,
+.admin-restriction-option { display: flex; align-items: center; gap: .5rem; cursor: pointer; font-size: .84rem; }
+.admin-restriction-toggle { margin: .55rem 0; }
+.admin-restriction-toggle input,
+.admin-restriction-option input { accent-color: #2e7d6b; }
+.admin-restrictions-label { margin: .9rem 0 .45rem; font-size: .78rem; font-weight: 700; color: rgba(31, 41, 55, .7); }
+.admin-restrictions-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin-bottom: .85rem; }
+.admin-restriction-option { padding: .55rem .65rem; border: 1px solid rgba(31,41,55,.1); border-radius: .65rem; background: rgba(255,255,255,.75); }
+.class-page-restriction-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .75rem; margin: .65rem 1rem 0; padding: .65rem .8rem; border: 1px solid rgba(196, 136, 50, .3); border-radius: .8rem; background: rgba(196, 136, 50, .1); color: #76531b; font-size: .78rem; }
+.class-page-restriction-banner strong { color: #76531b; }
+.class-page-restriction-banner small { width: 100%; opacity: .8; }
+.class-page-restricted-empty { display: grid; place-items: center; gap: .5rem; min-height: 15rem; padding: 2rem; text-align: center; color: rgba(31, 41, 55, .65); }
+.class-page-restricted-empty strong { color: #76531b; font-size: 1.05rem; }
+@media (max-width: 640px) {
+  .admin-restrictions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-restrictions-panel { padding: .8rem; }
+  .class-page-restriction-banner { margin-inline: .6rem; }
+}
+
+.subscription-restrictions-note {
+  display: grid;
+  gap: .2rem;
+  margin-top: .9rem;
+  padding: .75rem .85rem;
+  border: 1px solid rgba(196, 136, 50, .28);
+  border-radius: .8rem;
+  background: rgba(196, 136, 50, .08);
+  color: #76531b;
+  font-size: .78rem;
+}
+.subscription-restrictions-note strong { font-size: .84rem; }
+.subscription-restrictions-note small { opacity: .78; }

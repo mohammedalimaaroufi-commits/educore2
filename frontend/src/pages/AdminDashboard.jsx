@@ -7,6 +7,14 @@ import AdminPublicConfig from '../components/AdminPublicConfig.jsx';
 
 const PLAN_LABELS = { '6_months': 'planSixMonths', yearly: 'planYearly', lifetime: 'planLifetime' };
 const STATUS_LABELS = { pending: 'statusPending', approved: 'statusApproved', rejected: 'statusRejected' };
+const RESTRICTION_FEATURE_OPTIONS = [
+  { id: 'students', key: 'featureStudents' },
+  { id: 'gradebook', key: 'featureGradebook' },
+  { id: 'behavior', key: 'featureBehavior' },
+  { id: 'attendance', key: 'featureAttendance' },
+  { id: 'analytics', key: 'featureAnalytics' },
+  { id: 'reports', key: 'featureReports' },
+];
 
 function planLabel(t, plan) {
   const key = PLAN_LABELS[plan];
@@ -295,40 +303,90 @@ function PasswordResetRequests() {
 }
 
 function TeachersList({ onMessage }) {
+  const { t, locale } = useLocale();
   const [teachers, setTeachers] = useState([]);
   const [search, setSearch] = useState('');
-  useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers)); }, []);
+  const [openTeacherId, setOpenTeacherId] = useState(null);
+  const [restrictionDraft, setRestrictionDraft] = useState(null);
+  const [restrictionBusy, setRestrictionBusy] = useState(false);
+  const [restrictionMessage, setRestrictionMessage] = useState('');
+  useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers || [])).catch(() => setTeachers([])); }, []);
   const filteredTeachers = teachers.filter((teacher) => {
     const term = search.trim().toLowerCase();
     if (!term) return true;
-    return [teacher.full_name, teacher.email, teacher.school_name, teacher.plan, teacher.status].some((value) => String(value || '').toLowerCase().includes(term));
+    return [teacher.full_name, teacher.email, teacher.school_name, teacher.plan, teacher.plan_title, teacher.status].some((value) => String(value || '').toLowerCase().includes(term));
   });
+
+  const openRestrictions = async (teacher) => {
+    if (openTeacherId === teacher.id) {
+      setOpenTeacherId(null);
+      return;
+    }
+    setOpenTeacherId(teacher.id);
+    setRestrictionMessage('');
+    setRestrictionBusy(true);
+    try {
+      const { data } = await adminApi.get(`/admin/teachers/${teacher.id}/restrictions`);
+      setRestrictionDraft({ teacher, ...(data.restrictions || {}), expired: Boolean(data.effective?.expired), effective_active: Boolean(data.effective?.active), blocked_features: [...(data.restrictions?.blocked_features || [])] });
+    } catch {
+      setRestrictionDraft({ teacher, enabled: false, apply_when_expired: true, blocked_features: [], note: '' });
+    } finally { setRestrictionBusy(false); }
+  };
+  const toggleRestrictionFeature = (feature) => setRestrictionDraft((current) => current ? ({ ...current, blocked_features: current.blocked_features.includes(feature) ? current.blocked_features.filter((item) => item !== feature) : [...current.blocked_features, feature] }) : current);
+  const saveRestrictions = async () => {
+    if (!restrictionDraft?.teacher?.id) return;
+    setRestrictionBusy(true);
+    setRestrictionMessage('');
+    try {
+      const { data } = await adminApi.patch(`/admin/teachers/${restrictionDraft.teacher.id}/restrictions`, {
+        enabled: Boolean(restrictionDraft.enabled),
+        apply_when_expired: Boolean(restrictionDraft.apply_when_expired),
+        blocked_features: restrictionDraft.blocked_features,
+        note: restrictionDraft.note || '',
+      });
+      setRestrictionDraft((current) => ({ ...current, ...data.restrictions }));
+      setTeachers((current) => current.map((teacher) => teacher.id === restrictionDraft.teacher.id ? { ...teacher, restrictions: data.restrictions } : teacher));
+      setRestrictionMessage(t('restrictionSaved'));
+    } catch {
+      setRestrictionMessage(t('restrictionSaveFailed'));
+    } finally { setRestrictionBusy(false); }
+  };
 
   return (
     <div>
-      <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث سريع باسم المعلم أو البريد أو المدرسة" aria-label="بحث في المعلمين" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
+      <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع باسم المعلم أو البريد أو المدرسة' : 'Quick search by teacher, email, or school'} aria-label={locale === 'ar' ? 'بحث في المعلمين' : 'Search teachers'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
       <div className="card overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-surface"><tr>
-          <th className="text-right px-4 py-2">الاسم</th>
-          <th className="text-right px-4 py-2">البريد</th>
-          <th className="text-right px-4 py-2">الباقة</th>
-          <th className="text-right px-4 py-2">الحالة</th>
+          <th className="text-right px-4 py-2">{locale === 'ar' ? 'الاسم' : 'Name'}</th>
+          <th className="text-right px-4 py-2">{locale === 'ar' ? 'البريد' : 'Email'}</th>
+          <th className="text-right px-4 py-2">{t('plan')}</th>
+          <th className="text-right px-4 py-2">{t('status')}</th>
           <th className="px-4 py-2"></th>
         </tr></thead>
         <tbody>
-          {filteredTeachers.map((t) => (
-            <tr key={t.id} className="border-t border-line">
-              <td className="px-4 py-2">{t.full_name}</td>
-              <td className="px-4 py-2 text-ink/60">{t.email}</td>
-              <td className="px-4 py-2">{t.plan_title || PLAN_LABELS[t.plan] || t.plan || '—'}</td>
-              <td className="px-4 py-2">{t.status}</td>
-              <td className="px-4 py-2 text-left"><button className="text-primary text-xs" onClick={() => onMessage(t)}>مراسلة</button></td>
+          {filteredTeachers.map((teacher) => <React.Fragment key={teacher.id}>
+            <tr className="border-t border-line">
+              <td className="px-4 py-2">{teacher.full_name}</td>
+              <td className="px-4 py-2 text-ink/60">{teacher.email}</td>
+              <td className="px-4 py-2">{teacher.plan_title || planLabel(t, teacher.plan) || '—'}</td>
+              <td className="px-4 py-2">{teacher.status}</td>
+              <td className="px-4 py-2 text-left"><div className="flex gap-3 justify-end"><button className="text-primary text-xs" onClick={() => onMessage(teacher)}>{locale === 'ar' ? 'مراسلة' : 'Message'}</button><button className="text-accent text-xs" onClick={() => openRestrictions(teacher)}>{openTeacherId === teacher.id ? '×' : t('restrictionsTitle')}</button></div></td>
             </tr>
-          ))}
+            {openTeacherId === teacher.id && <tr key={`${teacher.id}-restrictions`}><td colSpan="5" className="px-4 pb-4"><div className="admin-restrictions-panel">
+              <div className="admin-restrictions-panel__heading"><div><strong>{t('restrictionsFor')}: {teacher.full_name}</strong><small>{restrictionDraft?.expired ? t('statusExpired') : t('noRestrictions')}</small></div><button type="button" className="text-ink/50 text-xs" onClick={() => setOpenTeacherId(null)}>×</button></div>
+              {restrictionBusy && !restrictionDraft ? <p className="text-xs text-ink/50">...</p> : restrictionDraft && <>
+                <label className="admin-restriction-toggle"><input type="checkbox" checked={Boolean(restrictionDraft.enabled)} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, enabled: event.target.checked })} /><span>{t('enableRestrictions')}</span></label>
+                <label className="admin-restriction-toggle"><input type="checkbox" checked={restrictionDraft.apply_when_expired !== false} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, apply_when_expired: event.target.checked })} /><span>{t('applyRestrictionsOnExpiry')}</span></label>
+                <p className="admin-restrictions-label">{t('blockedFeatures')}</p><div className="admin-restrictions-grid">{RESTRICTION_FEATURE_OPTIONS.map((feature) => <label key={feature.id} className="admin-restriction-option"><input type="checkbox" checked={restrictionDraft.blocked_features.includes(feature.id)} onChange={() => toggleRestrictionFeature(feature.id)} /><span>{t(feature.key)}</span></label>)}</div>
+                <label className="label">{t('restrictionNote')}<textarea className="input" rows="2" value={restrictionDraft.note || ''} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, note: event.target.value })} /></label>
+                <div className="flex items-center gap-3"><button type="button" className="btn-primary text-xs" disabled={restrictionBusy} onClick={saveRestrictions}>{restrictionBusy ? '...' : t('saveRestrictions')}</button>{restrictionMessage && <span className="text-xs text-primary">{restrictionMessage}</span>}</div>
+              </>}
+            </div></td></tr>}
+          </React.Fragment>)}
         </tbody>
       </table>
-      {filteredTeachers.length === 0 && <p className="p-4 text-sm text-ink/50">{teachers.length ? 'لا توجد نتائج مطابقة للبحث.' : 'لا يوجد معلمون بعد.'}</p>}
+      {filteredTeachers.length === 0 && <p className="p-4 text-sm text-ink/50">{teachers.length ? (locale === 'ar' ? 'لا توجد نتائج مطابقة للبحث.' : 'No matching results.') : (locale === 'ar' ? 'لا يوجد معلمون بعد.' : 'No teachers yet.')}</p>}
       </div>
     </div>
   );

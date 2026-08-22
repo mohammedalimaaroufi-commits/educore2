@@ -92,7 +92,19 @@ export default function GradeMatrix({ classId, className }) {
   const cellKey = (assessmentId, studentId) => `${assessmentId}:${studentId}`;
   const categoryColor = (index) => CATEGORY_COLORS[index % CATEGORY_COLORS.length];
   const gradeMap = useMemo(() => new Map(Object.entries(grades)), [grades]);
-  const itemsFor = (category) => getCategoryAssessments(category);
+  const itemsFor = (category) => {
+    const items = getCategoryAssessments(category);
+    if (category?.grading_mode !== 'detailed') return items;
+    // Keep an already-entered category-level score visible after the first detail is
+    // added. The summary row is retained as a safe fallback until the teacher enters
+    // at least one detail for that student; it is never deleted or silently discarded.
+    const summary = (category.assessments || []).find((assessment) => Number(assessment.is_summary));
+    const hasSavedSummary = summary && students.some((student) => {
+      const value = gradeMap.get(cellKey(summary.id, student.id))?.score_numeric;
+      return value !== null && value !== undefined && value !== '';
+    });
+    return hasSavedSummary ? [summary, ...items] : items;
+  };
   const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
   const coverageLabel = (coverage) => coverage.percent === null ? t('noGrading') : t('gradingCoverage', '', { percent: coverage.percent, entered: coverage.entered_count, total: coverage.total_students });
   const detailTotalFor = (category) => (category.assessments || [])
@@ -153,6 +165,7 @@ export default function GradeMatrix({ classId, className }) {
     const category = categories.find((item) => item.id === newAssessment);
     const maxScore = Number(assessmentForm.max_score || 0);
     const payload = {
+      id: `local-assessment-${Date.now()}`,
       category_id: newAssessment,
       title: assessmentForm.title.trim(),
       max_score: maxScore,
@@ -161,7 +174,6 @@ export default function GradeMatrix({ classId, className }) {
     };
     if (!category || !payload.title || maxScore <= 0) return;
     const localAssessment = {
-      id: `local-assessment-${Date.now()}`,
       ...payload,
       created_at: new Date().toISOString(),
     };
@@ -182,7 +194,22 @@ export default function GradeMatrix({ classId, className }) {
     setAssessmentForm({ title: '', max_score: '', date: '' });
     setNewAssessment(null);
     try {
-      await api.post('/grades/assessments', payload);
+      const { data } = await api.post('/grades/assessments', payload);
+      const savedAssessment = data?.assessment || localAssessment;
+      setCategories((current) => current.map((item) => item.id === newAssessment
+        ? { ...item, assessments: (item.assessments || []).map((assessment) => assessment.id === localAssessment.id ? savedAssessment : assessment) }
+        : item));
+      if (snapshot) {
+        const syncedSnapshot = {
+          ...snapshot,
+          assessments: (snapshot.assessments || []).map((assessment) => assessment.id === localAssessment.id ? savedAssessment : assessment),
+          grade_categories: (snapshot.grade_categories || []).map((item) => item.id === newAssessment
+            ? { ...item, grading_mode: 'detailed' }
+            : item),
+        };
+        setSnapshot(syncedSnapshot);
+        void saveSnapshot(teacherId, syncedSnapshot);
+      }
       void syncSnapshot(teacherId, { force: true });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/grades/assessments', data: payload });
@@ -244,12 +271,16 @@ export default function GradeMatrix({ classId, className }) {
   const categoryScore = (studentId, category) => {
     const items = itemsFor(category);
     const detailed = items.filter((assessment) => !Number(assessment.is_summary));
-    if (detailed.length > 0) {
+    const enteredDetails = detailed.filter((assessment) => {
+      const value = gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric;
+      return value !== null && value !== undefined && value !== '';
+    });
+    if (enteredDetails.length > 0) {
       const maxTotal = detailed.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
       const scoreTotal = detailed.reduce((sum, assessment) => sum + Number(gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric || 0), 0);
       return maxTotal > 0 ? (scoreTotal / maxTotal) * Number(category.weight_percent || 0) : null;
     }
-    const summary = items[0];
+    const summary = items.find((assessment) => Number(assessment.is_summary));
     const score = gradeMap.get(cellKey(summary?.id, studentId))?.score_numeric;
     return score === '' || score == null ? null : Number(score);
   };
