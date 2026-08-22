@@ -620,3 +620,91 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 .subscription-history-clear { flex: 0 0 auto; padding: .38rem .62rem; color: #c1553d; background: rgba(193,85,61,.06); border: 1px solid rgba(193,85,61,.16); border-radius: .55rem; font-size: .64rem; font-weight: 800; }
 .subscription-history-clear:hover:not(:disabled) { background: rgba(193,85,61,.12); }.subscription-history-clear:disabled { opacity: .55; cursor: wait; }
 @media (max-width: 520px) { .subscription-collapsible-trigger { align-items: flex-start; flex-direction: column; }.subscription-history-clear { align-self: flex-end; } }
+
+
+/* UX polish v2: readable typography, compact chrome, and consistent touch targets. */
+:root {
+  --ux-font-body: 'Tajawal', 'IBM Plex Sans Arabic', Arial, sans-serif;
+  --ux-font-display: 'Cairo', 'IBM Plex Sans Arabic', Arial, sans-serif;
+  --ux-text-base: 15px;
+  --ux-line: 1.65;
+  --ux-ease: cubic-bezier(.23, 1, .32, 1);
+}
+html { font-size: 16px; text-rendering: optimizeLegibility; }
+body { font-family: var(--ux-font-body); font-size: var(--ux-text-base); line-height: var(--ux-line); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4, h5, h6, button, input, select, textarea { font-family: var(--ux-font-body); }
+h1, h2, h3, h4, h5, h6 { font-family: var(--ux-font-display); line-height: 1.35; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button { min-height: 2.5rem; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(46,125,107,.28); outline-offset: 2px; }
+.btn-primary, .btn-secondary { min-height: 2.65rem; padding-inline: 1rem; font-size: .88rem; font-weight: 700; transition: transform 160ms var(--ux-ease), box-shadow 160ms var(--ux-ease), background-color 160ms ease, border-color 160ms ease; }
+.btn-primary:hover, .btn-secondary:hover { box-shadow: 0 8px 18px rgba(27,36,48,.09); transform: translateY(-1px); }
+.btn-primary:active, .btn-secondary:active, button:active { transform: scale(.98); }
+.input { min-height: 2.7rem; padding-block: .55rem; font-size: .9rem; line-height: 1.4; }
+.label { font-size: .82rem; font-weight: 700; color: rgba(27,36,48,.72); }
+.dashboard-topbar { min-height: 64px; gap: .75rem; }
+.dashboard-content { padding-top: 1.25rem; }
+.dashboard-hero h1 { font-size: clamp(1.45rem, 2.8vw, 2.05rem); }
+.dashboard-hero p { font-size: .88rem; }
+.dashboard-section-head h2 { font-size: 1.18rem; }
+.topbar-nav-link { min-height: 2.3rem; font-size: .78rem; }
+.class-page-topline { margin-bottom: .6rem; }
+.class-page-header { min-height: 9.5rem; border-radius: 1.05rem; }
+.class-page-header__visual, .class-page-header__side { padding: 1.15rem 1.35rem; }
+.class-page-header h1 { font-size: clamp(1.45rem, 3.5vw, 2.25rem); }
+.class-tabs { padding: .3rem; margin-bottom: .8rem; border-radius: .8rem; }
+.class-tab { min-height: 2.45rem; padding: .5rem .78rem; font-size: .78rem; }
+.settings-page-hero, .subscription-page-hero, .admin-page-hero { min-height: 10rem; padding: 1.35rem 1.65rem; border-radius: 1.05rem; }
+.settings-page-hero h1, .subscription-page-hero h1, .admin-page-hero h1 { font-size: clamp(1.55rem, 3.3vw, 2.35rem); }
+.settings-page-hero p, .subscription-page-hero p, .admin-page-hero p { font-size: .86rem; }
+.settings-tabs, .admin-tabs { margin-block: .75rem 1rem; }
+.settings-tab, .admin-tab { min-height: 2.45rem; font-size: .78rem; }
+.subscription-current-card, .subscription-requests-card, .subscription-activation-card, .settings-panel, .admin-config-card { padding: 1.15rem; }
+.subscription-details-grid strong { font-size: 1rem; }
+.grade-matrix-table { font-size: .82rem; }
+.grade-matrix-table th { font-size: .78rem; }
+.grade-matrix-table input { min-height: 2.45rem; font-size: .88rem; }
+.grade-subassessment-chip { min-height: 2.1rem; font-size: .76rem; }
+.grade-subassessment-add { width: 2rem; height: 2rem; }
+.behavior-note-input { min-height: 5.2rem; font-size: .88rem; }
+.behavior-latest-note { font-size: .76rem; }
+.table-head-sticky thead th { font-size: .82rem; }
+.report-filters, .dashboard-filters { font-size: .78rem; }
+
+@media (max-width: 760px) {
+  :root { --ux-text-base: 15px; }
+  .dashboard-topbar { min-height: 0; padding-block: .55rem; }
+  .dashboard-content { padding-top: .8rem; }
+  .dashboard-hero h1 { font-size: 1.45rem; }
+  .dashboard-hero p { font-size: .82rem; }
+  .class-page-header { border-radius: .8rem; }
+  .settings-page-hero, .subscription-page-hero, .admin-page-hero { padding: 1.05rem 1.1rem; }
+  .settings-page-hero h1, .subscription-page-hero h1, .admin-page-hero h1 { font-size: 1.55rem; }
+  .settings-page-hero p, .subscription-page-hero p, .admin-page-hero p { font-size: .78rem; line-height: 1.65; }
+  .settings-tab, .admin-tab { min-height: 2.35rem; padding-inline: .65rem; font-size: .72rem; }
+  .grade-matrix-table input { min-height: 2.35rem; }
+  .grade-subassessment-chip { font-size: .7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary:hover, .btn-secondary:hover, button:active { transform: none; }
+}
+
+/* Formal reports opened in the dedicated print window remain clean on screen and A4. */
+.formal-report-preview { max-width: 100%; }
+@media print {
+  body { background: #fff !important; }
+  .print\:hidden, .no-print { display: none !important; }
+}
+
+
+.behavior-log-row { min-width: 0; align-items: center; }
+.behavior-log-row > span:nth-child(2) { overflow-wrap: anywhere; }
+.behavior-log-delete { width: 1.55rem; height: 1.55rem; min-height: 1.55rem; flex: 0 0 auto; display: inline-grid; place-items: center; color: #c1553d; border: 1px solid rgba(193,85,61,.18); border-radius: 50%; background: rgba(193,85,61,.06); font-size: 1rem; line-height: 1; transition: background 140ms ease, transform 140ms var(--ux-ease); }
+.behavior-log-delete:hover { background: rgba(193,85,61,.14); transform: scale(1.06); }
+@media (max-width: 560px) { .behavior-log-row { align-items: flex-start; flex-wrap: wrap; }.behavior-log-row > span:nth-child(2) { flex-basis: calc(100% - 5rem); }.behavior-log-row > span:nth-child(3) { margin-inline-start: auto; } }
+
+
+.gradebook-local-status { display: inline-flex; align-items: center; min-height: 2rem; padding: .3rem .55rem; color: #2e7d6b; background: rgba(46,125,107,.08); border: 1px solid rgba(46,125,107,.14); border-radius: .55rem; font-size: .7rem; font-weight: 700; }
+.grade-matrix-table input:focus { border-color: rgba(46,125,107,.6); box-shadow: 0 0 0 3px rgba(46,125,107,.1); }
+@media (max-width: 560px) { .gradebook-local-status { width: 100%; justify-content: center; order: 3; font-size: .65rem; } }

@@ -152,6 +152,19 @@ export default function BehaviorTab({ classId }) {
     }
   };
 
+  const deleteBehaviorLog = async (log) => {
+    if (!log?.id || !confirm(t('deleteBehaviorLogConfirm'))) return;
+    const next = { ...snapshot, behavior_logs: (snapshot?.behavior_logs || []).filter((item) => item.id !== log.id) };
+    applySnapshot(next);
+    setFeedback(t('behaviorLogDeleted'));
+    try {
+      await api.delete(`/behavior/log/${log.id}`);
+      void syncSnapshot(teacherId, { force: true });
+    } catch {
+      await queueMutation(teacherId, { method: 'DELETE', url: `/behavior/log/${log.id}` });
+    }
+  };
+
   const addType = async (event) => {
     event.preventDefault();
     const points = Math.abs(Number(newType.points || 0));
@@ -277,7 +290,7 @@ export default function BehaviorTab({ classId }) {
                       </div>
                     ))}</div>
                     <textarea className="input text-xs behavior-note-input" rows={2} placeholder={t('quickNote')} value={noteDrafts[student.id] || ''} onChange={(event) => setNoteDrafts((drafts) => ({ ...drafts, [student.id]: event.target.value }))} />
-                    {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">{t('latestDetails')}</p>{row.latest_logs.map((log) => <div key={log.id} className="flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || t('noTextNote')}</span><span className="text-ink/30">{formatWhen(log.occurred_at, locale)}</span></div>)}</div>}
+                    {row.latest_logs.length > 0 && <div className="mt-3 space-y-1"><p className="text-xs font-bold text-ink/60">{t('latestDetails')}</p>{row.latest_logs.map((log) => <div key={log.id} className="behavior-log-row flex items-start gap-2 text-xs border-b border-line/70 pb-1"><span className={log.behavior?.polarity === 'positive' ? 'text-primary' : 'text-danger'}>{log.behavior?.label || 'سلوك'}</span><span className="text-ink/50 flex-1">{log.note_text || t('noTextNote')}</span><span className="text-ink/30">{formatWhen(log.occurred_at, locale)}</span><button type="button" className="behavior-log-delete" title={t('deleteBehaviorLog')} aria-label={`${t('deleteBehaviorLog')} ${log.behavior?.label || ''}`} onClick={() => void deleteBehaviorLog(log)}>×</button></div>)}</div>}
                     <button className="text-primary text-xs mt-2" onClick={() => setDetailStudentId(student.id)}>{t('fullBehaviorRecord')}</button>
                   </div>
                 )}

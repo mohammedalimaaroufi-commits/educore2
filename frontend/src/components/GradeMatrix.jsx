@@ -377,7 +377,7 @@ export default function GradeMatrix({ classId, className }) {
           <h3 className="font-bold">{t('fullGradeTable')}</h3>
           <p className="text-xs text-ink/50">{t('gradebookDescription')}</p><span className="grade-matrix-hint">{t('horizontalHint')}</span>
         </div>
-        <div className="flex gap-2"><button className="btn-secondary text-sm" onClick={exportCSV}>{t('csvExport')}</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>{t('downloadPdf')}</button></div>
+        <div className="flex items-center gap-2 flex-wrap"><span className="gradebook-local-status">{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span><button className="btn-secondary text-sm" onClick={exportCSV}>{t('csvExport')}</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>{t('downloadPdf')}</button></div>
       </div>
       <div className="card grade-matrix-card">
         <div className="grade-matrix-scroll" role="region" aria-label={t('scrollableGradeTable')}>
@@ -452,7 +452,7 @@ export default function GradeMatrix({ classId, className }) {
                         <td key={assessment.id} className="px-1 py-1 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}>
                           <div className="flex flex-col gap-0.5 items-center">
                             <div className="relative">
-                              <input type="number" min="0" max={getAssessmentMaxScore(category, assessment)} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onBlur={() => saveCell(assessment.id, student.id)} />
+                              <input type="number" min="0" max={getAssessmentMaxScore(category, assessment)} step="any" inputMode="decimal" autoComplete="off" aria-label={`${student.full_name} — ${assessment.title}`} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} onBlur={() => saveCell(assessment.id, student.id)} />
                               {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
                               {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
                             </div>

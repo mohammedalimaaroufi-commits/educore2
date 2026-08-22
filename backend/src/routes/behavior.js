@@ -76,6 +76,17 @@ router.post('/log', (req, res) => {
   res.status(201).json({ log: db.prepare('SELECT * FROM behavior_logs WHERE id = ?').get(id) });
 });
 
+// DELETE /api/behavior/log/:id  -> remove one student behavior log only
+router.delete('/log/:id', (req, res) => {
+  const log = db.prepare(`SELECT bl.* FROM behavior_logs bl
+                          JOIN students s ON bl.student_id = s.id
+                          JOIN classes c ON s.class_id = c.id
+                          WHERE bl.id = ? AND c.teacher_id = ?`).get(req.params.id, req.teacherId);
+  if (!log) return res.status(404).json({ error: 'سجل السلوك غير موجود' });
+  db.prepare('DELETE FROM behavior_logs WHERE id = ?').run(log.id);
+  res.json({ success: true, deleted_log_id: log.id });
+});
+
 // GET /api/behavior/log?student_id=...  (full history for a student)
 router.get('/log', (req, res) => {
   const { student_id } = req.query;
