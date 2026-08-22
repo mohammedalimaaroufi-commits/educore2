@@ -155,20 +155,31 @@ export default function AnalyticsTab({ classId }) {
       <div className="card p-4">
         <h3 className="font-bold mb-1">متوسط الأداء حسب فئة التقييم</h3>
         <p className="text-xs text-ink/50 mb-3">يُحسب محليًا من آخر snapshot محفوظ على جهاز المعلم.</p>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 58, left: 178, bottom: 12 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
-            <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} />
-            <YAxis type="category" dataKey="category" width={168} interval={0} tickMargin={8} tick={{ fontSize: 12, textAnchor: 'end' }} />
-            <Tooltip formatter={(v, n, p) => [v === null ? 'لا توجد درجات بعد' : `${v}%`, `متوسط ${p.payload.category}`]} />
-            <Bar dataKey="averagePercent" radius={[0, 6, 6, 0]} name="المتوسط %">
-              {categoryAverages.map((category, index) => (
-                <Cell key={category.category || index} fill={category.averagePercent === null ? '#E4E1D8' : category.averagePercent >= 70 ? '#2E7D6B' : category.averagePercent >= 50 ? '#E0A548' : '#C1553D'} />
-              ))}
-              <LabelList dataKey="averagePercent" position="right" formatter={(value) => value === null ? '—' : `${value}%`} fill="#1B2430" fontSize={11} fontWeight={700} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="analytics-category-chart-shell" dir="ltr">
+          <div className="analytics-category-labels" dir={locale === 'ar' ? 'rtl' : 'ltr'} aria-label={locale === 'ar' ? 'أسماء فئات التقييم' : 'Assessment category names'}>
+            {categoryAverages.map((category, index) => (
+              <div key={category.category || index} className="analytics-category-label" title={category.category}>
+                <span>{category.category || '—'}</span>
+              </div>
+            ))}
+          </div>
+          <div className="analytics-category-bars">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={categoryAverages} layout="vertical" margin={{ top: 12, right: 58, left: 8, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
+                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="category" width={0} tick={false} tickLine={false} axisLine={false} interval={0} />
+                <Tooltip formatter={(v, n, p) => [v === null ? 'لا توجد درجات بعد' : `${v}%`, `متوسط ${p.payload.category}`]} />
+                <Bar dataKey="averagePercent" radius={[0, 6, 6, 0]} name="المتوسط %">
+                  {categoryAverages.map((category, index) => (
+                    <Cell key={category.category || index} fill={category.averagePercent === null ? '#E4E1D8' : category.averagePercent >= 70 ? '#2E7D6B' : category.averagePercent >= 50 ? '#E0A548' : '#C1553D'} />
+                  ))}
+                  <LabelList dataKey="averagePercent" position="right" formatter={(value) => value === null ? '—' : `${value}%`} fill="#1B2430" fontSize={11} fontWeight={700} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
       <div className="card p-4">

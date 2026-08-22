@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod } = require('../utils/subscriptions');
 const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
 const { RESTRICTABLE_FEATURES, getConfiguredRestrictions, saveTeacherRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, saveAccountStatus } = require('../utils/accountStatus');
@@ -330,14 +330,15 @@ router.get('/teachers', (req, res) => {
                               LIMIT 1
                             )
                             ORDER BY t.created_at DESC`).all().map((row) => {
-                              const plan = resolvePlanId(row.plan, { definitions }) || row.plan || 'trial';
+                              const repairedRow = repairPaidSubscriptionPeriod(row, { definitions });
+                              const plan = resolvePlanId(repairedRow.plan, { definitions }) || repairedRow.plan || 'trial';
                               const definition = definitions.find((item) => item.id === plan);
-                              const startDate = plan === 'trial' ? row.trial_start_date : row.current_period_start;
-                              const endDate = plan === 'trial' ? row.trial_end_date : row.current_period_end;
+                              const startDate = plan === 'trial' ? repairedRow.trial_start_date : repairedRow.current_period_start;
+                              const endDate = plan === 'trial' ? repairedRow.trial_end_date : repairedRow.current_period_end;
                               const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-                              const accountStatus = getAccountStatus(row.id);
+                              const accountStatus = getAccountStatus(repairedRow.id);
                               return {
-                                ...row,
+                                ...repairedRow,
                                 plan,
                                 plan_title: definition?.title || plan,
                                 activated_at: startDate || null,

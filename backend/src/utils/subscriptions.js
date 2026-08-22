@@ -166,6 +166,53 @@ function getPlanDefinition(planId) {
   return getPlanDefinitions().find((plan) => plan.id === planId) || null;
 }
 
+function addDays(date, days) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + Number(days || 0));
+  return result.toISOString();
+}
+
+function sameTimestamp(left, right) {
+  if (!left || !right) return left === right;
+  const leftTime = new Date(left).getTime();
+  const rightTime = new Date(right).getTime();
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && Math.abs(leftTime - rightTime) <= 1000;
+}
+
+/**
+ * Repairs legacy paid subscription rows whose period fields are missing or do not
+ * match the canonical plan duration. This is intentionally idempotent: valid rows
+ * are returned unchanged, while a bad end date is corrected from the stored start.
+ */
+function repairPaidSubscriptionPeriod(rawSub, options = {}) {
+  if (!rawSub || !isPaidPlanId(rawSub.plan) || rawSub.status === 'canceled') return rawSub;
+  const definitions = options.definitions || getPlanDefinitions();
+  const canonicalPlan = resolvePlanId(rawSub.plan, { definitions });
+  const definition = definitions.find((item) => item.id === canonicalPlan);
+  if (!definition) return rawSub;
+
+  const requestedStart = options.startDate || null;
+  const storedStart = rawSub.current_period_start;
+  const fallbackStart = requestedStart || storedStart || rawSub.updated_at || rawSub.created_at || new Date().toISOString();
+  const expectedEnd = definition.duration_days === null ? null : addDays(fallbackStart, definition.duration_days);
+  const startIsValid = Boolean(storedStart) && Number.isFinite(new Date(storedStart).getTime());
+  const startMatchesRequest = !requestedStart || sameTimestamp(storedStart, requestedStart);
+  const endMatches = definition.duration_days === null
+    ? !rawSub.current_period_end
+    : Boolean(rawSub.current_period_end) && sameTimestamp(rawSub.current_period_end, expectedEnd);
+  const needsRepair = rawSub.plan !== canonicalPlan
+    || !startIsValid
+    || !startMatchesRequest
+    || !endMatches;
+  if (!needsRepair) return rawSub;
+
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE subscriptions SET plan = ?, trial_start_date = NULL, trial_end_date = NULL,
+              current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?`)
+    .run(canonicalPlan, fallbackStart, expectedEnd, now, rawSub.id);
+  return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(rawSub.id);
+}
+
 function savePlanDefinitions(plans) {
   const incoming = Array.isArray(plans) ? plans : [];
   const normalized = DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(incoming.find((plan) => plan?.id === fallback.id), fallback));
@@ -239,6 +286,7 @@ module.exports = {
   resolvePlanId,
   isPaidPlanId,
   getPlanDefinition,
+  repairPaidSubscriptionPeriod,
   savePlanDefinitions,
   getBasePrices,
   getTrialDays,

@@ -24,10 +24,20 @@ function canonicalPlanForUi(value) {
   return ['trial', '6_months', 'yearly', 'lifetime'].includes(raw) ? raw : PLAN_ALIASES[raw] || PLAN_ALIASES[raw.toLowerCase()] || raw || 'trial';
 }
 
+function validDateValue(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? value : null;
+}
+
+function firstValidDate(...values) {
+  return values.map(validDateValue).find(Boolean) || null;
+}
+
 function formatDate(iso, locale, withTime = false) {
-  if (!iso) return '—';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '—';
+  const valid = validDateValue(iso);
+  if (!valid) return '—';
+  const date = new Date(valid);
   return date.toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US', {
     year: 'numeric', month: 'long', day: 'numeric', ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   });
@@ -69,10 +79,18 @@ function SubscriptionDetailsCard() {
   const plan = canonicalPlanForUi(subscriptionInfo.plan);
   const isTrial = plan === 'trial';
   const isLifetime = plan === 'lifetime';
-  const startDate = subscriptionInfo.startDate || subscriptionInfo.currentPeriodStart || subscriptionInfo.current_period_start || subscriptionInfo.trialStartDate || subscriptionInfo.trial_start_date || null;
-  const endDate = subscriptionInfo.endDate || subscriptionInfo.currentPeriodEnd || subscriptionInfo.current_period_end || subscriptionInfo.trialEndDate || subscriptionInfo.trial_end_date || null;
-  const daysLeft = subscriptionInfo.daysLeft === null || subscriptionInfo.daysLeft === undefined ? (endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null) : Number(subscriptionInfo.daysLeft);
-  const expired = Boolean(subscriptionInfo.expired || (daysLeft !== null && daysLeft <= 0));
+  const startDate = isTrial
+    ? firstValidDate(subscriptionInfo.startDate, subscriptionInfo.trialStartDate, subscriptionInfo.trial_start_date)
+    : firstValidDate(subscriptionInfo.startDate, subscriptionInfo.currentPeriodStart, subscriptionInfo.current_period_start);
+  const endDate = isTrial
+    ? firstValidDate(subscriptionInfo.endDate, subscriptionInfo.trialEndDate, subscriptionInfo.trial_end_date)
+    : firstValidDate(subscriptionInfo.endDate, subscriptionInfo.currentPeriodEnd, subscriptionInfo.current_period_end);
+  // Never trust a cached/stale daysLeft when an end date exists. The displayed
+  // remaining time must be derived from that exact canonical end date.
+  const daysLeft = endDate
+    ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : (subscriptionInfo.daysLeft === null || subscriptionInfo.daysLeft === undefined ? null : Number(subscriptionInfo.daysLeft));
+  const expired = endDate ? daysLeft <= 0 : Boolean(subscriptionInfo.expired || (daysLeft !== null && daysLeft <= 0));
   const currentStatusLabel = expired ? t('statusExpired') : statusLabel(subscriptionInfo.status, t);
   const planTitle = subscriptionInfo.planTitle || planLabel(plan, t);
   const offerTitle = subscriptionInfo.offerTitle || subscriptionInfo.offer_title || null;

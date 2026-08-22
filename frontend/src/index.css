@@ -423,6 +423,11 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 
 
 /* Chart readability: keep value labels outside bars/slices and prevent clipping in responsive cards. */
+.analytics-category-chart-shell { display: grid; grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr); align-items: stretch; gap: .55rem; min-width: 0; margin-top: .2rem; direction: ltr; }
+.analytics-category-labels { display: flex; flex-direction: column; min-height: 260px; padding: 12px 0; overflow: hidden; color: #1b2430; background: #fff; border: 1px solid rgba(27,36,48,.1); border-radius: .7rem; box-shadow: inset -3px 0 0 rgba(122,92,161,.12); }
+.analytics-category-label { display: flex; flex: 1 1 0; align-items: center; min-height: 0; padding: .1rem .65rem; overflow: hidden; text-align: right; font-size: .72rem; font-weight: 800; line-height: 1.25; }
+.analytics-category-label span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; word-break: break-word; }
+.analytics-category-bars { min-width: 0; height: 260px; }
 .analytics-kpi-grid + .card,
 .class-tab-panel .card:has(.recharts-wrapper),
 .recharts-wrapper,
@@ -433,6 +438,8 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 @media (max-width: 760px) {
   .recharts-cartesian-axis-tick-value { font-size: 10px; }
   .recharts-wrapper { min-width: 0; }
+  .analytics-category-chart-shell { grid-template-columns: minmax(7.2rem, 8.4rem) minmax(0, 1fr); gap: .35rem; }
+  .analytics-category-label { padding-inline: .45rem; font-size: .63rem; }
 }
 
 
