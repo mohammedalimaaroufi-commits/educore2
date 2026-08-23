@@ -175,6 +175,7 @@ export default function Dashboard() {
   const [completionFilter, setCompletionFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const [saveState, setSaveState] = useState('idle');
+  const [expandedClasses, setExpandedClasses] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -324,6 +325,7 @@ export default function Dashboard() {
 
   const initials = (teacher?.full_name || 'س').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const hasFilters = Boolean(searchTerm || subjectFilter !== 'all' || yearFilter !== 'all' || completionFilter !== 'all');
+  const toggleClassDetails = (classId) => setExpandedClasses((current) => ({ ...current, [classId]: !current[classId] }));
 
   return (
     <div className="dashboard-shell" dir={direction}>
@@ -344,11 +346,11 @@ export default function Dashboard() {
         <div className="dashboard-utilities">
           <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? t('online') : t('offlineMode')}</span>
           <span className="utility-date">{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
-          <nav className="dashboard-nav-actions" aria-label="روابط الحساب">
+          <nav className="dashboard-nav-actions" aria-label={locale === 'ar' ? 'إجراءات الحساب' : 'Account actions'}>
             <NotificationBell />
-            <Link to="/subscription" className="topbar-nav-link"><Icon name="subscription" className="w-4 h-4" /><span>{t('subscription')}</span></Link>
-            <Link to="/settings" className="topbar-nav-link"><Icon name="settings" className="w-4 h-4" /><span>{t('settings')}</span></Link>
-            <button type="button" className="topbar-nav-link topbar-nav-link--danger" onClick={logout}><Icon name="logout" className="w-4 h-4" /><span>{t('logout')}</span></button>
+            <Link to="/subscription" className="topbar-icon-action" aria-label={t('subscription')} title={t('subscription')}><Icon name="subscription" className="w-5 h-5" /></Link>
+            <Link to="/settings" className="topbar-icon-action" aria-label={t('settings')} title={t('settings')}><Icon name="settings" className="w-5 h-5" /></Link>
+            <button type="button" className="topbar-icon-action topbar-icon-action--danger" onClick={logout} aria-label={t('logout')} title={t('logout')}><Icon name="logout" className="w-5 h-5" /></button>
           </nav>
           <span className="teacher-avatar" title={teacher?.full_name || 'المعلم'}>{initials}</span>
         </div>
@@ -416,19 +418,34 @@ export default function Dashboard() {
             {visibleClasses.map((c) => {
               const visualIndex = classVisualIndex(c);
               const accent = c.color || COLORS[visualIndex];
+              const expanded = Boolean(expandedClasses[c.id]);
               return (
-                <article key={c.id} className="class-card" style={{ '--card-accent': accent }}>
-                  <Link to={`/classes/${c.id}`} className="class-card__visual" aria-label={`فتح ${c.name}`}>
-                    <span className="class-card__visual-label">{locale === 'ar' ? VISUAL_LABELS[visualIndex] : ['Books & learning', 'Progress tracking', 'Activity & practice'][visualIndex]}</span>
-                    <span className="class-card__visual-symbol">{visualIndex === 0 ? '▦' : visualIndex === 1 ? '◌' : '✦'}</span>
-                    <div><strong>{c.name}</strong><span>{c.subject || t('noSubject')}</span></div>
-                  </Link>
-                  <div className="class-card__content">
-                    <div className="class-card__heading-row"><div><span className="class-card__eyebrow">{c.academic_year || t('academicYear')}</span><h3>{c.name}</h3></div><span className="class-card__badge">{t('studentsCount', '', { count: c.student_count })}</span></div>
-                    <div className="class-card__meta"><span>{c.subject || t('noSubject')}</span><span>{t('assessmentsCount', '', { count: c.quick_stats?.grading?.length || 0 })}</span></div>
-                    <ClassQuickStats stats={c.quick_stats} />
-                    <div className="class-card__footer"><Link to={`/classes/${c.id}`} className="class-card__open">{t('openClass')} <span>{locale === 'ar' ? '←' : '→'}</span></Link><div className="class-card__actions"><button className="action-link" onClick={(e) => startEdit(e, c)}>{locale === 'ar' ? 'تعديل' : 'Edit'}</button><button className="action-link" onClick={(e) => archiveClass(e, c.id)}>{t('archiveClass')}</button><button className="action-link action-link--danger" onClick={(e) => deleteClassPermanently(e, c.id)}>{t('deleteClass')}</button></div></div>
+                <article key={c.id} className={`class-card ${expanded ? 'is-expanded' : ''}`} style={{ '--card-accent': accent }}>
+                  <div className="class-card__compact">
+                    <Link to={`/classes/${c.id}`} className="class-card__compact-main" aria-label={`${t('openClass')}: ${c.name}`}>
+                      <span className="class-card__accent-dot" style={{ background: accent }} aria-hidden="true" />
+                      <span className="class-card__compact-copy"><strong>{c.name}</strong><small>{t('studentsCount', '', { count: c.student_count })}</small></span>
+                    </Link>
+                    <button type="button" className="class-card__details-toggle" onClick={() => toggleClassDetails(c.id)} aria-expanded={expanded} aria-controls={`class-details-${c.id}`}>
+                      <span>{expanded ? t('showLess') : t('details')}</span><Icon name={expanded ? 'chevronUp' : 'chevronDown'} className="w-4 h-4" />
+                    </button>
                   </div>
+                  {expanded && <div id={`class-details-${c.id}`} className="class-card__content">
+                    <div className="class-card__detail-grid">
+                      <div><span>{t('subject')}</span><strong>{c.subject || t('noSubject')}</strong></div>
+                      <div><span>{t('academicYear')}</span><strong>{c.academic_year || '—'}</strong></div>
+                      <div><span>{t('assessmentsCount', '', { count: c.quick_stats?.grading?.length || 0 })}</span><strong>{c.quick_stats?.grading?.filter((item) => item.percent !== null && item.percent > 0).length || 0}</strong></div>
+                    </div>
+                    <ClassQuickStats stats={c.quick_stats} />
+                    <div className="class-card__footer">
+                      <Link to={`/classes/${c.id}`} className="class-card__open"><Icon name="externalLink" className="w-4 h-4" /><span>{t('openClass')}</span><span>{locale === 'ar' ? '←' : '→'}</span></Link>
+                      <div className="class-card__actions">
+                        <button className="class-card__icon-action" onClick={(e) => startEdit(e, c)} title={t('editClass')} aria-label={t('editClass')}><Icon name="edit" className="w-4 h-4" /><span>{locale === 'ar' ? 'تعديل' : 'Edit'}</span></button>
+                        <button className="class-card__icon-action" onClick={(e) => archiveClass(e, c.id)} title={t('archiveClass')} aria-label={t('archiveClass')}><Icon name="archive" className="w-4 h-4" /><span>{t('archiveClass')}</span></button>
+                        <button className="class-card__icon-action class-card__icon-action--danger" onClick={(e) => deleteClassPermanently(e, c.id)} title={t('deleteClass')} aria-label={t('deleteClass')}><Icon name="trash" className="w-4 h-4" /><span>{t('deleteClass')}</span></button>
+                      </div>
+                    </div>
+                  </div>}
                 </article>
               );
             })}
