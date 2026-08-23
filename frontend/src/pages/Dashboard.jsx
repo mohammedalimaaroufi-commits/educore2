@@ -161,7 +161,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
 }
 
 export default function Dashboard() {
-  const { teacher } = useAuth();
+  const { teacher, logout } = useAuth();
   const { t, direction, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [classes, setClasses] = useState([]);
@@ -326,9 +326,6 @@ export default function Dashboard() {
 
   const initials = (teacher?.full_name || 'س').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const hasFilters = Boolean(searchTerm || subjectFilter !== 'all' || yearFilter !== 'all' || completionFilter !== 'all');
-  const totalStudents = classes.reduce((sum, item) => sum + Number(item.student_count || 0), 0);
-  const coverageValues = classes.flatMap((item) => (item.quick_stats?.grading || []).map((entry) => entry.percent).filter((value) => value !== null && Number.isFinite(value)));
-  const averageCoverage = coverageValues.length ? Math.round(coverageValues.reduce((sum, value) => sum + value, 0) / coverageValues.length) : 0;
   const toggleClassDetails = (classId) => setExpandedClasses((current) => ({ ...current, [classId]: !current[classId] }));
 
   return (
@@ -350,8 +347,11 @@ export default function Dashboard() {
         <div className="dashboard-utilities">
           <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? t('online') : t('offlineMode')}</span>
           <span className="utility-date">{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
-          <nav className="dashboard-nav-actions" aria-label={locale === 'ar' ? 'إشعارات الحساب' : 'Account notifications'}>
+          <nav className="dashboard-nav-actions" aria-label={locale === 'ar' ? 'إجراءات الحساب' : 'Account actions'}>
             <NotificationBell />
+            <Link to="/subscription" className="topbar-icon-action" aria-label={t('subscription')} title={t('subscription')}><Icon name="subscription" className="w-5 h-5" /></Link>
+            <Link to="/settings" className="topbar-icon-action" aria-label={t('settings')} title={t('settings')}><Icon name="settings" className="w-5 h-5" /></Link>
+            <button type="button" className="topbar-icon-action topbar-icon-action--danger" onClick={logout} aria-label={t('logout')} title={t('logout')}><Icon name="logout" className="w-5 h-5" /></button>
           </nav>
           <span className="teacher-avatar" title={teacher?.full_name || 'المعلم'}>{initials}</span>
         </div>
@@ -371,13 +371,6 @@ export default function Dashboard() {
         </section>
 
         <TrialBanner />
-
-        <section className="dashboard-overview" aria-label={locale === 'ar' ? 'ملخص مساحة العمل' : 'Workspace overview'}>
-          <div className="dashboard-overview__item dashboard-overview__item--primary"><span className="dashboard-overview__icon"><Icon name="dashboard" className="w-4 h-4" /></span><span>{locale === 'ar' ? 'الصفوف النشطة' : 'Active classes'}</span><strong>{classes.length}</strong></div>
-          <div className="dashboard-overview__item"><span className="dashboard-overview__icon"><Icon name="user" className="w-4 h-4" /></span><span>{locale === 'ar' ? 'إجمالي الطلاب' : 'Total students'}</span><strong>{totalStudents}</strong></div>
-          <div className="dashboard-overview__item"><span className="dashboard-overview__icon"><Icon name="analytics" className="w-4 h-4" /></span><span>{locale === 'ar' ? 'اكتمال الرصد' : 'Recording coverage'}</span><strong>{averageCoverage}%</strong></div>
-          <div className="dashboard-overview__item dashboard-overview__item--status"><span className={`dashboard-overview__status-dot ${isOnline ? 'is-online' : ''}`} /><span>{isOnline ? (locale === 'ar' ? 'المزامنة تعمل' : 'Sync is active') : (locale === 'ar' ? 'وضع عدم الاتصال' : 'Offline mode')}</span><strong>{isOnline ? '●' : '○'}</strong></div>
-        </section>
 
         <div className="dashboard-section-head">
               <div>
