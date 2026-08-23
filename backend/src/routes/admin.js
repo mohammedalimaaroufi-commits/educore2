@@ -28,6 +28,13 @@ function addDays(date, days) {
   return d.toISOString();
 }
 
+function validateOfferWindow(startsAt, endsAt) {
+  if (startsAt && Number.isNaN(new Date(startsAt).getTime())) return 'تاريخ بداية العرض غير صالح';
+  if (endsAt && Number.isNaN(new Date(endsAt).getTime())) return 'تاريخ نهاية العرض غير صالح';
+  if (startsAt && endsAt && new Date(endsAt) < new Date(startsAt)) return 'تاريخ نهاية العرض يجب أن يأتي بعد تاريخ البداية';
+  return null;
+}
+
 // POST /api/admin/login  { password }  -> private console, separate from teacher accounts
 router.post('/login', (req, res) => {
   const { password } = req.body;
@@ -105,6 +112,8 @@ router.post('/offers', (req, res) => {
   const original = Number(original_price_omr || basePrices[canonicalPlan]);
   const offer = Number(offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
+  const windowError = validateOfferWindow(starts_at, ends_at);
+  if (windowError) return res.status(400).json({ error: windowError });
   const id = uuid();
   db.prepare(`INSERT INTO subscription_offers (id, plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -123,6 +132,8 @@ router.patch('/offers/:id', (req, res) => {
   const original = Number(next.original_price_omr);
   const offer = Number(next.offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
+  const windowError = validateOfferWindow(next.starts_at, next.ends_at);
+  if (windowError) return res.status(400).json({ error: windowError });
   db.prepare(`UPDATE subscription_offers SET plan = ?, title = ?, description = ?, original_price_omr = ?, offer_price_omr = ?, starts_at = ?, ends_at = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?`)
     .run(canonicalPlan, next.title || null, next.description || null, original, offer, next.starts_at || null, next.ends_at || null, next.enabled ? 1 : 0, current.id);
   emitSubscriptionConfigUpdated(req);

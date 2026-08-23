@@ -137,34 +137,43 @@ export default function Subscription() {
 
   useEffect(() => {
     let active = true;
-    const loadPlans = async () => {
+    const applyPlansResponse = (data) => {
+      if (!active || !data) return;
+      setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
+      setPhone(data.payment_phone || data.payment?.phone || '');
+      setPayment(data.payment || {});
+      setTrialDays(Number(data.trial_days || 14));
+    };
+    const loadPlans = async ({ force = false } = {}) => {
       try {
-        const { data } = await getLocalFirst('/auth/plans');
-        if (!active) return;
-        setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
-        setPhone(data.payment_phone || data.payment?.phone || '');
-        setPayment(data.payment || {});
-        setTrialDays(Number(data.trial_days || 14));
+        const response = force ? await api.get('/auth/plans') : await getLocalFirst('/auth/plans');
+        applyPlansResponse(response.data);
+        // Keep local-first paint, but never leave the user on a stale offers list.
+        if (!force && response.fromLocalCache) {
+          void response.revalidatePromise?.then((freshResponse) => applyPlansResponse(freshResponse?.data));
+        }
       } catch {
-        if (active) setPlans(FALLBACK_PLANS);
+        if (active && !plans.length) setPlans(FALLBACK_PLANS);
       }
     };
     void loadPlans();
-    const timer = window.setInterval(loadPlans, 30 * 1000);
-    const onFocus = () => { void loadPlans(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void loadPlans(); };
+    const timer = window.setInterval(() => { void loadPlans(); }, 30 * 1000);
+    const onFocus = () => { void loadPlans({ force: true }); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void loadPlans({ force: true }); };
+    const onSubscriptionConfigUpdated = () => { void loadPlans({ force: true }); };
+    const onReconnect = () => { void loadPlans({ force: true }); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
-    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: loadPlans });
-    socket.on('subscription_config_updated', loadPlans);
+    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect });
+    socket.on('subscription_config_updated', onSubscriptionConfigUpdated);
     refreshMe({ force: true }).catch(() => undefined);
     return () => {
       active = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
-      socket.off('subscription_config_updated', loadPlans);
-      releaseSocket(socket, { onReconnect: loadPlans });
+      socket.off('subscription_config_updated', onSubscriptionConfigUpdated);
+      releaseSocket(socket, { onReconnect });
     };
   }, [refreshMe]);
 

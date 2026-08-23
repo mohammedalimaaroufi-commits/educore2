@@ -255,14 +255,27 @@ function SubscriptionConfig() {
     setSavedMessage('');
     try {
       const payload = offerPayload(offer);
-      if (!payload.title || !Number.isFinite(payload.original_price_omr) || !Number.isFinite(payload.offer_price_omr)) return;
+      if (!payload.title) {
+        setSavedMessage('اكتب عنوان العرض قبل الحفظ.');
+        return;
+      }
+      if (!Number.isFinite(payload.original_price_omr) || !Number.isFinite(payload.offer_price_omr) || payload.original_price_omr <= 0 || payload.offer_price_omr <= 0 || payload.offer_price_omr > payload.original_price_omr) {
+        setSavedMessage('تحقق من السعر الأصلي وسعر العرض؛ يجب أن يكون سعر العرض أقل أو مساويًا للسعر الأصلي.');
+        return;
+      }
+      if (payload.starts_at && payload.ends_at && new Date(payload.ends_at) < new Date(payload.starts_at)) {
+        setSavedMessage('تاريخ نهاية العرض يجب أن يأتي بعد تاريخ البداية.');
+        return;
+      }
       if (editingOfferId) await adminApi.patch(`/admin/offers/${editingOfferId}`, payload);
       else await adminApi.post('/admin/offers', payload);
       setOffer(EMPTY_OFFER);
       setEditingOfferId(null);
-      setSavedMessage(editingOfferId ? 'تم حفظ تعديل العرض وإظهاره حسب حالته' : 'تم إضافة العرض بنجاح');
+      setSavedMessage(editingOfferId ? 'تم حفظ تعديل العرض وإظهاره حسب حالته' : 'تم إضافة العرض بنجاح وسيظهر للمعلمين فورًا إذا كان مفعّلًا وضمن الفترة.');
       await load();
       window.setTimeout(() => setSavedMessage(''), 3500);
+    } catch (error) {
+      setSavedMessage(error.response?.data?.error || 'تعذر حفظ العرض. تحقق من البيانات وحاول مرة أخرى.');
     } finally { setBusy(false); }
   };
   const startEditOffer = (item) => {
