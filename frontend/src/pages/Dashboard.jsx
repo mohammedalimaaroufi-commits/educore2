@@ -426,9 +426,14 @@ export default function Dashboard() {
                       <span className="class-card__accent-dot" style={{ background: accent }} aria-hidden="true" />
                       <span className="class-card__compact-copy"><strong>{c.name}</strong><small>{t('studentsCount', '', { count: c.student_count })}</small></span>
                     </Link>
-                    <button type="button" className="class-card__details-toggle" onClick={() => toggleClassDetails(c.id)} aria-expanded={expanded} aria-controls={`class-details-${c.id}`}>
-                      <span>{expanded ? t('showLess') : t('details')}</span><Icon name={expanded ? 'chevronUp' : 'chevronDown'} className="w-4 h-4" />
-                    </button>
+                    <div className="class-card__compact-actions">
+                      <Link to={`/classes/${c.id}`} className="class-card__compact-open" aria-label={`${t('openClass')}: ${c.name}`} title={t('openClass')}>
+                        <Icon name="externalLink" className="w-4 h-4" /><span>{t('openClass')}</span>
+                      </Link>
+                      <button type="button" className="class-card__details-toggle" onClick={() => toggleClassDetails(c.id)} aria-expanded={expanded} aria-controls={`class-details-${c.id}`}>
+                        <span>{expanded ? t('showLess') : t('details')}</span><Icon name={expanded ? 'chevronUp' : 'chevronDown'} className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   {expanded && <div id={`class-details-${c.id}`} className="class-card__content">
                     <div className="class-card__detail-grid">
