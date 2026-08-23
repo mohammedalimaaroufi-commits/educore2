@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import adminApi from '../api/adminClient';
-import { connectSocket } from '../api/socket';
+import { connectSocket, releaseSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 import AdminPublicConfig from '../components/AdminPublicConfig.jsx';
 import { useConfirmDialog, useTextDialog } from '../components/ConfirmDialog.jsx';
@@ -498,12 +498,9 @@ function ChatPanel({ initialTeacher }) {
     loadConversations();
     const token = localStorage.getItem('educore_admin_token');
     if (!token) return undefined;
-    const socket = connectSocket(token, {
-      onReconnect: loadConversations,
-      onError: (err) => console.warn('Admin chat connection error', err.message),
-    });
-    socketRef.current = socket;
-    socket.on('new_message', (msg) => {
+    const onReconnect = loadConversations;
+    const onError = (err) => console.warn('Admin chat connection error', err.message);
+    const onNewMessage = (msg) => {
       setConversations((prev) => {
         const existing = prev.find((conversation) => conversation.teacher_id === msg.teacher_id);
         if (!existing) {
@@ -522,9 +519,13 @@ function ChatPanel({ initialTeacher }) {
         if (current && current.teacher_id === msg.teacher_id) setMessages((prev) => mergeChatMessage(prev, msg));
         return current;
       });
-    });
+    };
+    const socket = connectSocket(token, { onReconnect, onError });
+    socketRef.current = socket;
+    socket.on('new_message', onNewMessage);
     return () => {
-      socket.disconnect();
+      socket.off('new_message', onNewMessage);
+      releaseSocket(socket, { onReconnect, onError });
       socketRef.current = null;
     };
   }, []);

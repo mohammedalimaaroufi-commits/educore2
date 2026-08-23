@@ -8,7 +8,9 @@ import './index.css';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined);
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((registration) => registration.update())
+      .catch(() => undefined);
   });
 }
 

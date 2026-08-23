@@ -92,7 +92,17 @@ app.use('/api/sync', syncRoutes);
 
 const frontendDist = path.join(__dirname, '../../frontend/dist');
 
-app.use(express.static(frontendDist));
+app.use(express.static(frontendDist, {
+  setHeaders: (res, filePath) => {
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (filePath.endsWith('index.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  },
+}));
 
 app.get('*', (req, res, next) => {
   

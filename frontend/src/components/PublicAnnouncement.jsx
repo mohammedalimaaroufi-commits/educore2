@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
-import { connectSocket } from '../api/socket';
+import { getPublicConfigState, subscribePublicConfig } from '../utils/publicConfigStore.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 function readDismissed(key) {
@@ -21,48 +20,21 @@ function buildContent(item, locale, fallbackPrefix = 'legacy') {
 
 export default function PublicAnnouncement({ placement = 'global' }) {
   const { locale } = useLocale();
-  const [announcement, setAnnouncement] = useState(null);
+  const [publicConfig, setPublicConfig] = useState(() => getPublicConfigState());
   const [dismissed, setDismissed] = useState({});
 
+  useEffect(() => subscribePublicConfig(setPublicConfig), []);
+
   useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        const { data } = await api.get('/auth/public-config');
-        if (active) setAnnouncement(data.announcement || null);
-      } catch {
-        // Keep the last visible announcement when the network is temporarily unavailable.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 30 * 1000);
-    const onFocus = () => { void refresh(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
+    const event = publicConfig.lastEvent;
+    if (!event || event.announcement === false) return;
+    setDismissed({});
+    try {
+      Object.keys(localStorage).filter((key) => key.startsWith('educore_announcement_dismissed_')).forEach((key) => localStorage.removeItem(key));
+    } catch { /* local storage may be unavailable */ }
+  }, [publicConfig.revision]);
 
-    const clearAnnouncementDismissals = () => {
-      setDismissed({});
-      try {
-        Object.keys(localStorage).filter((key) => key.startsWith('educore_announcement_dismissed_')).forEach((key) => localStorage.removeItem(key));
-      } catch { /* local storage may be unavailable */ }
-    };
-    const onPublicConfigUpdated = (payload = {}) => {
-      if (payload.announcement !== false) clearAnnouncementDismissals();
-      void refresh();
-    };
-    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
-    socket?.on('public_config_updated', onPublicConfigUpdated);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-      socket?.disconnect();
-    };
-  }, []);
-
-  const contents = useMemo(() => [buildContent(announcement, locale, 'legacy')].filter(Boolean), [announcement, locale]);
+  const contents = useMemo(() => [buildContent(publicConfig.announcement, locale, 'legacy')].filter(Boolean), [publicConfig.announcement, locale]);
 
   const dismiss = (key) => {
     setDismissed((current) => ({ ...current, [key]: true }));

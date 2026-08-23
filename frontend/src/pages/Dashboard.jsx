@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { invalidateApiCache } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -117,7 +117,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
     onRestored?.();
     try {
       await api.post(`/classes/${id}/restore`);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: `/classes/${id}/restore` });
     }
@@ -290,7 +290,7 @@ export default function Dashboard() {
     await invalidateApiCache('/classes');
     await invalidateApiCache(`/classes/${id}`);
     await load();
-    try { await api.delete(`/classes/${id}`); await syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}` }); }
+    try { await api.delete(`/classes/${id}`); scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}` }); }
   };
 
   const deleteClassPermanently = async (e, id) => {
@@ -320,7 +320,7 @@ export default function Dashboard() {
     await invalidateApiCache('/classes');
     await invalidateApiCache(`/classes/${id}`);
     await load();
-    try { await api.delete(`/classes/${id}?permanent=1`); await syncSnapshot(teacherId, { force: true }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
+    try { await api.delete(`/classes/${id}?permanent=1`); scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
   };
 
   const initials = (teacher?.full_name || 'س').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();

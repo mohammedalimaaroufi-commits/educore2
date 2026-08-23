@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api/client';
-import { connectSocket } from '../api/socket';
+import { connectSocket, releaseSocket } from '../api/socket';
 import Icon from './Icon.jsx';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation } from '../utils/snapshotSync.js';
@@ -37,7 +37,6 @@ export default function ChatWidget() {
   const [text, setText] = useState('');
   const [unread, setUnread] = useState(0);
   const [status, setStatus] = useState('');
-  const socketRef = useRef(null);
   const scrollRef = useRef(null);
   const openRef = useRef(open);
   const teacherId = getTeacherId();
@@ -60,19 +59,18 @@ export default function ChatWidget() {
     const token = localStorage.getItem('educore_token');
     if (!token || !teacherId) return undefined;
     void loadHistory();
-    const socket = connectSocket(token, {
-      onConnect: () => setStatus(''),
-      onReconnect: () => { setStatus(''); void loadHistory(); },
-      onError: () => setStatus('تتم إعادة الاتصال بالدعم...'),
-    });
-    socketRef.current = socket;
-    socket.on('new_message', (message) => {
+    const onConnect = () => setStatus('');
+    const onReconnect = () => { setStatus(''); void loadHistory(); };
+    const onError = () => setStatus('تتم إعادة الاتصال بالدعم...');
+    const onNewMessage = (message) => {
       setMessages((current) => mergeMessageList(current, message));
       if (message.sender === 'admin' && !openRef.current) setUnread((value) => value + 1);
-    });
+    };
+    const socket = connectSocket(token, { onConnect, onReconnect, onError });
+    socket.on('new_message', onNewMessage);
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      socket.off('new_message', onNewMessage);
+      releaseSocket(socket, { onConnect, onReconnect, onError });
     };
   }, [loadHistory, teacherId]);
 

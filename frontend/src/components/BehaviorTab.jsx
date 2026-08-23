@@ -5,7 +5,7 @@ import StudentAvatar from './StudentAvatar.jsx';
 import StudentDetailModal from './StudentDetailModal.jsx';
 import { POSITIVE_BEHAVIOR_ICONS, NEGATIVE_BEHAVIOR_ICONS } from '../constants.js';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { buildClassRoster, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
@@ -148,7 +148,7 @@ export default function BehaviorTab({ classId }) {
     setTimeout(() => setFeedback(''), 1500);
     try {
       await api.post('/behavior/log', entry);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/behavior/log', data: entry });
     }
@@ -163,7 +163,7 @@ export default function BehaviorTab({ classId }) {
     setFeedback(t('behaviorLogDeleted'));
     try {
       await api.delete(`/behavior/log/${log.id}`);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'DELETE', url: `/behavior/log/${log.id}` });
     }
@@ -179,7 +179,7 @@ export default function BehaviorTab({ classId }) {
     setShowTypeForm(false);
     try {
       await api.post('/behavior/types', entry);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/behavior/types', data: entry });
     }
@@ -200,7 +200,7 @@ export default function BehaviorTab({ classId }) {
     setFeedback(t('behaviorTypeSaved'));
     try {
       await api.patch(`/behavior/types/${typeId}`, patch);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'PATCH', url: `/behavior/types/${typeId}`, data: patch });
     }
@@ -220,7 +220,7 @@ export default function BehaviorTab({ classId }) {
     setTypes((current) => current.filter((item) => item.id !== type.id));
     try {
       await api.delete(`/behavior/types/${type.id}`);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'DELETE', url: `/behavior/types/${type.id}` });
     }
@@ -245,7 +245,7 @@ export default function BehaviorTab({ classId }) {
     setFeedback(t('behaviorTemplateApplied'));
     try {
       await api.post('/behavior/types', entry);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/behavior/types', data: entry });
       setFeedback(t('behaviorTemplateQueued'));

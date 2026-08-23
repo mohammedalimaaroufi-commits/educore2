@@ -21,7 +21,6 @@ function canUseLocalCache(config = {}) {
   return method === 'get'
     && !url.startsWith('/admin')
     && !url.startsWith('/backup')
-    && !url.includes('/auth/plans')
     && !url.includes('/auth/public-config')
     && !url.includes('/payment-requests');
 }
@@ -89,7 +88,7 @@ export async function getLocalFirst(url, config = {}) {
   const cachedData = indexedData ?? readApiCache(requestKey);
   if (cachedData !== null) {
     // Revalidate without blocking the first paint. The response interceptor updates both caches.
-    void api.get(url, config).catch(() => undefined);
+    const revalidatePromise = api.get(url, config).catch(() => undefined);
     return {
       data: cachedData,
       status: 200,
@@ -98,6 +97,7 @@ export async function getLocalFirst(url, config = {}) {
       config: { ...config, baseURL: api.defaults.baseURL, url },
       request: null,
       fromLocalCache: true,
+      revalidatePromise,
     };
   }
   return api.get(url, config);

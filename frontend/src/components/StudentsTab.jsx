@@ -3,7 +3,7 @@ import api from '../api/client';
 import StudentAvatar from './StudentAvatar.jsx';
 import { resizeImageFile } from '../utils/image.js';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -112,7 +112,7 @@ export default function StudentsTab({ classId }) {
     try {
       if (editingId) await api.patch(`/students/${editingId}`, form);
       else await api.post('/students', payload);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
       setFeedback(t('savedAndSynced'));
     } catch {
       await queueMutation(teacherId, { method: editingId ? 'PATCH' : 'POST', url: editingId ? `/students/${editingId}` : '/students', data: payload });
@@ -128,7 +128,7 @@ export default function StudentsTab({ classId }) {
     applySnapshot(next);
     try {
       await api.delete(`/students/${id}`);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'DELETE', url: `/students/${id}` });
     }
@@ -184,7 +184,7 @@ export default function StudentsTab({ classId }) {
       applySnapshot(next);
       setImportMsg(t('importCompleted', '', { imported: data.imported || 0, duplicates: data.duplicates || 0 }));
       setImportPreview(null);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch (error) {
       setImportMsg(apiError(error, t('importOffline')));
     } finally {

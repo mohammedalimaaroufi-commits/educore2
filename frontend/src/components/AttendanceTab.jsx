@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 import StudentDetailModal from './StudentDetailModal.jsx';
 import { ATTENDANCE_STATUS } from '../constants.js';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { getClassData, calculateAttendanceRate } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -89,7 +89,7 @@ export default function AttendanceTab({ classId }) {
     const payload = { session_id: session.id, class_id: classId, session_date: date, records: records.map(({ student_id, status }) => ({ student_id, status })) };
     try {
       await api.post('/attendance/session', payload);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
       setFeedback(t('attendanceSaved'));
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/attendance/session', data: payload });

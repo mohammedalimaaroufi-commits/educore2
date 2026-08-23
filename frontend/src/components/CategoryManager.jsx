@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
+import api, { getLocalFirst } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
 import { getClassData } from '../utils/analyticsSelectors.js';
@@ -37,27 +37,27 @@ export default function CategoryManager({ classId, refreshKey, onChange }) {
   };
 
   const load = async () => {
+    const local = await getOrSyncSnapshot(teacherId);
+    const localCategories = getClassData(local, classId).categories || [];
+    setCategories(localCategories);
+    setTotalWeight(localCategories.reduce((sum, item) => sum + Number(item.weight_percent || 0), 0));
+
     try {
       const { data } = await api.get('/grades/categories', { params: { class_id: classId } });
       const next = data.categories || [];
       setCategories(next);
       setTotalWeight(Number(data.totalWeight || next.reduce((sum, item) => sum + Number(item.weight_percent || 0), 0)));
     } catch {
-      const local = await getOrSyncSnapshot(teacherId);
-      const classData = getClassData(local, classId);
-      const next = classData.categories || [];
-      setCategories(next);
-      setTotalWeight(next.reduce((sum, item) => sum + Number(item.weight_percent || 0), 0));
       setFeedback(t('offline'));
     }
     try {
-      const { data } = await api.get('/schemes');
+      const { data } = await getLocalFirst('/schemes');
       persistSchemes(data.schemes || []);
     } catch {
       // Cached schemes remain available while offline.
     }
     try {
-      const { data } = await api.get('/schemes/assignments');
+      const { data } = await getLocalFirst('/schemes/assignments');
       const assignment = data.assignments?.[classId] || null;
       setClassAssignment(assignment);
       if (assignment?.scheme_id) setSelectedSchemeId(String(assignment.scheme_id));

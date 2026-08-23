@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
 import { getTeacherId, readSessionCache } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -183,7 +183,7 @@ export default function GradeMatrix({ classId, className }) {
     }
     try {
       await api.post('/grades/matrix', { entries: [entry] });
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/grades/matrix', data: { entries: [entry] } });
     } finally {
@@ -276,7 +276,7 @@ export default function GradeMatrix({ classId, className }) {
         setSnapshot(syncedSnapshot);
         void saveSnapshot(teacherId, syncedSnapshot);
       }
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'POST', url: '/grades/assessments', data: payload });
     }
@@ -298,7 +298,7 @@ export default function GradeMatrix({ classId, className }) {
     }
     try {
       await api.patch(`/grades/assessments/${assessment.id}`, patch);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'PATCH', url: `/grades/assessments/${assessment.id}`, data: patch });
     }
@@ -327,7 +327,7 @@ export default function GradeMatrix({ classId, className }) {
     }
     try {
       await api.delete(`/grades/assessments/${assessment.id}`);
-      void syncSnapshot(teacherId, { force: true });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch {
       await queueMutation(teacherId, { method: 'DELETE', url: `/grades/assessments/${assessment.id}` });
     }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api, { invalidateApiCache } from '../api/client';
+import api, { getLocalFirst, invalidateApiCache } from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { getTeacherId, readProfileDraft, removeProfileDraft, savePendingProfile, saveProfileDraft } from '../utils/localCache.js';
@@ -125,7 +125,7 @@ function RecommendationsTab() {
   const persistRules = (next) => { setRules(next); writeSettingsCache(teacherId, 'grade-recommendations', next); };
   const loadRules = async () => {
     try {
-      const { data } = await api.get('/settings/grade-recommendations');
+      const { data } = await getLocalFirst('/settings/grade-recommendations');
       persistRules(data.rules || []);
     } catch {
       if (!rules.length) setRules([]);
@@ -288,7 +288,7 @@ function TemplatesTab() {
   const persistTemplates = (next) => { setTemplates(next); writeSettingsCache(teacherId, 'comment-templates', next); };
   const loadTemplates = async () => {
     try {
-      const { data } = await api.get('/settings/comment-templates');
+      const { data } = await getLocalFirst('/settings/comment-templates');
       persistTemplates(data.templates || []);
     } catch {
       if (!templates.length) setTemplates([]);

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import api, { getLocalFirst } from '../api/client';
-import { flushOutbox, syncSnapshot } from '../utils/snapshotSync.js';
+import { flushOutbox, scheduleBackgroundSync, syncSnapshot } from '../utils/snapshotSync.js';
 import { clearTeacherDatabase } from '../utils/localDb.js';
 import {
   buildRequestKey,
@@ -175,10 +175,11 @@ export function AuthProvider({ children }) {
       void flushOutbox(data.teacher?.id);
       void syncSnapshot(data.teacher?.id);
       if (response.fromLocalCache && !force) {
-        void api.get('/auth/me').then(({ data: freshData }) => {
-          applySession(freshData);
+        void response.revalidatePromise?.then((freshResponse) => {
+          if (!freshResponse?.data) return;
+          applySession(freshResponse.data);
           setOffline(false);
-        }).catch(() => undefined);
+        });
       }
     } catch (error) {
       const responseStatus = error?.response?.status;
@@ -221,16 +222,25 @@ export function AuthProvider({ children }) {
         const currentTeacher = readStoredTeacher();
         if (currentTeacher?.id) {
           void flushOutbox(currentTeacher.id);
-          void syncSnapshot(currentTeacher.id, { force: true });
+          scheduleBackgroundSync(currentTeacher.id, { force: true, delayMs: 350 });
         }
       });
     };
     const handleOffline = () => setOffline(true);
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const currentTeacher = readStoredTeacher();
+      if (!currentTeacher?.id) return;
+      void flushOutbox(currentTeacher.id);
+      scheduleBackgroundSync(currentTeacher.id, { delayMs: 900 });
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refreshMe]);
 

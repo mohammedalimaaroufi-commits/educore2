@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../api/client';
+import api, { getLocalFirst } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
 import { queueMutation } from '../utils/snapshotSync.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
@@ -26,7 +26,7 @@ export default function SchemesManager({ classId, onApplied }) {
 
   const load = async () => {
     try {
-      const { data } = await api.get('/schemes');
+      const { data } = await getLocalFirst('/schemes');
       persist(data.schemes || []);
     } catch {
       if (!schemes.length) setFeedback(t('offline'));

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../api/client';
+import api, { getLocalFirst } from '../api/client';
 import Icon from './Icon.jsx';
 import { POSITIVE_BEHAVIOR_ICONS, NEGATIVE_BEHAVIOR_ICONS } from '../constants.js';
 import { getTeacherId } from '../utils/localCache.js';
@@ -28,7 +28,7 @@ export default function BehaviorTemplateManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/settings/behavior-templates');
+      const { data } = await getLocalFirst('/settings/behavior-templates');
       persist(data.templates || []);
     } catch {
       if (!templates.length) setFeedback(t('offline'));

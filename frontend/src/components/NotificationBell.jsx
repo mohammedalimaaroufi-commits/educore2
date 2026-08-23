@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
-import { connectSocket } from '../api/socket';
+import { getPublicConfigState, subscribePublicConfig } from '../utils/publicConfigStore.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 import Icon from './Icon.jsx';
 
@@ -33,66 +32,28 @@ function contentFor(item, locale, fallbackPrefix) {
 export default function NotificationBell() {
   const { locale } = useLocale();
   const [open, setOpen] = useState(false);
-  const [announcement, setAnnouncement] = useState(null);
-  const [notifications, setNotifications] = useState([]);
+  const [publicConfig, setPublicConfig] = useState(() => getPublicConfigState());
   const [dismissed, setDismissed] = useState({});
   const [read, setRead] = useState({});
 
-  useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        const { data } = await api.get('/auth/public-config');
-        if (!active) return;
-        setAnnouncement(data.announcement || null);
-        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
-      } catch {
-        // Keep the current list when the connection is temporarily unavailable.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 30 * 1000);
-    const onFocus = () => { void refresh(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
+  useEffect(() => subscribePublicConfig(setPublicConfig), []);
 
-    const clearAnnouncementDismissals = () => {
-      setDismissed((current) => {
-        const next = { ...current };
-        Object.keys(next).filter((key) => key.startsWith('bell-announcement')).forEach((key) => { delete next[key]; });
-        return next;
-      });
-      setRead((current) => {
-        const next = { ...current };
-        Object.keys(next).filter((key) => key.startsWith('bell-announcement')).forEach((key) => { delete next[key]; });
-        return next;
-      });
-      try {
-        Object.keys(localStorage)
-          .filter((key) => key.startsWith(`${DISMISSED_PREFIX}bell-announcement`) || key.startsWith(`${READ_PREFIX}bell-announcement`))
-          .forEach((key) => localStorage.removeItem(key));
-      } catch { /* storage may be unavailable */ }
-    };
-    const onPublicConfigUpdated = (payload = {}) => {
-      if (payload.announcement !== false) clearAnnouncementDismissals();
-      void refresh();
-    };
-    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
-    socket?.on('public_config_updated', onPublicConfigUpdated);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-      socket?.disconnect();
-    };
-  }, []);
+  useEffect(() => {
+    const event = publicConfig.lastEvent;
+    if (!event || event.announcement === false) return;
+    setDismissed((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('bell-announcement'))));
+    setRead((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('bell-announcement'))));
+    try {
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith(`${DISMISSED_PREFIX}bell-announcement`) || key.startsWith(`${READ_PREFIX}bell-announcement`))
+        .forEach((key) => localStorage.removeItem(key));
+    } catch { /* storage may be unavailable */ }
+  }, [publicConfig.revision]);
 
   const contents = useMemo(() => [
-    contentFor(announcement, locale, 'bell-announcement'),
-    ...notifications.map((item) => contentFor(item, locale, 'bell-notification')),
-  ].filter(Boolean), [announcement, notifications, locale]);
+    contentFor(publicConfig.announcement, locale, 'bell-announcement'),
+    ...(publicConfig.notifications || []).map((item) => contentFor(item, locale, 'bell-notification')),
+  ].filter(Boolean), [publicConfig.announcement, publicConfig.notifications, locale]);
 
   const visible = contents.filter((item) => !dismissed[item.key] && !storageFlag(item.key, DISMISSED_PREFIX));
   const unreadCount = visible.filter((item) => !read[item.key] && !storageFlag(item.key, READ_PREFIX)).length;

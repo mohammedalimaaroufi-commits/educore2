@@ -25,6 +25,10 @@ export const DEFAULT_SYNC_SETTINGS = {
   enabled: true,
 };
 
+const syncPromises = new Map();
+const outboxPromises = new Map();
+const backgroundTimers = new Map();
+
 export async function getSyncSettings() {
   return getMeta(SYNC_META_KEY, DEFAULT_SYNC_SETTINGS);
 }
@@ -72,28 +76,59 @@ export async function loadLocalSnapshot(teacherId) {
   return pruneExpiredMessages(await getSnapshot(teacherId));
 }
 
-export async function syncSnapshot(teacherId, { force = false } = {}) {
+async function performSyncSnapshot(teacherId, { force = false } = {}) {
+  const local = pruneExpiredMessages(await getSnapshot(teacherId));
   if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) {
-    return { snapshot: pruneExpiredMessages(await getSnapshot(teacherId)), fromLocal: true, skipped: true };
+    return { snapshot: local, fromLocal: true, skipped: true };
+  }
+  // Never let a server snapshot overwrite local mutations that are still waiting
+  // in the outbox. The flush path schedules a fresh sync after the queue is sent.
+  if ((await listOutbox(teacherId)).length > 0) {
+    return { snapshot: local, fromLocal: true, skipped: true, pending: true };
   }
   const settings = await getSyncSettings();
   if (!force && !(await shouldSync(teacherId, settings))) {
-    return { snapshot: pruneExpiredMessages(await getSnapshot(teacherId)), fromLocal: true, skipped: true };
+    return { snapshot: local, fromLocal: true, skipped: true };
   }
   try {
-    const { data } = await api.get('/sync/snapshot', { timeout: 45_000 });
+    const { data } = await api.get('/sync/snapshot', { timeout: force ? 20_000 : 15_000 });
     const cleaned = pruneExpiredMessages(data);
     await saveSnapshot(teacherId, cleaned);
     await setLastSync(teacherId, Date.now());
     return { snapshot: cleaned, fromLocal: false, skipped: false };
   } catch {
-    return { snapshot: pruneExpiredMessages(await getSnapshot(teacherId)), fromLocal: true, skipped: true };
+    return { snapshot: local, fromLocal: true, skipped: true };
   }
+}
+
+export function syncSnapshot(teacherId, options = {}) {
+  if (!teacherId) return Promise.resolve({ snapshot: null, fromLocal: true, skipped: true });
+  const running = syncPromises.get(teacherId);
+  if (running) return running;
+  const promise = performSyncSnapshot(teacherId, options).finally(() => syncPromises.delete(teacherId));
+  syncPromises.set(teacherId, promise);
+  return promise;
+}
+
+export function scheduleBackgroundSync(teacherId, options = {}) {
+  if (!teacherId) return;
+  const existing = backgroundTimers.get(teacherId);
+  if (existing && !(options.force && !existing.force)) return;
+  if (existing) window.clearTimeout(existing.timer);
+  const run = () => {
+    backgroundTimers.delete(teacherId);
+    void syncSnapshot(teacherId, options);
+  };
+  const timer = window.setTimeout(run, Number(options.delayMs || 1200));
+  backgroundTimers.set(teacherId, { timer, force: Boolean(options.force) });
 }
 
 export async function getOrSyncSnapshot(teacherId) {
   const local = pruneExpiredMessages(await getSnapshot(teacherId));
-  if (local) return local;
+  if (local) {
+    scheduleBackgroundSync(teacherId);
+    return local;
+  }
   return (await syncSnapshot(teacherId, { force: true })).snapshot;
 }
 
@@ -101,14 +136,14 @@ export async function queueMutation(teacherId, operation) {
   return enqueueOutbox(teacherId, operation);
 }
 
-export async function flushOutbox(teacherId) {
+async function performFlushOutbox(teacherId) {
   if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0, failed: 0 };
   const items = await listOutbox(teacherId);
   let sent = 0;
   let failed = 0;
   for (const item of items) {
     try {
-      await api.request({ method: item.method, url: item.url, data: item.data, params: item.params, timeout: 20_000 });
+      await api.request({ method: item.method, url: item.url, data: item.data, params: item.params, timeout: 15_000 });
       await removeOutbox(item.id);
       sent += 1;
     } catch {
@@ -117,8 +152,17 @@ export async function flushOutbox(teacherId) {
       break;
     }
   }
-  if (sent > 0) await syncSnapshot(teacherId, { force: true });
+  if (sent > 0) scheduleBackgroundSync(teacherId, { force: true, delayMs: 350 });
   return { sent, failed };
+}
+
+export function flushOutbox(teacherId) {
+  if (!teacherId) return Promise.resolve({ sent: 0, failed: 0 });
+  const running = outboxPromises.get(teacherId);
+  if (running) return running;
+  const promise = performFlushOutbox(teacherId).finally(() => outboxPromises.delete(teacherId));
+  outboxPromises.set(teacherId, promise);
+  return promise;
 }
 
 export function getSyncIntervalLabel(frequency) {

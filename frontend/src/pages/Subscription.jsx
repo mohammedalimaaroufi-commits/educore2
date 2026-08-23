@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api/client';
+import api, { getLocalFirst } from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
-import { connectSocket } from '../api/socket';
+import { connectSocket, releaseSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 const FALLBACK_PLANS = [
@@ -139,7 +139,7 @@ export default function Subscription() {
     let active = true;
     const loadPlans = async () => {
       try {
-        const { data } = await api.get('/auth/plans');
+        const { data } = await getLocalFirst('/auth/plans');
         if (!active) return;
         setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
         setPhone(data.payment_phone || data.payment?.phone || '');
@@ -163,7 +163,8 @@ export default function Subscription() {
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
-      socket.disconnect();
+      socket.off('subscription_config_updated', loadPlans);
+      releaseSocket(socket, { onReconnect: loadPlans });
     };
   }, [refreshMe]);
 
