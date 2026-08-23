@@ -343,7 +343,14 @@ router.get('/teachers', (req, res) => {
   const definitions = getPlanDefinitions();
   const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
                               s.id AS subscription_id, s.plan, s.status, s.trial_start_date, s.trial_end_date,
-                              s.current_period_start, s.current_period_end
+                              s.current_period_start, s.current_period_end,
+                              pr.id AS approved_request_id,
+                              pr.plan AS approved_plan,
+                              pr.offer_id AS approved_offer_id,
+                              pr.amount_omr AS approved_amount_omr,
+                              pr.original_amount_omr AS approved_original_amount_omr,
+                              pr.reviewed_at AS approved_reviewed_at,
+                              pr.created_at AS approved_created_at
                             FROM teachers t
                             LEFT JOIN subscriptions s ON s.id = (
                               SELECT s2.id FROM subscriptions s2
@@ -353,21 +360,13 @@ router.get('/teachers', (req, res) => {
                                        datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
                               LIMIT 1
                             )
+                            LEFT JOIN payment_requests pr ON pr.id = (
+                              SELECT pr2.id FROM payment_requests pr2
+                              WHERE pr2.teacher_id = t.id AND pr2.status = 'approved'
+                              ORDER BY COALESCE(pr2.reviewed_at, pr2.created_at) DESC, pr2.created_at DESC, pr2.id DESC
+                              LIMIT 1
+                            )
                             ORDER BY t.created_at DESC`).all();
-
-  // Fetch the latest approved request for every teacher in one query instead of one
-  // query per teacher. Approved payment remains the display authority, but this list
-  // route does not reconcile or repair subscription rows during a read.
-  const approvedRows = db.prepare(`WITH ranked_requests AS (
-    SELECT pr.*, ROW_NUMBER() OVER (
-      PARTITION BY pr.teacher_id
-      ORDER BY COALESCE(pr.reviewed_at, pr.created_at) DESC, pr.created_at DESC, pr.id DESC
-    ) AS request_rank
-    FROM payment_requests pr
-    WHERE pr.status = 'approved'
-  )
-  SELECT * FROM ranked_requests WHERE request_rank = 1`).all();
-  const approvedByTeacher = new Map(approvedRows.map((item) => [String(item.teacher_id), item]));
 
   // Account status is a small key-value record. Read all such records once; the
   // detailed restriction document is deliberately excluded from this fast list.
@@ -387,7 +386,14 @@ router.get('/teachers', (req, res) => {
   }
 
   const teachers = rows.map((row) => {
-    const latestApproved = approvedByTeacher.get(String(row.id));
+    const latestApproved = row.approved_request_id ? {
+      plan: row.approved_plan,
+      offer_id: row.approved_offer_id,
+      amount_omr: row.approved_amount_omr,
+      original_amount_omr: row.approved_original_amount_omr,
+      reviewed_at: row.approved_reviewed_at,
+      created_at: row.approved_created_at,
+    } : null;
     const approvedPlan = latestApproved
       ? resolvePlanId(latestApproved.plan, {
         definitions,
