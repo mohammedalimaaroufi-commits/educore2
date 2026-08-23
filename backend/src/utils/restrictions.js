@@ -1,17 +1,13 @@
 const db = require('../db');
 
 const RESTRICTABLE_FEATURES = ['students', 'gradebook', 'behavior', 'attendance', 'analytics', 'reports'];
-const RESTRICTIONS_PREFIX = 'teacher_restrictions:';
+const GLOBAL_RESTRICTIONS_KEY = 'subscription_expiry_restrictions';
 const DEFAULT_RESTRICTIONS = {
   enabled: false,
   apply_when_expired: true,
   blocked_features: [],
   note: '',
 };
-
-function restrictionsKey(teacherId) {
-  return `${RESTRICTIONS_PREFIX}${teacherId}`;
-}
 
 function parseStored(value) {
   if (!value) return {};
@@ -35,18 +31,27 @@ function normalizeRestrictions(input = {}) {
   };
 }
 
-function getConfiguredRestrictions(teacherId) {
-  if (!teacherId) return { ...DEFAULT_RESTRICTIONS };
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(restrictionsKey(teacherId));
+function getGlobalRestrictions() {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(GLOBAL_RESTRICTIONS_KEY);
   return { ...DEFAULT_RESTRICTIONS, ...normalizeRestrictions(parseStored(row?.value)) };
 }
 
-function saveTeacherRestrictions(teacherId, input) {
+function saveGlobalRestrictions(input = {}) {
   const normalized = { ...DEFAULT_RESTRICTIONS, ...normalizeRestrictions(input) };
   db.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
-    .run(restrictionsKey(teacherId), JSON.stringify(normalized));
+    .run(GLOBAL_RESTRICTIONS_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+// Compatibility aliases: the policy is intentionally global now. Legacy callers
+// may still pass a teacher id, but that id is ignored and no per-teacher setting is written.
+function getConfiguredRestrictions() {
+  return getGlobalRestrictions();
+}
+
+function saveTeacherRestrictions(_teacherId, input) {
+  return saveGlobalRestrictions(input);
 }
 
 function subscriptionHasExpired(subscription) {
@@ -56,8 +61,8 @@ function subscriptionHasExpired(subscription) {
   return Boolean(end && Number.isFinite(new Date(end).getTime()) && new Date(end).getTime() <= Date.now());
 }
 
-function getEffectiveRestrictions(teacherId, subscription = null) {
-  const configured = getConfiguredRestrictions(teacherId);
+function getEffectiveRestrictions(_teacherId, subscription = null) {
+  const configured = getGlobalRestrictions();
   const expired = subscriptionHasExpired(subscription);
   const autoActive = configured.apply_when_expired && expired;
   const active = configured.enabled || autoActive;
@@ -71,9 +76,12 @@ function getEffectiveRestrictions(teacherId, subscription = null) {
 }
 
 module.exports = {
+  GLOBAL_RESTRICTIONS_KEY,
   RESTRICTABLE_FEATURES,
   DEFAULT_RESTRICTIONS,
   normalizeRestrictions,
+  getGlobalRestrictions,
+  saveGlobalRestrictions,
   getConfiguredRestrictions,
   saveTeacherRestrictions,
   getEffectiveRestrictions,

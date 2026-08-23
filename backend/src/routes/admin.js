@@ -5,7 +5,7 @@ const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
 const { getTrialDays, getPublicPlans, getPlanDefinitions, savePlanDefinitions, getBasePrices, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
 const { getAdminPublicConfig, savePublicConfig } = require('../utils/publicConfig');
-const { RESTRICTABLE_FEATURES, getConfiguredRestrictions, saveTeacherRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
+const { RESTRICTABLE_FEATURES, getGlobalRestrictions, saveGlobalRestrictions, getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, saveAccountStatus } = require('../utils/accountStatus');
 
 const router = express.Router();
@@ -260,20 +260,34 @@ router.delete('/teachers/:teacherId', (req, res) => {
   res.json({ success: true, deleted_teacher_id: teacher.id, email: teacher.email });
 });
 
-// GET /api/admin/teachers/:teacherId/restrictions
+// GET /api/admin/subscription-restrictions -> one policy for every teacher whose subscription expires
+router.get('/subscription-restrictions', (req, res) => {
+  res.json({ restrictions: getGlobalRestrictions(), features: RESTRICTABLE_FEATURES });
+});
+
+// PATCH /api/admin/subscription-restrictions -> saves the global expiry policy
+router.patch('/subscription-restrictions', (req, res) => {
+  const restrictions = saveGlobalRestrictions(req.body?.restrictions || req.body || {});
+  const io = req.app.get('io');
+  if (io) io.to('public').emit('subscription_restrictions_updated', { updated_at: new Date().toISOString() });
+  res.json({ restrictions, features: RESTRICTABLE_FEATURES });
+});
+
+// Legacy compatibility: older clients may still request a teacher-scoped URL.
+// It now returns the same global policy and never creates per-teacher settings.
 router.get('/teachers/:teacherId/restrictions', (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email FROM teachers WHERE id = ?').get(req.params.teacherId);
   if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
   const rawSubscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END, CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
   const subscription = repairPaidSubscriptionPeriod(reconcileApprovedSubscription(teacher.id, rawSubscription), { definitions: getPlanDefinitions() });
-  res.json({ teacher, restrictions: getConfiguredRestrictions(teacher.id), effective: getEffectiveRestrictions(teacher.id, subscription), features: RESTRICTABLE_FEATURES });
+  res.json({ teacher, restrictions: getGlobalRestrictions(), effective: getEffectiveRestrictions(teacher.id, subscription), features: RESTRICTABLE_FEATURES });
 });
 
-// PATCH /api/admin/teachers/:teacherId/restrictions
+// Legacy compatibility for teacher-scoped PATCH calls; writes the global policy.
 router.patch('/teachers/:teacherId/restrictions', (req, res) => {
   const teacher = db.prepare('SELECT id FROM teachers WHERE id = ?').get(req.params.teacherId);
   if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
-  const restrictions = saveTeacherRestrictions(teacher.id, req.body?.restrictions || req.body || {});
+  const restrictions = saveGlobalRestrictions(req.body?.restrictions || req.body || {});
   res.json({ restrictions, features: RESTRICTABLE_FEATURES });
 });
 
