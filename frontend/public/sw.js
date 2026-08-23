@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const SHELL_CACHE = `educore-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `educore-runtime-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
@@ -22,14 +22,14 @@ self.addEventListener('activate', (event) => {
 
 async function cacheNetworkResponse(request, cacheName, cached = null) {
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: 'no-store' });
     if (response.ok) {
       const copy = response.clone();
       void caches.open(cacheName).then((cache) => cache.put(request, copy));
     }
     return response;
   } catch {
-    return cached || Response.error();
+    return cached || null;
   }
 }
 
@@ -40,10 +40,8 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const network = cacheNetworkResponse(request, RUNTIME_CACHE, cached).catch(() => caches.match('/') || Response.error());
-        return cached || network;
-      }),
+      caches.match(request).then((cached) => cacheNetworkResponse(request, RUNTIME_CACHE, cached)
+        .then((response) => response || cached || caches.match('/') || Response.error())),
     );
     return;
   }
