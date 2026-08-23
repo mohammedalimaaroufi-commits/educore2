@@ -34,7 +34,8 @@ export function getCategoryAssessments(category) {
 export function getAssessmentMaxScore(category, assessment) {
   const weight = Number(category?.weight_percent || 0);
   const onlyCategoryAssessment = (category?.assessments || []).length <= 1;
-  if (weight > 0 && (Number(assessment?.is_summary) === 1 || onlyCategoryAssessment)) {
+  const isDetailedCategory = category?.grading_mode === 'detailed';
+  if (weight > 0 && (Number(assessment?.is_summary) === 1 || (onlyCategoryAssessment && !isDetailedCategory))) {
     return weight;
   }
   return Number(assessment?.max_score || 0);

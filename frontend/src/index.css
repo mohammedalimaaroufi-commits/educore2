@@ -888,3 +888,66 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .admin-announcement-hide { color: #8f5f10; border-color: rgba(224,165,72,.32); background: rgba(224,165,72,.08); }
 .admin-announcement-hide:hover { color: #76531b; border-color: rgba(224,165,72,.5); background: rgba(224,165,72,.14); }
 @media (max-width: 560px) { .admin-announcement-publish-note { align-items: flex-start; flex-direction: column; } }
+
+
+/* Gradebook workspace: the table is the primary work surface; controls stay compact. */
+.gradebook-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: .8rem; margin: 0 0 .65rem; padding: .1rem .15rem .55rem; }
+.gradebook-toolbar__title { min-width: 0; display: grid; gap: .35rem; }
+.gradebook-toolbar__title-row { display: flex; align-items: center; gap: .55rem; }
+.gradebook-toolbar__marker { width: 2rem; height: 2rem; flex: 0 0 auto; display: grid; place-items: center; color: #2e7d6b; background: rgba(46,125,107,.1); border: 1px solid rgba(46,125,107,.18); border-radius: .65rem; }
+.gradebook-toolbar__title h3 { margin: 0; color: #1b2430; font-size: 1rem; font-weight: 850; }
+.gradebook-toolbar__title p { margin: .12rem 0 0; color: rgba(27,36,48,.52); font-size: .72rem; line-height: 1.5; }
+.gradebook-toolbar__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .4rem; }
+.gradebook-toolbar__actions button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; }
+.quick-entry-trigger { min-height: 2.35rem; padding: .45rem .75rem; color: #fff; background: #2e7d6b; border: 1px solid #2e7d6b; border-radius: .65rem; font-size: .78rem; font-weight: 800; box-shadow: 0 6px 14px rgba(46,125,107,.16); transition: transform 160ms var(--ux-ease), background-color 160ms ease, box-shadow 160ms ease; }
+.quick-entry-trigger:hover:not(:disabled) { background: #256a5b; box-shadow: 0 9px 18px rgba(46,125,107,.22); transform: translateY(-1px); }
+.quick-entry-trigger:active:not(:disabled) { transform: scale(.97); }
+.quick-entry-trigger:disabled { cursor: not-allowed; opacity: .45; }
+.class-tab-panel--gradebook .grade-matrix-card { min-height: clamp(28rem, calc(100dvh - 22rem), 52rem); }
+.class-tab-panel--gradebook .grade-matrix-scroll { height: clamp(28rem, calc(100dvh - 22rem), 52rem); max-height: none; }
+.quick-grade-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; overflow: auto; padding: 1rem; background: rgba(15,29,38,.52); backdrop-filter: blur(5px); animation: ux-dialog-in 160ms var(--ux-ease); }
+.quick-grade-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; color: #1b2430; background: #fff; border: 1px solid rgba(27,36,48,.1); border-radius: 1.15rem; box-shadow: 0 24px 70px rgba(15,29,38,.24); }
+.quick-grade-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; padding: 1.05rem 1.15rem .9rem; background: linear-gradient(135deg, rgba(46,125,107,.12), rgba(63,111,176,.06)); border-bottom: 1px solid rgba(27,36,48,.08); }
+.quick-grade-dialog__eyebrow { display: block; margin-bottom: .2rem; color: #2e7d6b; font-size: .68rem; font-weight: 800; }
+.quick-grade-dialog__header h3 { margin: 0; font-size: 1.1rem; font-weight: 850; }
+.quick-grade-dialog__close { width: 2.1rem; height: 2.1rem; min-height: 2.1rem; display: grid; place-items: center; color: rgba(27,36,48,.55); background: rgba(255,255,255,.75); border: 1px solid rgba(27,36,48,.1); border-radius: .65rem; }
+.quick-grade-dialog__close:hover { color: #c1553d; background: #fff; border-color: rgba(193,85,61,.25); }
+.quick-grade-dialog__body { display: grid; gap: .9rem; padding: 1.05rem 1.15rem 1.15rem; }
+.quick-grade-field { display: grid; gap: .35rem; }
+.quick-grade-field > span { color: rgba(27,36,48,.58); font-size: .72rem; font-weight: 800; }
+.quick-grade-field select { min-height: 2.65rem; font-size: .86rem; }
+.quick-grade-progress { display: grid; gap: .45rem; padding: .7rem .8rem; background: #f7faf9; border: 1px solid rgba(46,125,107,.12); border-radius: .75rem; }
+.quick-grade-progress > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: .5rem; color: rgba(27,36,48,.55); font-size: .7rem; }
+.quick-grade-progress strong { color: #2e7d6b; font-size: .78rem; }
+.quick-grade-progress__track { height: .35rem; overflow: hidden; background: rgba(46,125,107,.12); border-radius: 999px; }
+.quick-grade-progress__track span { display: block; height: 100%; background: #2e7d6b; border-radius: inherit; transition: width 180ms var(--ux-ease); }
+.quick-grade-student { display: flex; align-items: center; gap: .7rem; padding: .85rem .9rem; background: #1b2430; border-radius: .8rem; color: #fff; }
+.quick-grade-student__index { width: 2.25rem; height: 2.25rem; flex: 0 0 auto; display: grid; place-items: center; color: #1b2430; background: #e0a548; border-radius: .7rem; font-size: .92rem; font-weight: 900; }
+.quick-grade-student div { display: grid; gap: .15rem; min-width: 0; }
+.quick-grade-student div span { color: rgba(255,255,255,.58); font-size: .65rem; }
+.quick-grade-student strong { overflow: hidden; font-size: 1.05rem; text-overflow: ellipsis; white-space: nowrap; }
+.quick-grade-form { display: grid; gap: .65rem; }
+.quick-grade-input-wrap { display: flex; align-items: stretch; gap: .45rem; }
+.quick-grade-input { width: 100%; min-height: 3.4rem; padding: .55rem .8rem; direction: ltr; color: #1b2430; background: #fff; border: 2px solid rgba(46,125,107,.32); border-radius: .8rem; font-size: 1.45rem; font-weight: 850; text-align: center; outline: none; }
+.quick-grade-input:focus { border-color: #2e7d6b; box-shadow: 0 0 0 4px rgba(46,125,107,.12); }
+.quick-grade-input-wrap b { display: inline-flex; align-items: center; min-width: 3.5rem; padding: 0 .6rem; color: rgba(27,36,48,.5); background: #f4f7f6; border: 1px solid rgba(27,36,48,.08); border-radius: .7rem; font-size: .82rem; }
+.quick-grade-error { margin: 0; color: #c1553d; font-size: .72rem; font-weight: 700; }
+.quick-grade-save { min-height: 2.85rem; display: inline-flex; align-items: center; justify-content: center; gap: .45rem; color: #fff; background: #2e7d6b; border: 1px solid #2e7d6b; border-radius: .7rem; font-size: .84rem; font-weight: 850; transition: transform 160ms var(--ux-ease), background-color 160ms ease; }
+.quick-grade-save:hover { background: #256a5b; transform: translateY(-1px); }
+.quick-grade-save:active { transform: scale(.98); }
+.quick-grade-tip { margin: 0; color: rgba(27,36,48,.48); font-size: .68rem; line-height: 1.6; text-align: center; }
+@media (max-width: 760px) {
+  .gradebook-toolbar { align-items: stretch; flex-direction: column; gap: .5rem; margin-bottom: .45rem; padding-bottom: .4rem; }
+  .gradebook-toolbar__actions { justify-content: stretch; }
+  .gradebook-toolbar__actions > * { flex: 1 1 auto; }
+  .gradebook-toolbar__actions .gradebook-local-status { flex-basis: 100%; order: -1; }
+  .class-tab-panel--gradebook .grade-matrix-card, .class-tab-panel--gradebook .grade-matrix-scroll { min-height: clamp(24rem, calc(100dvh - 19rem), 38rem); height: clamp(24rem, calc(100dvh - 19rem), 38rem); }
+  .quick-grade-backdrop { align-items: start; padding: .65rem; }
+  .quick-grade-dialog { max-height: calc(100dvh - 1.3rem); }
+}
+@media (max-width: 430px) {
+  .gradebook-toolbar__actions > button span { display: none; }
+  .gradebook-toolbar__actions > button { min-width: 2.45rem; padding-inline: .55rem; }
+  .quick-grade-dialog__body { padding: .9rem; }
+  .quick-grade-student strong { font-size: .95rem; }
+}

@@ -7,6 +7,7 @@ import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAss
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { useConfirmDialog } from './ConfirmDialog.jsx';
+import Icon from './Icon.jsx';
 
 const CATEGORY_COLORS = ['#2E7D6B', '#3F6FB0', '#7A5CA1', '#C1553D', '#B98A2E', '#3F9C86'];
 
@@ -79,6 +80,12 @@ export default function GradeMatrix({ classId, className }) {
   const [assessmentForm, setAssessmentForm] = useState({ title: '', max_score: '', date: '' });
   const [savingKey, setSavingKey] = useState(null);
   const [savedKey, setSavedKey] = useState(null);
+  const [quickEntryOpen, setQuickEntryOpen] = useState(false);
+  const [quickAssessmentId, setQuickAssessmentId] = useState('');
+  const [quickStudentIndex, setQuickStudentIndex] = useState(0);
+  const [quickScore, setQuickScore] = useState('');
+  const [quickError, setQuickError] = useState('');
+  const quickScoreRef = useRef(null);
   const teacherId = getTeacherId();
 
   const load = async () => {
@@ -113,6 +120,31 @@ export default function GradeMatrix({ classId, className }) {
   };
   const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
   const coverageLabel = (coverage) => coverage.percent === null ? t('noGrading') : t('gradingCoverage', '', { percent: coverage.percent, entered: coverage.entered_count, total: coverage.total_students });
+  const quickOptions = useMemo(() => categories.flatMap((category) => itemsFor(category).map((assessment) => ({ category, assessment }))), [categories]);
+  const quickSelection = quickOptions.find((option) => String(option.assessment.id) === String(quickAssessmentId)) || null;
+  const quickStudent = students[quickStudentIndex] || null;
+
+  useEffect(() => {
+    if (!quickEntryOpen || quickOptions.length === 0) return;
+    if (!quickOptions.some((option) => String(option.assessment.id) === String(quickAssessmentId))) {
+      setQuickAssessmentId(String(quickOptions[0].assessment.id));
+    }
+  }, [quickEntryOpen, quickOptions, quickAssessmentId]);
+
+  useEffect(() => {
+    if (!quickEntryOpen || !quickSelection || !quickStudent) return;
+    const current = grades[cellKey(quickSelection.assessment.id, quickStudent.id)]?.score_numeric;
+    setQuickScore(current ?? '');
+    setQuickError('');
+    window.requestAnimationFrame(() => quickScoreRef.current?.focus());
+  }, [quickEntryOpen, quickSelection?.assessment.id, quickStudent?.id]);
+
+  useEffect(() => {
+    if (!quickEntryOpen) return undefined;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setQuickEntryOpen(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [quickEntryOpen]);
   const detailTotalFor = (category) => (category.assessments || [])
     .filter((assessment) => !Number(assessment.is_summary))
     .reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
@@ -134,9 +166,9 @@ export default function GradeMatrix({ classId, className }) {
     }));
   };
 
-  const saveCell = async (assessmentId, studentId) => {
+  const saveCell = async (assessmentId, studentId, overrides = {}) => {
     const key = cellKey(assessmentId, studentId);
-    const cell = grades[key] || {};
+    const cell = { ...(grades[key] || {}), ...overrides };
     const entry = {
       assessment_id: assessmentId,
       student_id: studentId,
@@ -158,6 +190,34 @@ export default function GradeMatrix({ classId, className }) {
       setSavingKey(null);
       setSavedKey(key);
       setTimeout(() => setSavedKey((current) => (current === key ? null : current)), 1000);
+    }
+  };
+
+  const openQuickEntry = () => {
+    if (!quickOptions.length) return;
+    setQuickAssessmentId(String(quickSelection?.assessment.id || quickOptions[0].assessment.id));
+    setQuickStudentIndex(0);
+    setQuickError('');
+    setQuickEntryOpen(true);
+  };
+
+  const saveQuickGrade = async (event) => {
+    event?.preventDefault();
+    if (!quickSelection || !quickStudent) return;
+    const max = Number(getAssessmentMaxScore(quickSelection.category, quickSelection.assessment));
+    const value = quickScore === '' ? NaN : Number(quickScore);
+    if (!Number.isFinite(value) || value < 0 || value > max) {
+      setQuickError(t('quickGradeInvalid', '', { max }));
+      return;
+    }
+    setQuickError('');
+    await saveCell(quickSelection.assessment.id, quickStudent.id, { score_numeric: value });
+    if (quickStudentIndex + 1 < students.length) {
+      setQuickStudentIndex((current) => current + 1);
+      setQuickScore('');
+    } else {
+      setQuickEntryOpen(false);
+      setQuickScore('');
     }
   };
 
@@ -287,7 +347,7 @@ export default function GradeMatrix({ classId, className }) {
       const scoreTotal = detailed.reduce((sum, assessment) => sum + Number(gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric || 0), 0);
       return maxTotal > 0 ? (scoreTotal / maxTotal) * Number(category.weight_percent || 0) : null;
     }
-    const summary = items.find((assessment) => Number(assessment.is_summary));
+    const summary = (category.assessments || []).find((assessment) => Number(assessment.is_summary));
     const score = gradeMap.get(cellKey(summary?.id, studentId))?.score_numeric;
     return score === '' || score == null ? null : Number(score);
   };
@@ -373,13 +433,39 @@ export default function GradeMatrix({ classId, className }) {
   return (
     <div>
       {confirmDialog}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 print:hidden">
-        <div>
-          <h3 className="font-bold">{t('fullGradeTable')}</h3>
-          <p className="text-xs text-ink/50">{t('gradebookDescription')}</p><span className="grade-matrix-hint">{t('horizontalHint')}</span>
+      <div className="gradebook-toolbar print:hidden">
+        <div className="gradebook-toolbar__title">
+          <div className="gradebook-toolbar__title-row"><span className="gradebook-toolbar__marker"><Icon name="edit" className="w-4 h-4" /></span><div><h3>{t('fullGradeTable')}</h3><p>{t('gradebookDescription')}</p></div></div>
+          <span className="grade-matrix-hint">{t('horizontalHint')}</span>
         </div>
-        <div className="flex items-center gap-2 flex-wrap"><span className="gradebook-local-status">{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span><button className="btn-secondary text-sm" onClick={exportCSV}>{t('csvExport')}</button><button className="btn-primary text-sm" onClick={downloadGradebookPDF}>{t('downloadPdf')}</button></div>
+        <div className="gradebook-toolbar__actions">
+          <span className="gradebook-local-status">{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span>
+          <button className="quick-entry-trigger" type="button" onClick={openQuickEntry} disabled={!quickOptions.length}><Icon name="edit" className="w-4 h-4" /><span>{t('quickEntry')}</span></button>
+          <button className="btn-secondary text-sm" onClick={exportCSV}><Icon name="reports" className="w-4 h-4" /><span>{t('csvExport')}</span></button>
+          <button className="btn-primary text-sm" onClick={downloadGradebookPDF}><Icon name="fileCheck" className="w-4 h-4" /><span>{t('downloadPdf')}</span></button>
+        </div>
       </div>
+      {quickEntryOpen && quickSelection && quickStudent && <div className="quick-grade-backdrop" role="presentation">
+        <section className="quick-grade-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-grade-title" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+          <header className="quick-grade-dialog__header">
+            <div><span className="quick-grade-dialog__eyebrow">{t('quickEntry')}</span><h3 id="quick-grade-title">{t('quickEntryTitle')}</h3></div>
+            <button type="button" className="quick-grade-dialog__close" onClick={() => setQuickEntryOpen(false)} aria-label={t('quickClose')} title={t('quickClose')}><Icon name="x" className="w-5 h-5" /></button>
+          </header>
+          <div className="quick-grade-dialog__body">
+            <label className="quick-grade-field"><span>{t('quickAssessment')}</span><select className="input" value={quickAssessmentId} onChange={(event) => { setQuickAssessmentId(event.target.value); setQuickStudentIndex(0); setQuickError(''); }}>
+              {quickOptions.map(({ category, assessment }) => <option key={assessment.id} value={assessment.id}>{category.name} — {Number(assessment.is_summary) ? t('categoryScore') : assessment.title} ({getAssessmentMaxScore(category, assessment)})</option>)}
+            </select></label>
+            <div className="quick-grade-progress"><div><span>{t('quickStudentLabel')}</span><strong>{quickStudentIndex + 1} / {students.length}</strong></div><div className="quick-grade-progress__track"><span style={{ width: `${((quickStudentIndex + 1) / students.length) * 100}%` }} /></div></div>
+            <div className="quick-grade-student"><span className="quick-grade-student__index">{quickStudentIndex + 1}</span><div><span>{t('student')}</span><strong>{quickStudent.full_name}</strong></div></div>
+            <form className="quick-grade-form" onSubmit={saveQuickGrade}>
+              <label className="quick-grade-field"><span>{t('quickScore')}</span><div className="quick-grade-input-wrap"><input ref={quickScoreRef} className="quick-grade-input" type="number" min="0" max={getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)} step="any" inputMode="decimal" value={quickScore} onChange={(event) => { setQuickScore(event.target.value); setQuickError(''); }} aria-label={`${quickStudent.full_name} — ${quickSelection.assessment.title}`} /><b>/ {getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)}</b></div></label>
+              {quickError && <p className="quick-grade-error" role="alert">{quickError}</p>}
+              <button className="quick-grade-save" type="submit"><Icon name="check" className="w-4 h-4" /><span>{quickStudentIndex + 1 < students.length ? t('quickSaveNext') : t('quickFinish')}</span></button>
+            </form>
+            <p className="quick-grade-tip">{t('quickEntryHint')}</p>
+          </div>
+        </section>
+      </div>}
       <div className="card grade-matrix-card">
         <div className="grade-matrix-scroll" role="region" aria-label={t('scrollableGradeTable')}>
         <table className="grade-matrix-table text-xs border-collapse">
