@@ -376,8 +376,8 @@ function TeachersList({ onMessage }) {
       <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع باسم المعلم أو البريد أو المدرسة' : 'Quick search by teacher, email, or school'} aria-label={locale === 'ar' ? 'بحث في المعلمين' : 'Search teachers'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
       {loadError && <div className="admin-list-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)}>{locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
       {actionMessage && <div className="admin-action-feedback" role="status">{actionMessage}</div>}
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="card table-scroll-sticky">
+        <table className="w-full text-sm table-head-sticky">
           <thead className="bg-surface"><tr>
             <th className="text-right px-4 py-2">{locale === 'ar' ? 'الاسم' : 'Name'}</th>
             <th className="text-right px-4 py-2">{locale === 'ar' ? 'البريد' : 'Email'}</th>
@@ -509,24 +509,33 @@ function BroadcastComposer({ onSent }) {
 }
 
 function ChatPanel({ initialTeacher }) {
+  const { locale } = useLocale();
   const [conversations, setConversations] = useState([]);
+  const [presence, setPresence] = useState({});
   const [active, setActive] = useState(initialTeacher || null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const socketRef = useRef(null);
   const scrollRef = useRef(null);
-
   const loadConversations = async () => {
     const { data } = await adminApi.get('/admin/conversations');
-    setConversations(data.conversations);
+    setConversations(Array.isArray(data.conversations) ? data.conversations : []);
   };
-
   useEffect(() => {
-    loadConversations();
+    void loadConversations();
     const token = localStorage.getItem('educore_admin_token');
     if (!token) return undefined;
     const onReconnect = loadConversations;
     const onError = (err) => console.warn('Admin chat connection error', err.message);
+    const onPresenceSnapshot = ({ teacher_ids }) => {
+      const next = {};
+      (Array.isArray(teacher_ids) ? teacher_ids : []).forEach((teacherId) => { next[teacherId] = true; });
+      setPresence(next);
+    };
+    const onPresence = ({ teacher_id, online }) => {
+      if (!teacher_id) return;
+      setPresence((current) => ({ ...current, [teacher_id]: Boolean(online) }));
+    };
     const onNewMessage = (msg) => {
       setConversations((prev) => {
         const existing = prev.find((conversation) => conversation.teacher_id === msg.teacher_id);
@@ -534,12 +543,7 @@ function ChatPanel({ initialTeacher }) {
           void loadConversations();
           return prev;
         }
-        const updated = {
-          ...existing,
-          last_message: msg.text,
-          last_message_at: msg.created_at,
-          unread_count: msg.sender === 'teacher' ? Number(existing.unread_count || 0) + 1 : existing.unread_count,
-        };
+        const updated = { ...existing, last_message: msg.text, last_message_at: msg.created_at, unread_count: msg.sender === 'teacher' ? Number(existing.unread_count || 0) + 1 : existing.unread_count };
         return [updated, ...prev.filter((conversation) => conversation.teacher_id !== msg.teacher_id)];
       });
       setActive((current) => {
@@ -549,52 +553,40 @@ function ChatPanel({ initialTeacher }) {
     };
     const socket = connectSocket(token, { onReconnect, onError });
     socketRef.current = socket;
+    socket.on('teacher_presence_snapshot', onPresenceSnapshot);
+    socket.on('teacher_presence', onPresence);
     socket.on('new_message', onNewMessage);
     return () => {
+      socket.off('teacher_presence_snapshot', onPresenceSnapshot);
+      socket.off('teacher_presence', onPresence);
       socket.off('new_message', onNewMessage);
       releaseSocket(socket, { onReconnect, onError });
       socketRef.current = null;
     };
   }, []);
-
   useEffect(() => {
     if (initialTeacher) setActive(initialTeacher);
   }, [initialTeacher]);
-
   useEffect(() => {
     if (!active) return;
     adminApi.get(`/admin/messages/${active.teacher_id}`).then(({ data }) => setMessages(freshChatMessages(data.messages)));
     socketRef.current?.emit('join_conversation', active.teacher_id);
-    setConversations((prev) => prev.map((conversation) => (
-      conversation.teacher_id === active.teacher_id
-        ? { ...conversation, unread_count: 0 }
-        : conversation
-    )));
+    setConversations((prev) => prev.map((conversation) => conversation.teacher_id === active.teacher_id ? { ...conversation, unread_count: 0 } : conversation));
   }, [active]);
-
   useEffect(() => {
     const timer = window.setInterval(() => setMessages((current) => freshChatMessages(current)), 60 * 1000);
     return () => window.clearInterval(timer);
   }, []);
-
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
-
   const send = async (e) => {
     e.preventDefault();
     if (!text.trim() || !active) return;
     const draft = text.trim();
     setText('');
     const clientMessageId = `admin-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const optimistic = {
-      id: `local-${clientMessageId}`,
-      client_message_id: clientMessageId,
-      teacher_id: active.teacher_id,
-      sender: 'admin',
-      text: draft,
-      created_at: new Date().toISOString(),
-    };
+    const optimistic = { id: `local-${clientMessageId}`, client_message_id: clientMessageId, teacher_id: active.teacher_id, sender: 'admin', text: draft, created_at: new Date().toISOString() };
     setMessages((prev) => mergeChatMessage(prev, optimistic));
     try {
       const { data } = await adminApi.post(`/admin/messages/${active.teacher_id}`, { text: draft, client_message_id: clientMessageId });
@@ -605,53 +597,40 @@ function ChatPanel({ initialTeacher }) {
       console.error('Unable to send admin message', err);
     }
   };
-
+  const orderedConversations = [...conversations].sort((a, b) => {
+    const onlineDelta = Number(Boolean(presence[b.teacher_id])) - Number(Boolean(presence[a.teacher_id]));
+    if (onlineDelta) return onlineDelta;
+    if (a.last_message_at && b.last_message_at) return String(b.last_message_at).localeCompare(String(a.last_message_at));
+    if (a.last_message_at) return -1;
+    if (b.last_message_at) return 1;
+    return String(a.full_name || '').localeCompare(String(b.full_name || ''));
+  });
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div className="md:col-span-3">
-        <BroadcastComposer onSent={loadConversations} />
+      <div className="md:col-span-3"><BroadcastComposer onSent={loadConversations} /></div>
+      <div className="card admin-chat-directory">
+        <div className="admin-chat-directory__heading"><strong>{locale === 'ar' ? 'المعلمون' : 'Teachers'}</strong><span>{conversations.length}</span></div>
+        <div className="admin-chat-directory__list">
+          {orderedConversations.map((c) => {
+            const online = Boolean(presence[c.teacher_id]);
+            return <button key={c.teacher_id} onClick={() => setActive(c)} className={`admin-chat-teacher ${active?.teacher_id === c.teacher_id ? 'is-active' : ''}`}>
+              <div className="flex items-center justify-between gap-2"><span className="font-medium text-sm truncate">{c.full_name}</span><span className={`admin-presence ${online ? 'is-online' : 'is-offline'}`}><i />{online ? (locale === 'ar' ? 'متصل' : 'Online') : (locale === 'ar' ? 'غير متصل' : 'Offline')}</span></div>
+              <div className="flex items-center justify-between gap-2"><p className="text-xs text-ink/50 truncate">{c.last_message || (locale === 'ar' ? 'لا توجد رسائل بعد' : 'No messages yet')}</p>{c.unread_count > 0 && <span className="bg-danger text-white text-[10px] rounded-full px-1.5 py-0.5">{c.unread_count}</span>}</div>
+            </button>;
+          })}
+          {orderedConversations.length === 0 && <p className="text-ink/50 text-sm p-4">{locale === 'ar' ? 'لا يوجد معلمون بعد.' : 'No teachers yet.'}</p>}
+        </div>
       </div>
-      <div className="card overflow-y-auto" style={{ height: 500 }}>
-        {conversations.map((c) => (
-          <button key={c.teacher_id} onClick={() => setActive(c)}
-            className={`w-full text-right p-3 border-b border-line hover:bg-surface ${active?.teacher_id === c.teacher_id ? 'bg-surface' : ''}`}>
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm">{c.full_name}</span>
-              {c.unread_count > 0 && <span className="bg-danger text-white text-[10px] rounded-full px-1.5 py-0.5">{c.unread_count}</span>}
-            </div>
-            <p className="text-xs text-ink/50 truncate">{c.last_message}</p>
-          </button>
-        ))}
-        {conversations.length === 0 && <p className="text-ink/50 text-sm p-4">لا توجد محادثات بعد. راسل معلمًا من تبويب "كل المعلمين".</p>}
-      </div>
-
       <div className="card md:col-span-2 flex flex-col overflow-hidden" style={{ height: 500 }}>
-        {!active ? (
-          <p className="text-ink/50 text-sm p-6">اختر محادثة لعرضها.</p>
-        ) : (
-          <>
-            <div className="px-4 py-3 border-b border-line font-bold text-sm">{active.full_name}</div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-surface">
-              {messages.map((m) => (
-                <div key={m.id} className={`max-w-[75%] px-3 py-2 rounded-xl2 text-sm ${m.sender === 'admin' ? 'bg-primary text-white mr-auto' : 'bg-white border border-line ml-auto'}`}>
-                  {m.text}
-                  <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-white/70' : 'text-ink/40'}`}>
-                    {new Date(m.created_at).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <form onSubmit={send} className="p-2 border-t border-line flex gap-2">
-              <input className="input text-sm flex-1" placeholder="اكتب ردًا..." value={text} onChange={(e) => setText(e.target.value)} />
-              <button className="btn-primary text-sm px-3" type="submit">إرسال</button>
-            </form>
-          </>
-        )}
+        {!active ? <p className="text-ink/50 text-sm p-6">{locale === 'ar' ? 'اختر معلمًا لبدء المحادثة.' : 'Choose a teacher to start a conversation.'}</p> : <>
+          <div className="px-4 py-3 border-b border-line font-bold text-sm flex items-center justify-between gap-2"><span>{active.full_name}</span><span className={`admin-presence ${presence[active.teacher_id] ? 'is-online' : 'is-offline'}`}><i />{presence[active.teacher_id] ? (locale === 'ar' ? 'متصل' : 'Online') : (locale === 'ar' ? 'غير متصل' : 'Offline')}</span></div>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-surface">{messages.map((m) => <div key={m.id} className={`max-w-[75%] px-3 py-2 rounded-xl2 text-sm ${m.sender === 'admin' ? 'bg-primary text-white mr-auto' : 'bg-white border border-line ml-auto'}`}>{m.text}<div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-white/70' : 'text-ink/40'}`}>{new Date(m.created_at).toLocaleTimeString(locale === 'ar' ? 'ar' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</div></div>)}</div>
+          <form onSubmit={send} className="p-2 border-t border-line flex gap-2"><input className="input text-sm flex-1" placeholder={locale === 'ar' ? 'اكتب ردًا...' : 'Write a reply...'} value={text} onChange={(e) => setText(e.target.value)} /><button className="btn-primary text-sm px-3" type="submit">{locale === 'ar' ? 'إرسال' : 'Send'}</button></form>
+        </>}
       </div>
     </div>
   );
 }
-
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('requests');

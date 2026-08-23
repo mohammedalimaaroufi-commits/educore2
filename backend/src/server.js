@@ -144,6 +144,27 @@ const io = new Server(server, {
   pingTimeout: 20000,
 });
 
+// Presence is ephemeral process memory only. It is never persisted to Turso/SQLite.
+const teacherSocketIds = new Map();
+function addTeacherPresence(teacherId, socketId) {
+  const sockets = teacherSocketIds.get(teacherId) || new Set();
+  const wasOffline = sockets.size === 0;
+  sockets.add(socketId);
+  teacherSocketIds.set(teacherId, sockets);
+  return wasOffline;
+}
+function removeTeacherPresence(teacherId, socketId) {
+  const sockets = teacherSocketIds.get(teacherId);
+  if (!sockets) return false;
+  sockets.delete(socketId);
+  if (sockets.size > 0) return false;
+  teacherSocketIds.delete(teacherId);
+  return true;
+}
+function onlineTeacherIds() {
+  return [...teacherSocketIds.keys()];
+}
+
 app.set('io', io);
 
 
@@ -183,25 +204,28 @@ io.use((socket, next) => {
 
 
 io.on('connection', (socket) => {
-  
   socket.join('public');
 
   if (socket.user.role === 'admin') {
-    
     socket.join('admin');
-    
+    socket.emit('teacher_presence_snapshot', { teacher_ids: onlineTeacherIds() });
     socket.on('join_conversation', (teacherId) => {
-      
       if (teacherId) socket.join(`chat:${teacherId}`);
-      
     });
-    
-  } else if (socket.user.id) {
-    
-    socket.join(`chat:${socket.user.id}`);
-    
+    return;
   }
-  
+
+  if (socket.user.id) {
+    socket.join(`chat:${socket.user.id}`);
+    if (addTeacherPresence(socket.user.id, socket.id)) {
+      io.to('admin').emit('teacher_presence', { teacher_id: socket.user.id, online: true, updated_at: new Date().toISOString() });
+    }
+    socket.on('disconnect', () => {
+      if (removeTeacherPresence(socket.user.id, socket.id)) {
+        io.to('admin').emit('teacher_presence', { teacher_id: socket.user.id, online: false, updated_at: new Date().toISOString() });
+      }
+    });
+  }
 });
 
 

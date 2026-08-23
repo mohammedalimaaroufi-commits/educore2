@@ -174,8 +174,12 @@ router.get('/payment-requests', (req, res) => {
   const clauses = ['pr.archived = ?'];
   const params = [archived];
   if (status) { clauses.push('pr.status = ?'); params.push(status); }
-  const query = `SELECT pr.*, t.full_name, t.email FROM payment_requests pr JOIN teachers t ON pr.teacher_id = t.id
-                  WHERE ${clauses.join(' AND ')} ORDER BY pr.created_at DESC`;
+  const query = `SELECT pr.*, t.full_name, t.email,
+                        so.title AS offer_title, so.description AS offer_description
+                 FROM payment_requests pr
+                 JOIN teachers t ON pr.teacher_id = t.id
+                 LEFT JOIN subscription_offers so ON so.id = pr.offer_id
+                 WHERE ${clauses.join(' AND ')} ORDER BY pr.created_at DESC`;
   const definitions = getPlanDefinitions();
   const rows = db.prepare(query).all(...params).map((request) => {
     const plan = resolvePlanId(request.plan, {
@@ -185,13 +189,12 @@ router.get('/payment-requests', (req, res) => {
       originalAmount: request.original_amount_omr,
     }) || request.plan;
     const definition = definitions.find((item) => item.id === plan);
-    const offer = request.offer_id ? db.prepare('SELECT title, description FROM subscription_offers WHERE id = ?').get(request.offer_id) : null;
     return {
       ...request,
       plan,
       plan_title: definition?.title || request.plan || null,
-      offer_title: offer?.title || null,
-      offer_description: offer?.description || null,
+      offer_title: request.offer_title || null,
+      offer_description: request.offer_description || null,
     };
   });
   res.json({ requests: rows });
@@ -398,7 +401,7 @@ router.get('/teachers', (req, res) => {
 });
 // ---------- Live chat with teachers ----------
 
-// GET /api/admin/conversations  -> one row per teacher who has exchanged messages, with last message + unread count
+// GET /api/admin/conversations -> every teacher, with recent message metadata when available
 router.get('/conversations', (req, res) => {
   purgeExpiredMessages();
   const rows = db.prepare(`
@@ -422,11 +425,10 @@ router.get('/conversations', (req, res) => {
       t.email,
       r.text AS last_message,
       r.created_at AS last_message_at,
-      r.unread_count
-    FROM ranked_messages r
-    JOIN teachers t ON t.id = r.teacher_id
-    WHERE r.message_rank = 1
-    ORDER BY r.created_at DESC
+      COALESCE(r.unread_count, 0) AS unread_count
+    FROM teachers t
+    LEFT JOIN ranked_messages r ON r.teacher_id = t.id AND r.message_rank = 1
+    ORDER BY CASE WHEN r.created_at IS NULL THEN 1 ELSE 0 END, r.created_at DESC, t.full_name COLLATE NOCASE ASC
   `).all();
   res.json({ conversations: rows });
 });

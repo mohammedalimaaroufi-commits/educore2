@@ -1232,3 +1232,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .admin-list-error button { flex: 0 0 auto; padding: .3rem .55rem; border: 1px solid rgba(193,85,61,.28); border-radius: .55rem; background: rgba(255,255,255,.72); color: #8f3f30; font-size: .72rem; font-weight: 700; cursor: pointer; }
 .admin-list-error button:hover { background: rgba(193,85,61,.14); }
 @media (max-width: 640px) { .admin-list-error { align-items: flex-start; flex-direction: column; } }
+
+/* Admin chat: keep the teacher directory compact and independently scrollable. */
+.admin-chat-directory { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+.admin-chat-directory__heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem .9rem; border-bottom: 1px solid rgba(27,36,48,.08); }
+.admin-chat-directory__heading > span { display: inline-flex; min-width: 1.5rem; min-height: 1.5rem; align-items: center; justify-content: center; border-radius: 999px; background: rgba(46,125,107,.12); color: #2e7d6b; font-size: .72rem; font-weight: 800; }
+.admin-chat-directory__list { min-height: 0; max-height: 452px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.admin-chat-teacher { display: block; width: 100%; padding: .7rem .85rem; border: 0; border-bottom: 1px solid rgba(27,36,48,.07); background: transparent; text-align: right; cursor: pointer; }
+.admin-chat-teacher:hover, .admin-chat-teacher.is-active { background: #f7f5f0; }
+.admin-chat-teacher:focus-visible { outline: 2px solid #2e7d6b; outline-offset: -2px; }
+.admin-presence { display: inline-flex; align-items: center; gap: .25rem; flex: 0 0 auto; font-size: .62rem; font-weight: 800; white-space: nowrap; }
+.admin-presence i { display: inline-block; width: .42rem; height: .42rem; border-radius: 50%; background: currentColor; }
+.admin-presence.is-online { color: #2e7d6b; }
+.admin-presence.is-offline { color: rgba(27,36,48,.42); }
+@media (max-width: 760px) {
+  .admin-chat-directory__list { max-height: 18rem; }
+}
