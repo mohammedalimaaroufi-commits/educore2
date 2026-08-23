@@ -312,15 +312,10 @@ function PasswordResetRequests() {
   </div>;
 }
 
-function TeachersList({ onMessage }) {
+function TeachersList({ onMessage, onRestrictions }) {
   const { t, locale } = useLocale();
-  const { confirm, confirmDialog } = useConfirmDialog();
   const [teachers, setTeachers] = useState([]);
   const [search, setSearch] = useState('');
-  const [openTeacherId, setOpenTeacherId] = useState(null);
-  const [restrictionDraft, setRestrictionDraft] = useState(null);
-  const [restrictionBusy, setRestrictionBusy] = useState(false);
-  const [restrictionMessage, setRestrictionMessage] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers || [])).catch(() => setTeachers([])); }, []);
   const filteredTeachers = teachers.filter((teacher) => {
@@ -329,71 +324,10 @@ function TeachersList({ onMessage }) {
     return [teacher.full_name, teacher.email, teacher.school_name, teacher.plan, teacher.plan_title, teacher.status].some((value) => String(value || '').toLowerCase().includes(term));
   });
 
-  const openRestrictions = async (teacher) => {
-    if (openTeacherId === teacher.id) {
-      setOpenTeacherId(null);
-      return;
-    }
-    setOpenTeacherId(teacher.id);
-    setRestrictionMessage('');
-    setRestrictionBusy(true);
-    try {
-      const { data } = await adminApi.get(`/admin/teachers/${teacher.id}/restrictions`);
-      setRestrictionDraft({ teacher, ...(data.restrictions || {}), expired: Boolean(data.effective?.expired), effective_active: Boolean(data.effective?.active), blocked_features: [...(data.restrictions?.blocked_features || [])] });
-    } catch {
-      setRestrictionDraft({ teacher, enabled: false, apply_when_expired: true, blocked_features: [], note: '' });
-    } finally { setRestrictionBusy(false); }
-  };
-  const toggleRestrictionFeature = (feature) => setRestrictionDraft((current) => current ? ({ ...current, blocked_features: current.blocked_features.includes(feature) ? current.blocked_features.filter((item) => item !== feature) : [...current.blocked_features, feature] }) : current);
-  const saveRestrictions = async () => {
-    if (!restrictionDraft?.teacher?.id) return;
-    setRestrictionBusy(true);
-    setRestrictionMessage('');
-    try {
-      const { data } = await adminApi.patch(`/admin/teachers/${restrictionDraft.teacher.id}/restrictions`, {
-        enabled: Boolean(restrictionDraft.enabled),
-        apply_when_expired: Boolean(restrictionDraft.apply_when_expired),
-        blocked_features: restrictionDraft.blocked_features,
-        note: restrictionDraft.note || '',
-      });
-      setRestrictionDraft((current) => ({ ...current, ...data.restrictions }));
-      setTeachers((current) => current.map((teacher) => teacher.id === restrictionDraft.teacher.id ? { ...teacher, restrictions: data.restrictions } : teacher));
-      setRestrictionMessage(t('restrictionSaved'));
-    } catch {
-      setRestrictionMessage(t('restrictionSaveFailed'));
-    } finally { setRestrictionBusy(false); }
-  };
-  const updateAccountStatus = async (teacher, status) => {
-    setAccountBusy(true);
-    setRestrictionMessage('');
-    try {
-      const { data } = await adminApi.patch(`/admin/teachers/${teacher.id}/account-status`, { status, note: restrictionDraft?.note || '' });
-      setTeachers((current) => current.map((item) => item.id === teacher.id ? { ...item, account_status: data.account_status.status, account_note: data.account_status.note } : item));
-      setRestrictionDraft((current) => current ? { ...current, account_status: data.account_status.status } : current);
-      setRestrictionMessage(t('accountStatusSaved'));
-    } catch {
-      setRestrictionMessage(t('accountStatusSaveFailed'));
-    } finally { setAccountBusy(false); }
-  };
-  const deleteTeacher = async (teacher) => {
-    const accepted = await confirm({ title: t('deleteAccount'), message: t('deleteAccountConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
-    if (!accepted) return;
-    setAccountBusy(true);
-    setRestrictionMessage('');
-    try {
-      await adminApi.delete(`/admin/teachers/${teacher.id}`);
-      setTeachers((current) => current.filter((item) => item.id !== teacher.id));
-      setOpenTeacherId(null);
-      setRestrictionDraft(null);
-      setRestrictionMessage(t('accountStatusSaved'));
-    } catch {
-      setRestrictionMessage(t('accountStatusSaveFailed'));
-    } finally { setAccountBusy(false); }
-  };
+
 
   return (
     <div>
-      {confirmDialog}
       <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع باسم المعلم أو البريد أو المدرسة' : 'Quick search by teacher, email, or school'} aria-label={locale === 'ar' ? 'بحث في المعلمين' : 'Search teachers'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
       <div className="card overflow-x-auto">
       <table className="w-full text-sm">
@@ -413,23 +347,155 @@ function TeachersList({ onMessage }) {
               <td className="px-4 py-2">{teacher.plan_title || planLabel(t, teacher.plan) || '—'}</td>
               <td className="px-4 py-2">{teacher.status}</td>
               <td className="px-4 py-2"><span className={`admin-account-status admin-account-status--${teacher.account_status || 'active'}`}>{t({ active: 'accountStatusActive', disabled: 'accountStatusDisabled', banned: 'accountStatusBanned' }[teacher.account_status] || 'accountStatusActive')}</span></td>
-              <td className="px-4 py-2 text-left"><div className="flex gap-3 justify-end"><button className="text-primary text-xs" onClick={() => onMessage(teacher)}>{locale === 'ar' ? 'مراسلة' : 'Message'}</button><button className="text-accent text-xs" onClick={() => openRestrictions(teacher)}>{openTeacherId === teacher.id ? '×' : t('restrictionsTitle')}</button></div></td>
+              <td className="px-4 py-2 text-left"><div className="flex gap-3 justify-end"><button className="text-primary text-xs" onClick={() => onMessage(teacher)}>{locale === 'ar' ? 'مراسلة' : 'Message'}</button><button className="text-accent text-xs" onClick={() => onRestrictions?.(teacher)}>{t('restrictionsTitle')}</button></div></td>
             </tr>
-            {openTeacherId === teacher.id && <tr key={`${teacher.id}-restrictions`}><td colSpan="6" className="px-4 pb-4"><div className="admin-restrictions-panel">
-              <div className="admin-restrictions-panel__heading"><div><strong>{t('subscriberDetails')}: {teacher.full_name}</strong><small>{teacher.plan_title || planLabel(t, teacher.plan)} · {teacher.activated_at ? new Date(teacher.activated_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : '—'} → {teacher.expires_at ? new Date(teacher.expires_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : t('noExpiry')} · {teacher.days_left === null ? t('noExpiry') : teacher.days_left <= 0 ? t('statusExpired') : t('days', '', { count: teacher.days_left })}</small><small>{t('accountStatus')}: {t({ active: 'accountStatusActive', disabled: 'accountStatusDisabled', banned: 'accountStatusBanned' }[teacher.account_status] || 'accountStatusActive')}</small></div><button type="button" className="text-ink/50 text-xs" onClick={() => setOpenTeacherId(null)}>×</button></div>
-              {restrictionBusy && !restrictionDraft ? <p className="text-xs text-ink/50">...</p> : restrictionDraft && <>
-                <label className="admin-restriction-toggle"><input type="checkbox" checked={Boolean(restrictionDraft.enabled)} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, enabled: event.target.checked })} /><span>{t('enableRestrictions')}</span></label>
-                <label className="admin-restriction-toggle"><input type="checkbox" checked={restrictionDraft.apply_when_expired !== false} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, apply_when_expired: event.target.checked })} /><span>{t('applyRestrictionsOnExpiry')}</span></label>
-                <div className="admin-account-actions"><span className="admin-restrictions-label">{t('accountStatus')}</span><button type="button" className="text-primary text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'active')}>{t('restoreAccount')}</button><button type="button" className="text-accent text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'disabled')}>{t('disableAccount')}</button><button type="button" className="text-danger text-xs" disabled={accountBusy} onClick={() => updateAccountStatus(teacher, 'banned')}>{t('banAccount')}</button><button type="button" className="text-danger text-xs font-bold" disabled={accountBusy} onClick={() => deleteTeacher(teacher)}>× {t('deleteAccount')}</button></div>
-                <p className="admin-restrictions-label">{t('blockedFeatures')}</p><div className="admin-restrictions-grid">{RESTRICTION_FEATURE_OPTIONS.map((feature) => <label key={feature.id} className="admin-restriction-option"><input type="checkbox" checked={restrictionDraft.blocked_features.includes(feature.id)} onChange={() => toggleRestrictionFeature(feature.id)} /><span>{t(feature.key)}</span></label>)}</div>
-                <label className="label">{t('restrictionNote')}<textarea className="input" rows="2" value={restrictionDraft.note || ''} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, note: event.target.value })} /></label>
-                <div className="flex items-center gap-3"><button type="button" className="btn-primary text-xs" disabled={restrictionBusy} onClick={saveRestrictions}>{restrictionBusy ? '...' : t('saveRestrictions')}</button>{restrictionMessage && <span className="text-xs text-primary">{restrictionMessage}</span>}</div>
-              </>}
-            </div></td></tr>}
           </React.Fragment>)}
         </tbody>
       </table>
       {filteredTeachers.length === 0 && <p className="p-4 text-sm text-ink/50">{teachers.length ? (locale === 'ar' ? 'لا توجد نتائج مطابقة للبحث.' : 'No matching results.') : (locale === 'ar' ? 'لا يوجد معلمون بعد.' : 'No teachers yet.')}</p>}
+      </div>
+    </div>
+  );
+}
+
+function RestrictionsTab({ initialTeacher }) {
+  const { t, locale } = useLocale();
+  const { confirm, confirmDialog } = useConfirmDialog();
+  const [teachers, setTeachers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [selectedTeacher, setSelectedTeacher] = useState(initialTeacher || null);
+  const [restrictionDraft, setRestrictionDraft] = useState(null);
+  const [restrictionBusy, setRestrictionBusy] = useState(false);
+  const [restrictionMessage, setRestrictionMessage] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
+
+  const loadRestrictions = async (teacher) => {
+    if (!teacher?.id) return;
+    setSelectedTeacher(teacher);
+    setRestrictionDraft(null);
+    setRestrictionMessage('');
+    setRestrictionBusy(true);
+    try {
+      const { data } = await adminApi.get('/admin/teachers/' + teacher.id + '/restrictions');
+      setRestrictionDraft({
+        teacher: { ...teacher, ...(data.teacher || {}) },
+        ...(data.restrictions || {}),
+        expired: Boolean(data.effective?.expired),
+        effective_active: Boolean(data.effective?.active),
+        blocked_features: [...(data.restrictions?.blocked_features || [])],
+      });
+    } catch {
+      setRestrictionDraft({ teacher, enabled: false, apply_when_expired: true, blocked_features: [], note: '' });
+    } finally {
+      setRestrictionBusy(false);
+    }
+  };
+
+  const loadTeachers = async () => {
+    try {
+      const { data } = await adminApi.get('/admin/teachers');
+      const items = data.teachers || [];
+      setTeachers(items);
+      if (initialTeacher?.id) {
+        const refreshed = items.find((item) => item.id === initialTeacher.id) || initialTeacher;
+        setSelectedTeacher(refreshed);
+        await loadRestrictions(refreshed);
+      }
+    } catch {
+      setTeachers([]);
+    }
+  };
+
+  useEffect(() => { void loadTeachers(); }, []);
+
+  const toggleRestrictionFeature = (feature) => setRestrictionDraft((current) => current ? ({ ...current, blocked_features: current.blocked_features.includes(feature) ? current.blocked_features.filter((item) => item !== feature) : [...current.blocked_features, feature] }) : current);
+  const saveRestrictions = async () => {
+    if (!restrictionDraft?.teacher?.id) return;
+    setRestrictionBusy(true);
+    setRestrictionMessage('');
+    try {
+      const { data } = await adminApi.patch('/admin/teachers/' + restrictionDraft.teacher.id + '/restrictions', {
+        enabled: Boolean(restrictionDraft.enabled),
+        apply_when_expired: Boolean(restrictionDraft.apply_when_expired),
+        blocked_features: restrictionDraft.blocked_features,
+        note: restrictionDraft.note || '',
+      });
+      setRestrictionDraft((current) => ({ ...current, ...data.restrictions }));
+      setRestrictionMessage(t('restrictionSaved'));
+    } catch {
+      setRestrictionMessage(t('restrictionSaveFailed'));
+    } finally {
+      setRestrictionBusy(false);
+    }
+  };
+  const updateAccountStatus = async (status) => {
+    if (!selectedTeacher?.id) return;
+    setAccountBusy(true);
+    setRestrictionMessage('');
+    try {
+      const { data } = await adminApi.patch('/admin/teachers/' + selectedTeacher.id + '/account-status', { status, note: restrictionDraft?.note || '' });
+      const nextStatus = data.account_status;
+      setTeachers((current) => current.map((item) => item.id === selectedTeacher.id ? { ...item, account_status: nextStatus.status, account_note: nextStatus.note } : item));
+      setSelectedTeacher((current) => current ? { ...current, account_status: nextStatus.status, account_note: nextStatus.note } : current);
+      setRestrictionDraft((current) => current ? { ...current, teacher: { ...current.teacher, account_status: nextStatus.status, account_note: nextStatus.note } } : current);
+      setRestrictionMessage(t('accountStatusSaved'));
+    } catch {
+      setRestrictionMessage(t('accountStatusSaveFailed'));
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+  const deleteTeacher = async () => {
+    if (!selectedTeacher?.id) return;
+    const accepted = await confirm({ title: t('deleteAccount'), message: t('deleteAccountConfirm'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
+    setAccountBusy(true);
+    try {
+      await adminApi.delete('/admin/teachers/' + selectedTeacher.id);
+      setTeachers((current) => current.filter((item) => item.id !== selectedTeacher.id));
+      setSelectedTeacher(null);
+      setRestrictionDraft(null);
+      setRestrictionMessage('');
+    } catch {
+      setRestrictionMessage(t('accountStatusSaveFailed'));
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const filteredTeachers = teachers.filter((teacher) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [teacher.full_name, teacher.email, teacher.school_name, teacher.plan_title, teacher.plan, teacher.account_status].some((value) => String(value || '').toLowerCase().includes(term));
+  });
+  const draftTeacher = restrictionDraft?.teacher || selectedTeacher;
+
+  return (
+    <div className="admin-restrictions-workspace">
+      {confirmDialog}
+      <div className="admin-restrictions-workspace__intro">
+        <div><span className="admin-config-eyebrow">{locale === 'ar' ? 'إدارة الوصول' : 'ACCESS CONTROL'}</span><h2>{locale === 'ar' ? 'قيود انتهاء الاشتراك' : 'Subscription expiry restrictions'}</h2><p>{locale === 'ar' ? 'تبويب مستقل لتحديد الخدمات التي تتوقف تلقائيًا عند انتهاء الاشتراك، دون تحميل التفاصيل أثناء استعراض قائمة المعلمين.' : 'A dedicated workspace for services that are restricted when a subscription expires.'}</p></div>
+        <span className="admin-restrictions-workspace__count">{teachers.length} {locale === 'ar' ? 'معلم' : 'teachers'}</span>
+      </div>
+      <div className="admin-restrictions-layout">
+        <aside className="admin-restrictions-directory">
+          <div className="relative"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع بالاسم أو البريد' : 'Search by name or email'} aria-label={locale === 'ar' ? 'بحث في المعلمين للقيود' : 'Search teachers for restrictions'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
+          <div className="admin-restrictions-directory__list">
+            {filteredTeachers.map((teacher) => <button type="button" key={teacher.id} className={'admin-restriction-teacher ' + (selectedTeacher?.id === teacher.id ? 'is-selected' : '')} onClick={() => void loadRestrictions(teacher)}><span><strong>{teacher.full_name}</strong><small>{teacher.plan_title || planLabel(t, teacher.plan)} · {teacher.account_status === 'active' ? t('accountStatusActive') : teacher.account_status === 'banned' ? t('accountStatusBanned') : t('accountStatusDisabled')}</small></span><span className="admin-restriction-teacher__days">{teacher.days_left === null ? '∞' : teacher.days_left <= 0 ? '!' : teacher.days_left}</span></button>)}
+            {filteredTeachers.length === 0 && <p className="text-ink/50 text-sm p-3">{teachers.length ? (locale === 'ar' ? 'لا توجد نتائج.' : 'No matches.') : (locale === 'ar' ? 'لا يوجد معلمون بعد.' : 'No teachers yet.')}</p>}
+          </div>
+        </aside>
+        <section className="admin-restrictions-editor">
+          {!draftTeacher ? <div className="admin-restrictions-empty"><strong>{locale === 'ar' ? 'اختر معلمًا' : 'Select a teacher'}</strong><span>{locale === 'ar' ? 'اختر معلمًا من القائمة لإدارة الخدمات عند انتهاء الاشتراك.' : 'Choose a teacher to manage expiry services.'}</span></div> : restrictionBusy && !restrictionDraft ? <div className="admin-restrictions-empty"><strong>{locale === 'ar' ? 'جارِ تحميل التفاصيل...' : 'Loading details...'}</strong></div> : restrictionDraft && <div className="admin-restrictions-panel admin-restrictions-panel--dedicated">
+            <div className="admin-restrictions-panel__heading"><div><strong>{t('subscriberDetails')}: {draftTeacher.full_name}</strong><small>{draftTeacher.plan_title || planLabel(t, draftTeacher.plan)} · {draftTeacher.activated_at ? new Date(draftTeacher.activated_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : '—'} → {draftTeacher.expires_at ? new Date(draftTeacher.expires_at).toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US') : t('noExpiry')} · {draftTeacher.days_left === null ? t('noExpiry') : draftTeacher.days_left <= 0 ? t('statusExpired') : t('days', '', { count: draftTeacher.days_left })}</small><small>{t('accountStatus')}: {t({ active: 'accountStatusActive', disabled: 'accountStatusDisabled', banned: 'accountStatusBanned' }[draftTeacher.account_status] || 'accountStatusActive')}</small></div><button type="button" className="text-ink/50 text-xs" onClick={() => { setSelectedTeacher(null); setRestrictionDraft(null); }}>×</button></div>
+            <label className="admin-restriction-toggle"><input type="checkbox" checked={Boolean(restrictionDraft.enabled)} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, enabled: event.target.checked })} /><span>{t('enableRestrictions')}</span></label>
+            <label className="admin-restriction-toggle"><input type="checkbox" checked={restrictionDraft.apply_when_expired !== false} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, apply_when_expired: event.target.checked })} /><span>{t('applyRestrictionsOnExpiry')}</span></label>
+            <div className="admin-account-actions"><span className="admin-restrictions-label">{t('accountStatus')}</span><button type="button" className="text-primary text-xs" disabled={accountBusy} onClick={() => updateAccountStatus('active')}>{t('restoreAccount')}</button><button type="button" className="text-accent text-xs" disabled={accountBusy} onClick={() => updateAccountStatus('disabled')}>{t('disableAccount')}</button><button type="button" className="text-danger text-xs" disabled={accountBusy} onClick={() => updateAccountStatus('banned')}>{t('banAccount')}</button><button type="button" className="text-danger text-xs font-bold" disabled={accountBusy} onClick={deleteTeacher}>× {t('deleteAccount')}</button></div>
+            <p className="admin-restrictions-label">{t('blockedFeatures')}</p><div className="admin-restrictions-grid">{RESTRICTABLE_FEATURE_OPTIONS.map((feature) => <label key={feature.id} className="admin-restriction-option"><input type="checkbox" checked={restrictionDraft.blocked_features.includes(feature.id)} onChange={() => toggleRestrictionFeature(feature.id)} /><span>{t(feature.key)}</span></label>)}</div>
+            <label className="label">{t('restrictionNote')}<textarea className="input" rows="3" value={restrictionDraft.note || ''} onChange={(event) => setRestrictionDraft({ ...restrictionDraft, note: event.target.value })} /></label>
+            <div className="flex items-center gap-3"><button type="button" className="btn-primary text-xs" disabled={restrictionBusy} onClick={saveRestrictions}>{restrictionBusy ? '...' : t('saveRestrictions')}</button>{restrictionMessage && <span className="text-xs text-primary">{restrictionMessage}</span>}</div>
+          </div>}
+        </section>
       </div>
     </div>
   );
@@ -629,6 +695,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('requests');
   const [chatTarget, setChatTarget] = useState(null);
+  const [restrictionTarget, setRestrictionTarget] = useState(null);
 
   useEffect(() => {
     if (!localStorage.getItem('educore_admin_token')) navigate('/admin/login');
@@ -640,6 +707,10 @@ export default function AdminDashboard() {
     setChatTarget({ teacher_id: teacher.id, full_name: teacher.full_name });
     setTab('chat');
   };
+  const goToRestrictions = (teacher) => {
+    setRestrictionTarget(teacher);
+    setTab('restrictions');
+  };
 
   return (
     <div className="admin-page-shell">
@@ -648,17 +719,19 @@ export default function AdminDashboard() {
         <nav className="admin-tabs" aria-label="أقسام لوحة المسؤول">
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>طلبات التفعيل</button>
           <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>كل المعلمين</button>
-          <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>03</span>الاشتراكات والعروض</button>
-          <button onClick={() => setTab('payment')} className={`admin-tab ${tab === 'payment' ? 'is-active' : ''}`}><span>04</span>الدفع</button>
-          <button onClick={() => setTab('announcement')} className={`admin-tab ${tab === 'announcement' ? 'is-active' : ''}`}><span>05</span>إعلان عاجل / تحديث</button>
-          <button onClick={() => setTab('notifications')} className={`admin-tab ${tab === 'notifications' ? 'is-active' : ''}`}><span>06</span>الإشعارات</button>
-          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>07</span>طلبات كلمات المرور</button>
-          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>08</span>الدردشة مع المعلمين</button>
+          <button onClick={() => { setRestrictionTarget(null); setTab('restrictions'); }} className={`admin-tab ${tab === 'restrictions' ? 'is-active' : ''}`}><span>03</span>قيود انتهاء الاشتراك</button>
+          <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>04</span>الاشتراكات والعروض</button>
+          <button onClick={() => setTab('payment')} className={`admin-tab ${tab === 'payment' ? 'is-active' : ''}`}><span>05</span>الدفع</button>
+          <button onClick={() => setTab('announcement')} className={`admin-tab ${tab === 'announcement' ? 'is-active' : ''}`}><span>06</span>إعلان عاجل / تحديث</button>
+          <button onClick={() => setTab('notifications')} className={`admin-tab ${tab === 'notifications' ? 'is-active' : ''}`}><span>07</span>الإشعارات</button>
+          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>08</span>طلبات كلمات المرور</button>
+          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>09</span>الدردشة مع المعلمين</button>
         </nav>
       </div>
       <main className="admin-page-content">
         {tab === 'requests' && <PaymentRequests />}
-        {tab === 'teachers' && <TeachersList onMessage={goToChat} />}
+        {tab === 'teachers' && <TeachersList onMessage={goToChat} onRestrictions={goToRestrictions} />}
+        {tab === 'restrictions' && <RestrictionsTab initialTeacher={restrictionTarget} />}
         {tab === 'subscriptions' && <SubscriptionConfig />}
         {tab === 'payment' && <AdminPublicConfig section="payment" />}
         {tab === 'announcement' && <AdminPublicConfig section="announcement" />}

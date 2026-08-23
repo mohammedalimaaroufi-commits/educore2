@@ -337,6 +337,8 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 });
 
 // GET /api/admin/teachers  -> quick overview of all registered teachers + their subscription state
+// This endpoint intentionally stays lightweight. Detailed restrictions are loaded only
+// from /teachers/:teacherId/restrictions when the administrator opens the dedicated tab.
 router.get('/teachers', (req, res) => {
   const definitions = getPlanDefinitions();
   const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
@@ -351,46 +353,82 @@ router.get('/teachers', (req, res) => {
                                        datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
                               LIMIT 1
                             )
-                            ORDER BY t.created_at DESC`).all().map((row) => {
-                              const rawSubscription = row.subscription_id ? { ...row, id: row.subscription_id } : null;
-                              const reconciledSubscription = rawSubscription
-                                ? reconcileApprovedSubscription(row.id, rawSubscription)
-                                : reconcileApprovedSubscription(row.id, null);
-                              const repairedSubscription = reconciledSubscription
-                                ? repairPaidSubscriptionPeriod(reconciledSubscription, { definitions })
-                                : null;
-                              const repairedRow = repairedSubscription
-                                ? { ...row, ...repairedSubscription, id: row.id, subscription_id: repairedSubscription.id || row.subscription_id }
-                                : row;
-                              const latestApproved = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC LIMIT 1").get(row.id);
-                              const approvedPlan = latestApproved ? resolvePlanId(latestApproved.plan, { definitions, offerId: latestApproved.offer_id, amount: latestApproved.amount_omr, originalAmount: latestApproved.original_amount_omr }) : null;
-                              const approvedDefinition = definitions.find((item) => item.id === approvedPlan);
-                              const approvedStart = latestApproved ? (latestApproved.reviewed_at || latestApproved.created_at) : null;
-                              const approvedEnd = approvedDefinition?.duration_days === null ? null : approvedDefinition && approvedStart ? addDays(approvedStart, approvedDefinition.duration_days) : null;
-                              // Approved payment is the final authority for display. This fallback
-                              // also makes the list correct if a legacy trial row was not yet rewritten.
-                              const hasApprovedPaidPlan = isPaidPlanId(approvedPlan);
-                              const plan = hasApprovedPaidPlan ? approvedPlan : resolvePlanId(repairedRow.plan, { definitions }) || repairedRow.plan || 'trial';
-                              const definition = definitions.find((item) => item.id === plan);
-                              const startDate = hasApprovedPaidPlan ? approvedStart : (plan === 'trial' ? repairedRow.trial_start_date : repairedRow.current_period_start);
-                              const endDate = hasApprovedPaidPlan ? approvedEnd : (plan === 'trial' ? repairedRow.trial_end_date : repairedRow.current_period_end);
-                              const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-                              const accountStatus = getAccountStatus(row.id);
-                              return {
-                                ...repairedRow,
-                                plan,
-                                plan_title: definition?.title || plan,
-                                activated_at: startDate || null,
-                                expires_at: endDate || null,
-                                days_left: daysLeft,
-                                paid_amount: hasApprovedPaidPlan ? latestApproved.amount_omr : null,
-                                approved_at: hasApprovedPaidPlan ? latestApproved.reviewed_at || latestApproved.created_at : null,
-                                account_status: accountStatus.status,
-                                account_note: accountStatus.note,
-                                restrictions: getConfiguredRestrictions(row.id),
-                              };
-                            });
-  res.json({ teachers: rows });
+                            ORDER BY t.created_at DESC`).all();
+
+  // Fetch the latest approved request for every teacher in one query instead of one
+  // query per teacher. Approved payment remains the display authority, but this list
+  // route does not reconcile or repair subscription rows during a read.
+  const approvedRows = db.prepare(`WITH ranked_requests AS (
+    SELECT pr.*, ROW_NUMBER() OVER (
+      PARTITION BY pr.teacher_id
+      ORDER BY COALESCE(pr.reviewed_at, pr.created_at) DESC, pr.created_at DESC, pr.id DESC
+    ) AS request_rank
+    FROM payment_requests pr
+    WHERE pr.status = 'approved'
+  )
+  SELECT * FROM ranked_requests WHERE request_rank = 1`).all();
+  const approvedByTeacher = new Map(approvedRows.map((item) => [String(item.teacher_id), item]));
+
+  // Account status is a small key-value record. Read all such records once; the
+  // detailed restriction document is deliberately excluded from this fast list.
+  const statusRows = db.prepare("SELECT key, value, updated_at FROM app_settings WHERE key LIKE 'teacher_account_status:%'").all();
+  const statusByTeacher = new Map();
+  for (const item of statusRows) {
+    const teacherId = item.key.slice('teacher_account_status:'.length);
+    let parsed = {};
+    try { parsed = JSON.parse(item.value || '{}'); } catch { parsed = {}; }
+    const rawStatus = String(parsed.status || '').toLowerCase();
+    const status = ['active', 'disabled', 'banned'].includes(rawStatus) ? rawStatus : 'active';
+    statusByTeacher.set(String(teacherId), {
+      status,
+      note: String(parsed.note || '').trim().slice(0, 500),
+      updated_at: item.updated_at || null,
+    });
+  }
+
+  const teachers = rows.map((row) => {
+    const latestApproved = approvedByTeacher.get(String(row.id));
+    const approvedPlan = latestApproved
+      ? resolvePlanId(latestApproved.plan, {
+        definitions,
+        offerId: latestApproved.offer_id,
+        amount: latestApproved.amount_omr,
+        originalAmount: latestApproved.original_amount_omr,
+      })
+      : null;
+    const approvedDefinition = definitions.find((item) => item.id === approvedPlan);
+    const approvedStart = latestApproved ? (latestApproved.reviewed_at || latestApproved.created_at) : null;
+    const approvedEnd = approvedDefinition?.duration_days === null
+      ? null
+      : approvedDefinition && approvedStart
+        ? addDays(approvedStart, approvedDefinition.duration_days)
+        : null;
+    const hasApprovedPaidPlan = isPaidPlanId(approvedPlan);
+    const rawPlan = row.plan || 'trial';
+    const plan = hasApprovedPaidPlan ? approvedPlan : resolvePlanId(rawPlan, { definitions }) || rawPlan;
+    const definition = definitions.find((item) => item.id === plan);
+    const startDate = hasApprovedPaidPlan
+      ? approvedStart
+      : (plan === 'trial' ? row.trial_start_date : row.current_period_start);
+    const endDate = hasApprovedPaidPlan
+      ? approvedEnd
+      : (plan === 'trial' ? row.trial_end_date : row.current_period_end);
+    const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+    const accountStatus = statusByTeacher.get(String(row.id)) || { status: 'active', note: '', updated_at: null };
+    return {
+      ...row,
+      plan,
+      plan_title: definition?.title || plan,
+      activated_at: startDate || null,
+      expires_at: endDate || null,
+      days_left: daysLeft,
+      paid_amount: hasApprovedPaidPlan ? latestApproved.amount_omr : null,
+      approved_at: hasApprovedPaidPlan ? latestApproved.reviewed_at || latestApproved.created_at : null,
+      account_status: accountStatus.status,
+      account_note: accountStatus.note,
+    };
+  });
+  res.json({ teachers });
 });
 
 // ---------- Live chat with teachers ----------

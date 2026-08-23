@@ -1192,3 +1192,38 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .class-tab-panel--gradebook .grade-matrix-card,
   .class-tab-panel--gradebook .grade-matrix-scroll { min-height: clamp(24rem, calc(100dvh - 13.4rem), 38rem); height: clamp(24rem, calc(100dvh - 13.4rem), 38rem); }
 }
+
+
+/* Dedicated administrator workspace for subscription-expiry restrictions. */
+.admin-restrictions-workspace { display: grid; gap: 1rem; }
+.admin-restrictions-workspace__intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.1rem; border: 1px solid rgba(46,125,107,.16); border-radius: 1rem; background: linear-gradient(135deg, rgba(46,125,107,.08), rgba(255,255,255,.86)); }
+.admin-restrictions-workspace__intro h2 { margin: .2rem 0 .25rem; font-size: clamp(1.15rem, 2vw, 1.55rem); color: #1b2430; }
+.admin-restrictions-workspace__intro p { max-width: 48rem; margin: 0; color: rgba(31,41,55,.62); font-size: .8rem; line-height: 1.7; }
+.admin-restrictions-workspace__count { flex: 0 0 auto; padding: .45rem .7rem; border-radius: 999px; background: rgba(46,125,107,.12); color: #2e7d6b; font-size: .78rem; font-weight: 800; }
+.admin-restrictions-layout { display: grid; grid-template-columns: minmax(17rem, .82fr) minmax(0, 1.8fr); gap: 1rem; align-items: start; }
+.admin-restrictions-directory, .admin-restrictions-editor { min-width: 0; padding: .85rem; border: 1px solid rgba(31,41,55,.1); border-radius: 1rem; background: rgba(255,255,255,.8); box-shadow: 0 14px 34px rgba(27,36,48,.06); }
+.admin-restrictions-directory { position: sticky; top: .7rem; }
+.admin-restrictions-directory__list { display: grid; gap: .35rem; max-height: min(62dvh, 34rem); margin-top: .7rem; overflow-y: auto; padding-inline-end: .15rem; }
+.admin-restriction-teacher { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; padding: .65rem .7rem; border: 1px solid transparent; border-radius: .75rem; background: rgba(247,249,248,.78); color: #1b2430; text-align: start; cursor: pointer; transition: border-color 160ms ease-out, background 160ms ease-out, transform 160ms ease-out; }
+.admin-restriction-teacher:hover { border-color: rgba(46,125,107,.25); background: rgba(46,125,107,.07); transform: translateY(-1px); }
+.admin-restriction-teacher.is-selected { border-color: rgba(46,125,107,.48); background: rgba(46,125,107,.12); box-shadow: inset 3px 0 #2e7d6b; }
+.admin-restriction-teacher strong, .admin-restriction-teacher small { display: block; }
+.admin-restriction-teacher strong { font-size: .8rem; }
+.admin-restriction-teacher small { margin-top: .18rem; color: rgba(31,41,55,.55); font-size: .67rem; }
+.admin-restriction-teacher__days { display: inline-grid; place-items: center; min-width: 1.65rem; min-height: 1.65rem; padding: .2rem; border-radius: 999px; background: rgba(27,36,48,.08); color: rgba(27,36,48,.7); font-size: .7rem; font-weight: 800; }
+.admin-restriction-teacher.is-selected .admin-restriction-teacher__days { background: #2e7d6b; color: #fff; }
+.admin-restrictions-editor { min-height: 24rem; }
+.admin-restrictions-empty { display: grid; place-items: center; gap: .45rem; min-height: 22rem; padding: 2rem; color: rgba(31,41,55,.56); text-align: center; }
+.admin-restrictions-empty strong { color: #2e7d6b; font-size: 1rem; }
+.admin-restrictions-panel--dedicated { margin-top: 0; min-height: 22rem; }
+@media (max-width: 860px) {
+  .admin-restrictions-layout { grid-template-columns: 1fr; }
+  .admin-restrictions-directory { position: static; }
+  .admin-restrictions-directory__list { max-height: 20rem; }
+}
+@media (max-width: 640px) {
+  .admin-restrictions-workspace__intro { flex-direction: column; gap: .65rem; padding: .8rem; }
+  .admin-restrictions-workspace__count { align-self: flex-start; }
+  .admin-restrictions-directory, .admin-restrictions-editor { padding: .65rem; border-radius: .8rem; }
+  .admin-restrictions-panel--dedicated { padding: .7rem; }
+}
