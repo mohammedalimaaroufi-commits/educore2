@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
 import { getTeacherId, readSessionCache } from '../utils/localCache.js';
