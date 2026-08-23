@@ -3,6 +3,19 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import { useLocale } from './context/LocaleContext.jsx';
 
+class AppErrorBoundary extends React.Component {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return <main className="min-h-screen flex items-center justify-center bg-surface px-6" dir="rtl"><section className="card max-w-md w-full p-8 text-center"><h1 className="text-xl font-bold text-ink mb-3">تعذر تحميل المنصة</h1><p className="text-sm text-ink/60 mb-6">حدث خلل مؤقت في تحميل الواجهة. بياناتك المحلية لم تُحذف.</p><button type="button" className="btn-primary" onClick={() => window.location.reload()}>إعادة المحاولة</button></section></main>;
+  }
+}
+
 const Login = lazy(() => import('./pages/Login.jsx'));
 const Register = lazy(() => import('./pages/Register.jsx'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword.jsx'));
@@ -46,8 +59,9 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      <Routes>
+    <AppErrorBoundary>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -59,7 +73,8 @@ export default function App() {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </AppErrorBoundary>
   );
 }
