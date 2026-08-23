@@ -1039,3 +1039,156 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .quick-grade-dialog__body { padding: .9rem; }
   .quick-grade-student strong { font-size: .95rem; }
 }
+
+
+/* Workspace density v3: give the work surface priority on desktop and mobile. */
+:root {
+  --workspace-inline: clamp(.45rem, 1.25vw, 1.25rem);
+  --workspace-gap: clamp(.4rem, .8vw, .75rem);
+}
+.dashboard-content {
+  width: 100%;
+  max-width: 1500px;
+  margin-inline: auto;
+  padding: .7rem var(--workspace-inline) 1.25rem;
+}
+.dashboard-hero { gap: var(--workspace-gap); margin-bottom: .85rem; }
+.dashboard-section-head { gap: var(--workspace-gap); margin: 1rem 0 .6rem; }
+.dashboard-filters { margin-bottom: .75rem; padding: .65rem .75rem; gap: .5rem; }
+.class-grid { gap: .7rem; }
+.class-card__compact { min-height: 4.6rem; padding: .62rem .7rem; }
+.class-card__content { padding: .7rem .75rem .8rem; }
+
+.class-page-shell,
+.settings-page-shell,
+.subscription-page-shell,
+.admin-page-shell {
+  width: min(100%, 1600px);
+  margin-inline: auto;
+  padding-inline: var(--workspace-inline);
+}
+.class-page-shell { padding-top: .35rem; }
+.class-page-fixed-header .class-page-topline,
+.settings-page-fixed-header .settings-page-topline,
+.subscription-page-fixed-header .subscription-page-topline,
+.admin-page-fixed-header .admin-page-topline { padding-top: .35rem; margin-bottom: .35rem; }
+.class-page-fixed-header .class-page-header,
+.settings-page-fixed-header .settings-page-hero,
+.subscription-page-fixed-header .subscription-page-hero,
+.admin-page-fixed-header .admin-page-hero { margin-bottom: .45rem; }
+.class-page-header { min-height: 7.1rem; }
+.class-page-header__visual,
+.class-page-header__side { padding: .78rem 1rem; }
+.class-tabs, .settings-tabs, .admin-tabs { margin-bottom: .45rem; }
+.class-tab-panel,
+.settings-page-content,
+.subscription-page-content,
+.admin-page-content { padding-inline: 0; padding-bottom: 1.25rem; }
+.class-tab-panel--gradebook { overflow-x: hidden; }
+
+/* All table bodies own the scroll; headers and important identity columns stay visible. */
+.table-scroll-sticky,
+.grade-matrix-scroll { width: 100%; min-width: 0; scrollbar-gutter: stable; }
+.table-scroll-sticky { max-height: min(68dvh, 48rem); }
+.grade-matrix-scroll { overflow: auto; overscroll-behavior: contain; }
+.grade-matrix-table { min-width: 100%; }
+.grade-matrix-table thead tr:first-child th { top: 0; }
+.grade-matrix-table thead tr:nth-child(2) th { top: 3.2rem; }
+.class-tab-panel--gradebook .grade-matrix-card,
+.class-tab-panel--gradebook .grade-matrix-scroll { min-height: clamp(30rem, calc(100dvh - 17rem), 54rem); }
+.class-tab-panel--gradebook .grade-matrix-scroll { height: clamp(30rem, calc(100dvh - 17rem), 54rem); }
+.gradebook-toolbar { gap: .6rem; margin-bottom: .4rem; padding-bottom: .38rem; }
+.gradebook-toolbar__title { gap: .2rem; }
+.gradebook-toolbar__title p { max-width: 60rem; }
+.class-tab-panel--gradebook > div:first-child { margin-bottom: .45rem; }
+.class-tab-panel--gradebook > div:first-child button { min-height: 2.25rem; }
+
+.settings-page-hero,
+.subscription-page-hero,
+.admin-page-hero { min-height: 7.5rem; padding: .9rem 1.15rem; }
+.settings-page-content,
+.subscription-page-content,
+.admin-page-content { padding-top: 0; }
+.subscription-current-card,
+.subscription-requests-card,
+.subscription-activation-card,
+.settings-panel,
+.admin-config-card { padding: .9rem 1rem; }
+
+@media (max-width: 760px) {
+  .dashboard-content { padding: .55rem .55rem 1rem; }
+  .dashboard-hero { display: block; margin-bottom: .55rem; }
+  .dashboard-hero p { max-width: 38rem; }
+  .hero-note { min-width: 0; margin-top: .55rem; padding: .58rem .7rem; }
+  .dashboard-section-head { align-items: stretch; flex-direction: column; gap: .5rem; margin: .75rem 0 .5rem; }
+  .dashboard-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+  .dashboard-actions > * { min-width: 0; justify-content: center; }
+  .dashboard-filters { padding: .55rem; gap: .42rem; }
+  .class-grid { gap: .55rem; }
+
+  .class-page-shell,
+  .settings-page-shell,
+  .subscription-page-shell,
+  .admin-page-shell { width: 100%; padding-inline: .35rem; }
+  .class-page-shell { padding-top: .22rem; }
+  .class-page-fixed-header .class-page-topline,
+  .settings-page-fixed-header .settings-page-topline,
+  .subscription-page-fixed-header .subscription-page-topline,
+  .admin-page-fixed-header .admin-page-topline { padding-top: .2rem; margin-bottom: .25rem; }
+  .class-page-header { margin-bottom: .3rem; }
+  .class-page-header__visual { min-height: 4.25rem; padding: .55rem .7rem .45rem; }
+  .class-page-header h1 { margin: .1rem 0 .08rem; }
+  .class-page-header__side { padding: .3rem .45rem .38rem; }
+  .class-page-mini-stats { gap: .18rem; }
+  .class-page-mini-stats span { padding: .22rem .12rem; }
+  .class-tabs { display: flex; flex-wrap: nowrap; gap: .15rem; overflow-x: auto; margin-bottom: .3rem; padding: .18rem; scrollbar-width: none; }
+  .class-tabs::-webkit-scrollbar { display: none; }
+  .class-tab { flex: 1 0 auto; min-width: 4.05rem; min-height: 2.05rem; padding-inline: .42rem; }
+  .class-tab-panel { padding-inline: .05rem; }
+  .class-tab-panel--gradebook > div:first-child { margin-bottom: .35rem; overflow-x: auto; scrollbar-width: none; }
+  .class-tab-panel--gradebook > div:first-child::-webkit-scrollbar { display: none; }
+  .gradebook-toolbar { align-items: stretch; gap: .35rem; margin-bottom: .3rem; padding: 0 0 .25rem; }
+  .gradebook-toolbar__title { gap: .12rem; }
+  .gradebook-toolbar__title p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: .64rem; line-height: 1.4; }
+  .grade-matrix-hint { width: 100%; justify-content: center; margin-top: .15rem; }
+  .class-tab-panel--gradebook .grade-matrix-card,
+  .class-tab-panel--gradebook .grade-matrix-scroll { min-height: clamp(25rem, calc(100dvh - 14rem), 44rem); height: clamp(25rem, calc(100dvh - 14rem), 44rem); }
+  .grade-matrix-table { font-size: .76rem; }
+  .grade-matrix-table th { font-size: .7rem; }
+  .grade-matrix-table input { min-height: 2.3rem; }
+  .grade-matrix-sticky--header,
+  .grade-matrix-sticky--subheader,
+  .grade-matrix-sticky--body { min-width: 8.5rem; }
+
+  .settings-page-hero,
+  .subscription-page-hero,
+  .admin-page-hero { min-height: 0; padding: .8rem .85rem; margin-bottom: .35rem; }
+  .settings-page-hero h1,
+  .subscription-page-hero h1,
+  .admin-page-hero h1 { font-size: 1.35rem; }
+  .settings-page-hero p,
+  .subscription-page-hero p,
+  .admin-page-hero p { margin-top: .2rem; line-height: 1.45; }
+  .settings-page-content,
+  .subscription-page-content,
+  .admin-page-content { padding-bottom: .75rem; }
+  .subscription-current-card,
+  .subscription-requests-card,
+  .subscription-activation-card,
+  .settings-panel,
+  .admin-config-card { padding: .72rem .75rem; }
+  .table-scroll-sticky { max-height: min(66dvh, 34rem); }
+}
+
+@media (max-width: 420px) {
+  .dashboard-content { padding-inline: .35rem; }
+  .dashboard-actions { grid-template-columns: 1fr 1fr; }
+  .dashboard-actions .action-button { padding-inline: .55rem; font-size: .72rem; }
+  .class-page-header__visual { min-height: 4rem; padding-inline: .55rem; }
+  .class-page-header h1 { font-size: 1.12rem; }
+  .class-page-mini-stats strong { font-size: .76rem; }
+  .class-page-mini-stats small { font-size: .4rem; }
+  .class-tab { min-width: 3.7rem; padding-inline: .32rem; font-size: .55rem; }
+  .class-tab-panel--gradebook .grade-matrix-card,
+  .class-tab-panel--gradebook .grade-matrix-scroll { min-height: clamp(24rem, calc(100dvh - 13.4rem), 38rem); height: clamp(24rem, calc(100dvh - 13.4rem), 38rem); }
+}
