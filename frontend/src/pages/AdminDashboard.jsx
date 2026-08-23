@@ -316,8 +316,21 @@ function TeachersList({ onMessage, onRestrictions }) {
   const { t, locale } = useLocale();
   const [teachers, setTeachers] = useState([]);
   const [search, setSearch] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [accountBusy, setAccountBusy] = useState(false);
-  useEffect(() => { adminApi.get('/admin/teachers').then(({ data }) => setTeachers(data.teachers || [])).catch(() => setTeachers([])); }, []);
+  useEffect(() => {
+    let mounted = true;
+    setLoadError('');
+    adminApi.get('/admin/teachers')
+      .then(({ data }) => { if (mounted) setTeachers(data.teachers || []); })
+      .catch((error) => {
+        if (!mounted) return;
+        setTeachers([]);
+        setLoadError(error.response?.data?.error || (locale === 'ar' ? 'تعذر تحميل قائمة المعلمين. أعد المحاولة.' : 'Unable to load the teachers list. Try again.'));
+      });
+    return () => { mounted = false; };
+  }, [locale, reloadKey]);
   const filteredTeachers = teachers.filter((teacher) => {
     const term = search.trim().toLowerCase();
     if (!term) return true;
@@ -329,6 +342,7 @@ function TeachersList({ onMessage, onRestrictions }) {
   return (
     <div>
       <div className="relative mb-3"><input className="input text-sm pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث سريع باسم المعلم أو البريد أو المدرسة' : 'Quick search by teacher, email, or school'} aria-label={locale === 'ar' ? 'بحث في المعلمين' : 'Search teachers'} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/35">⌕</span></div>
+      {loadError && <div className="admin-list-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)}>{locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
       <div className="card overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-surface"><tr>

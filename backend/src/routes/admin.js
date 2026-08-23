@@ -340,9 +340,15 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 // Keep this list route deliberately conservative for both SQLite and Turso/libSQL:
 // use simple reads and aggregate in memory, while loading restrictions on demand.
 router.get('/teachers', (req, res) => {
-  const definitions = getPlanDefinitions();
+  let definitions = [];
+  try { definitions = getPlanDefinitions(); } catch (error) { console.error('Unable to load subscription definitions for admin teachers list', error); }
   const teacherRows = db.prepare('SELECT id, full_name, email, school_name, created_at FROM teachers ORDER BY created_at DESC').all();
-  const subscriptionRows = db.prepare('SELECT id, teacher_id, plan, status, trial_start_date, trial_end_date, current_period_start, current_period_end, updated_at, created_at FROM subscriptions').all();
+  let subscriptionRows = [];
+  try {
+    subscriptionRows = db.prepare('SELECT id, teacher_id, plan, status, trial_start_date, trial_end_date, current_period_start, current_period_end, updated_at, created_at FROM subscriptions').all();
+  } catch (error) {
+    console.error('Unable to load subscriptions for admin teachers list', error);
+  }
   const subscriptionByTeacher = new Map();
   const subscriptionRank = (item) => [
     ['6_months', 'yearly', 'lifetime'].includes(item.plan) ? 0 : 1,
@@ -357,7 +363,12 @@ router.get('/teachers', (req, res) => {
 
   // Approved payments are still the display authority, but the list uses one plain
   // query and a map instead of a window function or one query per teacher.
-  const approvedRows = db.prepare("SELECT teacher_id, plan, offer_id, amount_omr, original_amount_omr, reviewed_at, created_at FROM payment_requests WHERE status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all();
+  let approvedRows = [];
+  try {
+    approvedRows = db.prepare("SELECT teacher_id, plan, offer_id, amount_omr, original_amount_omr, reviewed_at, created_at FROM payment_requests WHERE status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all();
+  } catch (error) {
+    console.error('Unable to load approved payments for admin teachers list', error);
+  }
   const approvedByTeacher = new Map();
   for (const item of approvedRows) {
     const key = String(item.teacher_id);
@@ -366,7 +377,12 @@ router.get('/teachers', (req, res) => {
 
   // Account status is a small key-value record. Read all such records once; the
   // detailed restriction document is deliberately excluded from this fast list.
-  const statusRows = db.prepare("SELECT key, value, updated_at FROM app_settings WHERE key LIKE 'teacher_account_status:%'").all();
+  let statusRows = [];
+  try {
+    statusRows = db.prepare("SELECT key, value, updated_at FROM app_settings WHERE key LIKE 'teacher_account_status:%'").all();
+  } catch (error) {
+    console.error('Unable to load account statuses for admin teachers list', error);
+  }
   const statusByTeacher = new Map();
   for (const item of statusRows) {
     const teacherId = item.key.slice('teacher_account_status:'.length);
