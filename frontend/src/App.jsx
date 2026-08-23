@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import { useLocale } from './context/LocaleContext.jsx';
 import LoadingOverlay from './components/LoadingOverlay.jsx';
+import WorkspaceNavigation from './components/WorkspaceNavigation.jsx';
 
 class AppErrorBoundary extends React.Component {
   state = { hasError: false };
@@ -49,8 +50,11 @@ function ProtectedRoute({ children }) {
   return (
     <div className="protected-app-shell">
       <OfflineBanner />
-      <Suspense fallback={null}><PublicAnnouncement placement="global" /></Suspense>
-      <div className="protected-app-content">{children}</div>
+      <WorkspaceNavigation />
+      <div className="protected-app-main">
+        <Suspense fallback={null}><PublicAnnouncement placement="global" /></Suspense>
+        <div className="protected-app-content">{children}</div>
+      </div>
       <Suspense fallback={null}><ChatWidget /></Suspense>
       <Suspense fallback={null}><OnboardingTutorial /></Suspense>
     </div>
