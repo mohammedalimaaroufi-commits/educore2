@@ -337,36 +337,32 @@ router.post('/payment-requests/:id/reject', (req, res) => {
 });
 
 // GET /api/admin/teachers  -> quick overview of all registered teachers + their subscription state
-// This endpoint intentionally stays lightweight. Detailed restrictions are loaded only
-// from /teachers/:teacherId/restrictions when the administrator opens the dedicated tab.
+// Keep this list route deliberately conservative for both SQLite and Turso/libSQL:
+// use simple reads and aggregate in memory, while loading restrictions on demand.
 router.get('/teachers', (req, res) => {
   const definitions = getPlanDefinitions();
-  const rows = db.prepare(`SELECT t.id, t.full_name, t.email, t.school_name, t.created_at,
-                              s.id AS subscription_id, s.plan, s.status, s.trial_start_date, s.trial_end_date,
-                              s.current_period_start, s.current_period_end,
-                              pr.id AS approved_request_id,
-                              pr.plan AS approved_plan,
-                              pr.offer_id AS approved_offer_id,
-                              pr.amount_omr AS approved_amount_omr,
-                              pr.original_amount_omr AS approved_original_amount_omr,
-                              pr.reviewed_at AS approved_reviewed_at,
-                              pr.created_at AS approved_created_at
-                            FROM teachers t
-                            LEFT JOIN subscriptions s ON s.id = (
-                              SELECT s2.id FROM subscriptions s2
-                              WHERE s2.teacher_id = t.id
-                              ORDER BY CASE WHEN s2.plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END,
-                                       CASE WHEN s2.status = 'active' THEN 0 ELSE 1 END,
-                                       datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
-                              LIMIT 1
-                            )
-                            LEFT JOIN payment_requests pr ON pr.id = (
-                              SELECT pr2.id FROM payment_requests pr2
-                              WHERE pr2.teacher_id = t.id AND pr2.status = 'approved'
-                              ORDER BY COALESCE(pr2.reviewed_at, pr2.created_at) DESC, pr2.created_at DESC, pr2.id DESC
-                              LIMIT 1
-                            )
-                            ORDER BY t.created_at DESC`).all();
+  const teacherRows = db.prepare('SELECT id, full_name, email, school_name, created_at FROM teachers ORDER BY created_at DESC').all();
+  const subscriptionRows = db.prepare('SELECT id, teacher_id, plan, status, trial_start_date, trial_end_date, current_period_start, current_period_end, updated_at, created_at FROM subscriptions').all();
+  const subscriptionByTeacher = new Map();
+  const subscriptionRank = (item) => [
+    ['6_months', 'yearly', 'lifetime'].includes(item.plan) ? 0 : 1,
+    item.status === 'active' ? 0 : 1,
+    -(new Date(item.updated_at || item.created_at || 0).getTime() || 0),
+  ];
+  for (const item of subscriptionRows) {
+    const key = String(item.teacher_id);
+    const current = subscriptionByTeacher.get(key);
+    if (!current || subscriptionRank(item).join('|') < subscriptionRank(current).join('|')) subscriptionByTeacher.set(key, item);
+  }
+
+  // Approved payments are still the display authority, but the list uses one plain
+  // query and a map instead of a window function or one query per teacher.
+  const approvedRows = db.prepare("SELECT teacher_id, plan, offer_id, amount_omr, original_amount_omr, reviewed_at, created_at FROM payment_requests WHERE status = 'approved' ORDER BY COALESCE(reviewed_at, created_at) DESC, created_at DESC, id DESC").all();
+  const approvedByTeacher = new Map();
+  for (const item of approvedRows) {
+    const key = String(item.teacher_id);
+    if (!approvedByTeacher.has(key)) approvedByTeacher.set(key, item);
+  }
 
   // Account status is a small key-value record. Read all such records once; the
   // detailed restriction document is deliberately excluded from this fast list.
@@ -378,22 +374,22 @@ router.get('/teachers', (req, res) => {
     try { parsed = JSON.parse(item.value || '{}'); } catch { parsed = {}; }
     const rawStatus = String(parsed.status || '').toLowerCase();
     const status = ['active', 'disabled', 'banned'].includes(rawStatus) ? rawStatus : 'active';
-    statusByTeacher.set(String(teacherId), {
-      status,
-      note: String(parsed.note || '').trim().slice(0, 500),
-      updated_at: item.updated_at || null,
-    });
+    statusByTeacher.set(String(teacherId), { status, note: String(parsed.note || '').trim().slice(0, 500), updated_at: item.updated_at || null });
   }
 
-  const teachers = rows.map((row) => {
-    const latestApproved = row.approved_request_id ? {
-      plan: row.approved_plan,
-      offer_id: row.approved_offer_id,
-      amount_omr: row.approved_amount_omr,
-      original_amount_omr: row.approved_original_amount_omr,
-      reviewed_at: row.approved_reviewed_at,
-      created_at: row.approved_created_at,
-    } : null;
+  const teachers = teacherRows.map((teacher) => {
+    const subscription = subscriptionByTeacher.get(String(teacher.id));
+    const row = {
+      ...teacher,
+      subscription_id: subscription?.id || null,
+      plan: subscription?.plan || 'trial',
+      status: subscription?.status || null,
+      trial_start_date: subscription?.trial_start_date || null,
+      trial_end_date: subscription?.trial_end_date || null,
+      current_period_start: subscription?.current_period_start || null,
+      current_period_end: subscription?.current_period_end || null,
+    };
+    const latestApproved = approvedByTeacher.get(String(teacher.id));
     const approvedPlan = latestApproved
       ? resolvePlanId(latestApproved.plan, {
         definitions,
@@ -413,14 +409,10 @@ router.get('/teachers', (req, res) => {
     const rawPlan = row.plan || 'trial';
     const plan = hasApprovedPaidPlan ? approvedPlan : resolvePlanId(rawPlan, { definitions }) || rawPlan;
     const definition = definitions.find((item) => item.id === plan);
-    const startDate = hasApprovedPaidPlan
-      ? approvedStart
-      : (plan === 'trial' ? row.trial_start_date : row.current_period_start);
-    const endDate = hasApprovedPaidPlan
-      ? approvedEnd
-      : (plan === 'trial' ? row.trial_end_date : row.current_period_end);
+    const startDate = hasApprovedPaidPlan ? approvedStart : (plan === 'trial' ? row.trial_start_date : row.current_period_start);
+    const endDate = hasApprovedPaidPlan ? approvedEnd : (plan === 'trial' ? row.trial_end_date : row.current_period_end);
     const daysLeft = endDate ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-    const accountStatus = statusByTeacher.get(String(row.id)) || { status: 'active', note: '', updated_at: null };
+    const accountStatus = statusByTeacher.get(String(teacher.id)) || { status: 'active', note: '', updated_at: null };
     return {
       ...row,
       plan,
