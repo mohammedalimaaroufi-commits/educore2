@@ -14,7 +14,7 @@ export default function GradebookTab({ classId, className }) {
 
   return (
     <div>
-      <div className="flex gap-2 mb-4 print:hidden">
+      <div className="gradebook-subtabs flex gap-2 mb-4 print:hidden">
         {SUBTAB_KEYS.map((item) => (
           <button key={item.id} onClick={() => setSub(item.id)}
             className={`px-3 py-1.5 rounded-full text-sm border ${sub === item.id ? 'bg-primary text-white border-primary' : 'border-line hover:bg-surface'}`}>

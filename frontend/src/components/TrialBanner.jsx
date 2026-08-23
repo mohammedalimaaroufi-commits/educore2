@@ -18,7 +18,7 @@ export default function TrialBanner() {
   };
 
   return (
-    <div className={`border rounded-xl2 px-4 py-3 mb-4 flex items-center justify-between ${styles[alertLevel]}`}>
+    <div className={`dashboard-trial-banner border rounded-xl2 px-4 py-3 mb-4 flex items-center justify-between ${styles[alertLevel]}`}>
       <span className="text-sm font-medium">
         {daysLeft > 0
           ? `تبقّى ${daysLeft} ${daysLeft === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية المجانية.`
