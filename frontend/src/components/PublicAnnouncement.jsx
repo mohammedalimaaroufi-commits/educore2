@@ -41,8 +41,18 @@ export default function PublicAnnouncement({ placement = 'global' }) {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
+    const clearAnnouncementDismissals = () => {
+      setDismissed({});
+      try {
+        Object.keys(localStorage).filter((key) => key.startsWith('educore_announcement_dismissed_')).forEach((key) => localStorage.removeItem(key));
+      } catch { /* local storage may be unavailable */ }
+    };
+    const onPublicConfigUpdated = (payload = {}) => {
+      if (payload.announcement !== false) clearAnnouncementDismissals();
+      void refresh();
+    };
     const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
-    socket?.on('public_config_updated', refresh);
+    socket?.on('public_config_updated', onPublicConfigUpdated);
     return () => {
       active = false;
       window.clearInterval(timer);

@@ -29,7 +29,7 @@ function toSectionPayload(section, config) {
   }
   if (section === 'announcement') {
     return {
-      announcement_enabled: config.announcement_enabled === true || config.announcement_enabled === '1' ? '1' : '0',
+      announcement_enabled: '1',
       announcement_type: config.announcement_type || 'maintenance',
       announcement_title_ar: config.announcement_title_ar.trim(),
       announcement_title_en: config.announcement_title_en.trim(),
@@ -111,6 +111,10 @@ export default function AdminPublicConfig({ section = 'payment' }) {
     await persist(toSectionPayload(section, config), section === 'payment' ? 'تم حفظ بيانات الدفع فقط.' : 'تم حفظ الإعلان وسيظهر فورًا للمستخدمين المتصلين.');
   };
 
+  const hideAnnouncement = async () => {
+    await persist({ announcement_enabled: '0' }, 'تم إخفاء الإعلان عن المستخدمين.');
+  };
+
   const addNotification = async () => {
     const hasContent = notificationDraft.title_ar.trim() || notificationDraft.title_en.trim() || notificationDraft.message_ar.trim() || notificationDraft.message_en.trim();
     if (!hasContent) {
@@ -152,7 +156,7 @@ export default function AdminPublicConfig({ section = 'payment' }) {
 
     {isAnnouncement && <section className="admin-config-card admin-config-card--announcement">
       <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">رسالة عامة للمستخدمين</span><h3>إعلان عاجل أو تحديث</h3><p>أدخل النص الأساسي فقط. عند الحفظ يُنشر الإعلان فورًا، ويمكن للمستخدم إغلاقه من شاشته.</p></div><span className="admin-config-icon">!</span></div>
-      <label className="admin-announcement-toggle"><input type="checkbox" checked={config.announcement_enabled === '1' || config.announcement_enabled === true} onChange={(e) => update('announcement_enabled', e.target.checked ? '1' : '0')} /><span>إظهار الإعلان للمستخدمين</span></label>
+      <div className="admin-announcement-publish-note"><span className="admin-announcement-publish-dot" aria-hidden="true" /> <strong>النشر الفوري مفعّل</strong><span>سيظهر الإعلان للمستخدمين مباشرة عند الضغط على «حفظ ونشر الإعلان».</span></div>
       <div className="admin-public-grid admin-public-grid--compact">
         <label className="label">نوع الإعلان<select className="input" value={config.announcement_type} onChange={(e) => update('announcement_type', e.target.value)}><option value="urgent">عاجل</option><option value="maintenance">صيانة</option><option value="info">معلومة</option></select></label>
         <label className="label">العنوان بالعربية<input className="input" value={config.announcement_title_ar} onChange={(e) => update('announcement_title_ar', e.target.value)} placeholder="تحديث مهم قريبًا" /></label>
@@ -175,7 +179,7 @@ export default function AdminPublicConfig({ section = 'payment' }) {
       <div className="admin-notification-list">{(config.announcement_notifications || []).map((item) => <article key={item.id} className="admin-notification-row"><div className="admin-notification-row__body"><div className="admin-notification-row__top"><span className={`admin-notification-type admin-notification-type--${item.type || 'info'}`}>{item.type === 'urgent' ? 'عاجل' : item.type === 'maintenance' ? 'صيانة' : 'معلومة'}</span><strong>{item.title_ar || item.title_en || 'إشعار'}</strong></div><p>{item.message_ar || item.message_en || '—'}</p><small>{item.title_en || item.message_en ? 'AR / EN' : 'AR'}</small></div><button type="button" className="admin-notification-delete" onClick={() => removeNotification(item.id)} disabled={busy} aria-label="حذف الإشعار" title="حذف الإشعار">×</button></article>)}{(!config.announcement_notifications || config.announcement_notifications.length === 0) && <p className="admin-empty-notifications">لا توجد إشعارات منشورة حاليًا.</p>}</div>
     </section>}
 
-    {!isNotifications && <div className="admin-public-actions"><button className="btn-primary" type="submit" disabled={busy}>{busy ? 'جارِ الحفظ...' : isAnnouncement ? 'حفظ ونشر الإعلان' : 'حفظ بيانات الدفع'}</button>{message && <span className="save-feedback save-feedback--success" role="status">{message}</span>}{error && <span className="save-feedback save-feedback--error" role="alert">{error}</span>}</div>}
+    {!isNotifications && <div className="admin-public-actions"><button className="btn-primary" type="submit" disabled={busy}>{busy ? 'جارِ الحفظ...' : isAnnouncement ? 'حفظ ونشر الإعلان' : 'حفظ بيانات الدفع'}</button>{isAnnouncement && <button className="btn-secondary admin-announcement-hide" type="button" onClick={hideAnnouncement} disabled={busy}>إخفاء الإعلان</button>}{message && <span className="save-feedback save-feedback--success" role="status">{message}</span>}{error && <span className="save-feedback save-feedback--error" role="alert">{error}</span>}</div>}
     {isNotifications && (message || error) && <div className={`admin-action-feedback ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || message}</div>}
   </form>;
 }

@@ -880,3 +880,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .admin-public-grid--compact .admin-public-grid__wide { grid-column: auto; }
   .admin-notification-row { padding: .65rem; }
 }
+
+
+.admin-announcement-publish-note { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .5rem; margin-top: .85rem; padding: .62rem .75rem; color: rgba(27,36,48,.62); background: rgba(46,125,107,.07); border: 1px solid rgba(46,125,107,.15); border-radius: .7rem; font-size: .7rem; }
+.admin-announcement-publish-note strong { color: #2e7d6b; }
+.admin-announcement-publish-dot { width: .52rem; height: .52rem; flex: 0 0 auto; border-radius: 50%; background: #2e7d6b; box-shadow: 0 0 0 .25rem rgba(46,125,107,.12); }
+.admin-announcement-hide { color: #8f5f10; border-color: rgba(224,165,72,.32); background: rgba(224,165,72,.08); }
+.admin-announcement-hide:hover { color: #76531b; border-color: rgba(224,165,72,.5); background: rgba(224,165,72,.14); }
+@media (max-width: 560px) { .admin-announcement-publish-note { align-items: flex-start; flex-direction: column; } }

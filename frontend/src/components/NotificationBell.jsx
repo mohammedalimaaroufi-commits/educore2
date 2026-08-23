@@ -57,8 +57,29 @@ export default function NotificationBell() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
+    const clearAnnouncementDismissals = () => {
+      setDismissed((current) => {
+        const next = { ...current };
+        Object.keys(next).filter((key) => key.startsWith('bell-announcement')).forEach((key) => { delete next[key]; });
+        return next;
+      });
+      setRead((current) => {
+        const next = { ...current };
+        Object.keys(next).filter((key) => key.startsWith('bell-announcement')).forEach((key) => { delete next[key]; });
+        return next;
+      });
+      try {
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith(`${DISMISSED_PREFIX}bell-announcement`) || key.startsWith(`${READ_PREFIX}bell-announcement`))
+          .forEach((key) => localStorage.removeItem(key));
+      } catch { /* storage may be unavailable */ }
+    };
+    const onPublicConfigUpdated = (payload = {}) => {
+      if (payload.announcement !== false) clearAnnouncementDismissals();
+      void refresh();
+    };
     const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
-    socket?.on('public_config_updated', refresh);
+    socket?.on('public_config_updated', onPublicConfigUpdated);
     return () => {
       active = false;
       window.clearInterval(timer);

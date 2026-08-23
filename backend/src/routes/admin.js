@@ -54,7 +54,14 @@ router.patch('/public-config', (req, res) => {
   }
   const config = savePublicConfig(input);
   const io = req.app.get('io');
-  if (io) io.to('public').emit('public_config_updated', { updated_at: new Date().toISOString() });
+  if (io) {
+    const announcementKeys = ['announcement_enabled', 'announcement_type', 'announcement_title_ar', 'announcement_title_en', 'announcement_message_ar', 'announcement_message_en', 'announcement_starts_at', 'announcement_ends_at', 'announcement_cta_label_ar', 'announcement_cta_label_en', 'announcement_cta_url'];
+    io.to('public').emit('public_config_updated', {
+      updated_at: new Date().toISOString(),
+      announcement: announcementKeys.some((key) => Object.prototype.hasOwnProperty.call(input, key)),
+      notifications: Object.prototype.hasOwnProperty.call(input, 'announcement_notifications'),
+    });
+  }
   res.json({ config });
 });
 
