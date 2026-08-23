@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffer, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
@@ -20,9 +20,26 @@ function addDays(date, days) {
 
 const VALID_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
 
+function findPurchasedSubscription(teacherId) {
+  const rows = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ?
+                           ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                                    datetime(COALESCE(updated_at, created_at)) DESC`).all(teacherId);
+  return rows.find((row) => isPaidPlanId(row.plan)) || null;
+}
+
 function ensureTrialSubscription(teacherId, rawSub = null) {
   const now = new Date().toISOString();
   const canonicalPlan = normalizePlanId(rawSub?.plan);
+  const purchased = findPurchasedSubscription(teacherId);
+
+  // Trial is only a first-time fallback. A paid row wins even when a legacy duplicate
+  // trial row is newer, and changing the global trial setting can never revive or
+  // overwrite an account that has purchased a plan before.
+  if (purchased && !isPaidPlanId(canonicalPlan)) {
+    db.prepare("UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE teacher_id = ? AND id <> ? AND plan = 'trial' AND status = 'active'")
+      .run(now, teacherId, purchased.id);
+    return repairPaidSubscriptionPeriod(purchased);
+  }
   const trialStart = rawSub?.trial_start_date || now;
   const trialEnd = rawSub?.trial_end_date || addDays(trialStart, getTrialDays());
   const hasLegacyTrialShape = rawSub?.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end;
@@ -193,7 +210,7 @@ function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
-  const rawSub = db.prepare("SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1").get(req.teacherId);
+  const rawSub = db.prepare("SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END, CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1").get(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
   const periodReadySub = repairPaidSubscriptionPeriod(repairedSub);
   // Always return a concrete subscription, but only fall back to trial when there is no
@@ -285,7 +302,8 @@ router.post('/payment-requests', requireAuth, (req, res) => {
   const canonicalPlan = resolvePlanId(plan, { offerId: offer_id });
   const basePrices = getBasePrices();
   if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'باقة غير صالحة' });
-  const offer = getActiveOffer(canonicalPlan);
+  const activeOffers = getActiveOffers(canonicalPlan);
+  const offer = activeOffers.find((item) => item.id === offer_id) || activeOffers[0] || null;
   const originalAmount = offer ? Number(offer.original_price_omr || basePrices[canonicalPlan]) : basePrices[canonicalPlan];
   const amount = offer ? Number(offer.offer_price_omr) : basePrices[canonicalPlan];
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });

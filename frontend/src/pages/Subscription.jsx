@@ -4,6 +4,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
+import { connectSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 const FALLBACK_PLANS = [
@@ -135,13 +136,35 @@ export default function Subscription() {
   const activationRef = useRef(null);
 
   useEffect(() => {
-    api.get('/auth/plans').then(({ data }) => {
-      setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
-      setPhone(data.payment_phone || data.payment?.phone || '');
-      setPayment(data.payment || {});
-      setTrialDays(Number(data.trial_days || 14));
-    }).catch(() => setPlans(FALLBACK_PLANS));
+    let active = true;
+    const loadPlans = async () => {
+      try {
+        const { data } = await api.get('/auth/plans');
+        if (!active) return;
+        setPlans((data.plans || []).map((plan) => ({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan })));
+        setPhone(data.payment_phone || data.payment?.phone || '');
+        setPayment(data.payment || {});
+        setTrialDays(Number(data.trial_days || 14));
+      } catch {
+        if (active) setPlans(FALLBACK_PLANS);
+      }
+    };
+    void loadPlans();
+    const timer = window.setInterval(loadPlans, 30 * 1000);
+    const onFocus = () => { void loadPlans(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void loadPlans(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: loadPlans });
+    socket.on('subscription_config_updated', loadPlans);
     refreshMe({ force: true }).catch(() => undefined);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      socket.disconnect();
+    };
   }, [refreshMe]);
 
   const visiblePlans = plans.length ? plans : FALLBACK_PLANS;

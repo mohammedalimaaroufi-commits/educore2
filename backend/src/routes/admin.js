@@ -17,6 +17,11 @@ function purgeExpiredMessages() {
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change_this_admin_password';
 
+function emitSubscriptionConfigUpdated(req) {
+  const io = req.app.get('io');
+  if (io) io.to('public').emit('subscription_config_updated', { updated_at: new Date().toISOString() });
+}
+
 function addDays(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
@@ -88,20 +93,23 @@ router.patch('/subscription-config', (req, res) => {
     }
     savePlanDefinitions(req.body.plan_definitions);
   }
+  emitSubscriptionConfigUpdated(req);
   res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), plan_definitions: getPlanDefinitions() });
 });
 
 router.post('/offers', (req, res) => {
   const { plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled } = req.body;
+  const canonicalPlan = normalizePlanId(plan);
   const basePrices = getBasePrices();
-  if (!basePrices[plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
-  const original = Number(original_price_omr || basePrices[plan]);
+  if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  const original = Number(original_price_omr || basePrices[canonicalPlan]);
   const offer = Number(offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
   const id = uuid();
   db.prepare(`INSERT INTO subscription_offers (id, plan, title, description, original_price_omr, offer_price_omr, starts_at, ends_at, enabled)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, plan, title || 'عرض خاص', description || null, original, offer, starts_at || null, ends_at || null, enabled === false ? 0 : 1);
+    .run(id, canonicalPlan, title || 'عرض خاص', description || null, original, offer, starts_at || null, ends_at || null, enabled === false ? 0 : 1);
+  emitSubscriptionConfigUpdated(req);
   res.status(201).json({ offer: db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(id) });
 });
 
@@ -109,19 +117,22 @@ router.patch('/offers/:id', (req, res) => {
   const current = db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(req.params.id);
   if (!current) return res.status(404).json({ error: 'العرض غير موجود' });
   const next = { ...current, ...req.body };
+  const canonicalPlan = normalizePlanId(next.plan);
   const basePrices = getBasePrices();
-  if (!basePrices[next.plan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
+  if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'الخطة غير صالحة' });
   const original = Number(next.original_price_omr);
   const offer = Number(next.offer_price_omr);
   if (!Number.isFinite(original) || !Number.isFinite(offer) || original <= 0 || offer <= 0 || offer > original) return res.status(400).json({ error: 'تحقق من السعر الأصلي وسعر العرض' });
   db.prepare(`UPDATE subscription_offers SET plan = ?, title = ?, description = ?, original_price_omr = ?, offer_price_omr = ?, starts_at = ?, ends_at = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(next.plan, next.title || null, next.description || null, original, offer, next.starts_at || null, next.ends_at || null, next.enabled ? 1 : 0, current.id);
+    .run(canonicalPlan, next.title || null, next.description || null, original, offer, next.starts_at || null, next.ends_at || null, next.enabled ? 1 : 0, current.id);
+  emitSubscriptionConfigUpdated(req);
   res.json({ offer: db.prepare('SELECT * FROM subscription_offers WHERE id = ?').get(current.id) });
 });
 
 router.delete('/offers/:id', (req, res) => {
   const result = db.prepare('DELETE FROM subscription_offers WHERE id = ?').run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: 'العرض غير موجود' });
+  emitSubscriptionConfigUpdated(req);
   res.json({ success: true });
 });
 
@@ -253,7 +264,7 @@ router.delete('/teachers/:teacherId', (req, res) => {
 router.get('/teachers/:teacherId/restrictions', (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email FROM teachers WHERE id = ?').get(req.params.teacherId);
   if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
-  const rawSubscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
+  const rawSubscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END, CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1`).get(teacher.id);
   const subscription = repairPaidSubscriptionPeriod(reconcileApprovedSubscription(teacher.id, rawSubscription), { definitions: getPlanDefinitions() });
   res.json({ teacher, restrictions: getConfiguredRestrictions(teacher.id), effective: getEffectiveRestrictions(teacher.id, subscription), features: RESTRICTABLE_FEATURES });
 });
@@ -335,7 +346,8 @@ router.get('/teachers', (req, res) => {
                             LEFT JOIN subscriptions s ON s.id = (
                               SELECT s2.id FROM subscriptions s2
                               WHERE s2.teacher_id = t.id
-                              ORDER BY CASE WHEN s2.status = 'active' THEN 0 ELSE 1 END,
+                              ORDER BY CASE WHEN s2.plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END,
+                                       CASE WHEN s2.status = 'active' THEN 0 ELSE 1 END,
                                        datetime(COALESCE(s2.updated_at, s2.created_at)) DESC
                               LIMIT 1
                             )
