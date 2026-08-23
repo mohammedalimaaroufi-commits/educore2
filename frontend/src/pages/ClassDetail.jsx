@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../api/client';
 import TrialBanner from '../components/TrialBanner.jsx';
+import LoadingOverlay from '../components/LoadingOverlay.jsx';
 const StudentsTab = lazy(() => import('../components/StudentsTab.jsx'));
 const GradebookTab = lazy(() => import('../components/GradebookTab.jsx'));
 const BehaviorTab = lazy(() => import('../components/BehaviorTab.jsx'));
@@ -77,7 +78,7 @@ export default function ClassDetail() {
     <div className="class-page-shell" dir={direction}>
       <div className="class-page-fixed-header">
         <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {isArabic ? 'العودة إلى لوحة الصفوف' : 'Back to classes'}</Link><span className="class-page-status"><span className="class-page-status__dot" /> {isArabic ? 'بيانات محفوظة محليًا' : 'Data saved locally'}</span></div>
-        {loading && !cls && <div className="class-page-loading">{isArabic ? 'جارِ فتح الصف محليًا...' : 'Opening class locally...'}</div>}
+        {loading && !cls && <LoadingOverlay label={isArabic ? 'جارِ فتح الصف محليًا...' : 'Opening class locally...'} />}
         {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>
           <div className="class-page-header__visual"><div className="class-page-header__context"><span className="class-page-header__eyebrow">{isArabic ? 'مساحة الصف' : 'Class workspace'}</span><span className="class-page-header__context-dot" aria-hidden="true" /></div><h1>{cls.name}</h1><p>{cls.subject || (isArabic ? 'مادة غير محددة' : 'Subject not specified')} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
           <div className="class-page-header__side"><span className="class-page-header__tag">{isArabic ? 'إدارة يومية' : 'Daily management'}</span><p>{isArabic ? 'كل ما تحتاجه لمتابعة صفك في مكان واحد.' : 'Everything you need to manage this class in one place.'}</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{isArabic ? 'طالب' : 'Students'}</small></span><span><strong>{categoriesCount}</strong><small>{isArabic ? 'فئة' : 'Categories'}</small></span><span><strong>{assessmentsCount}</strong><small>{isArabic ? 'تقييم' : 'Assessments'}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{isArabic ? 'جلسة حضور' : 'Attendance sessions'}</small></span></div></div>
@@ -87,7 +88,7 @@ export default function ClassDetail() {
         <nav className="class-tabs" aria-label={isArabic ? 'أقسام الصف' : 'Class sections'}>{visibleTabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{t(item.key)}</span></button>)}</nav>
       </div>
       <main className={`class-tab-panel class-tab-panel--${tab || 'restricted'}`}>
-        {visibleTabs.length === 0 ? <div className="class-page-restricted-empty"><strong>{t('restrictedFeature')}</strong><span>{t('restrictionsNotice')}</span></div> : <Suspense fallback={<div className="class-page-loading">{isArabic ? 'جارِ تحميل التبويب...' : 'Loading section...'}</div>}>
+        {visibleTabs.length === 0 ? <div className="class-page-restricted-empty"><strong>{t('restrictedFeature')}</strong><span>{t('restrictionsNotice')}</span></div> : <Suspense fallback={<LoadingOverlay label={isArabic ? 'جارِ تحميل التبويب...' : 'Loading section...'} />}>
           {tab === 'students' && <StudentsTab classId={id} />}
           {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
           {tab === 'behavior' && <BehaviorTab classId={id} />}

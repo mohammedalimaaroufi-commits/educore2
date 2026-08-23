@@ -8,6 +8,7 @@ import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import TrialBanner from '../components/TrialBanner.jsx';
+import LoadingOverlay from '../components/LoadingOverlay.jsx';
 import Icon from '../components/Icon.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
 import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
@@ -408,7 +409,7 @@ export default function Dashboard() {
         )}
 
         {loading ? (
-          <div className="class-grid">{[1, 2, 3].map((item) => <div className="class-card class-card--skeleton" key={item}><div className="skeleton-block" /><div className="skeleton-line skeleton-line--long" /><div className="skeleton-line" /></div>)}</div>
+          <LoadingOverlay />
         ) : classes.length === 0 ? (
           <div className="empty-state"><div className="empty-state__icon">＋</div><h3>{t('noClasses')}</h3><p>{t('noClassesText')}</p><button className="btn-primary action-button" onClick={startAdd}>{t('createClass')}</button></div>
         ) : visibleClasses.length === 0 ? (

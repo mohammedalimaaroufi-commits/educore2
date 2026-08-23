@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import { useLocale } from './context/LocaleContext.jsx';
+import LoadingOverlay from './components/LoadingOverlay.jsx';
 
 class AppErrorBoundary extends React.Component {
   state = { hasError: false };
@@ -31,8 +32,7 @@ const OnboardingTutorial = lazy(() => import('./components/OnboardingTutorial.js
 const PublicAnnouncement = lazy(() => import('./components/PublicAnnouncement.jsx'));
 
 function LoadingScreen() {
-  const { t } = useLocale();
-  return <div className="p-10 text-center text-ink/60">{t('appLoading')}</div>;
+  return <LoadingOverlay />;
 }
 
 function OfflineBanner() {
