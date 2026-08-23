@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
+import { connectSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 function readDismissed(key) {
@@ -25,11 +26,30 @@ export default function PublicAnnouncement({ placement = 'global' }) {
 
   useEffect(() => {
     let active = true;
-    api.get('/auth/public-config').then(({ data }) => {
-      if (!active) return;
-      setAnnouncement(data.announcement || null);
-    }).catch(() => {});
-    return () => { active = false; };
+    const refresh = async () => {
+      try {
+        const { data } = await api.get('/auth/public-config');
+        if (active) setAnnouncement(data.announcement || null);
+      } catch {
+        // Keep the last visible announcement when the network is temporarily unavailable.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 30 * 1000);
+    const onFocus = () => { void refresh(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
+    socket?.on('public_config_updated', refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      socket?.disconnect();
+    };
   }, []);
 
   const contents = useMemo(() => [buildContent(announcement, locale, 'legacy')].filter(Boolean), [announcement, locale]);

@@ -148,7 +148,13 @@ io.use((socket, next) => {
   
   const token = socket.handshake.auth?.token;
   
-  if (!token) return next(new Error('unauthorized'));
+  if (!token) {
+    if (socket.handshake.auth?.public === true) {
+      socket.user = { role: 'public' };
+      return next();
+    }
+    return next(new Error('unauthorized'));
+  }
   
   try {
     
@@ -168,6 +174,8 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   
+  socket.join('public');
+
   if (socket.user.role === 'admin') {
     
     socket.join('admin');

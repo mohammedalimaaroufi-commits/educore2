@@ -5,7 +5,7 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL
 
 export function connectSocket(token, handlers = {}) {
   const socket = io(SOCKET_URL, {
-    auth: { token },
+    auth: token ? { token } : { public: true },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: Infinity,

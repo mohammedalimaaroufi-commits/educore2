@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
+import { connectSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 import Icon from './Icon.jsx';
 
@@ -37,18 +38,34 @@ export default function NotificationBell() {
   const [dismissed, setDismissed] = useState({});
   const [read, setRead] = useState({});
 
-  const load = async () => {
-    try {
-      const { data } = await api.get('/auth/public-config');
-      setAnnouncement(data.announcement || null);
-      setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
-    } catch { /* the global banner remains independent when this widget is offline */ }
-  };
-
   useEffect(() => {
-    load();
-    const timer = window.setInterval(load, 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
+    let active = true;
+    const refresh = async () => {
+      try {
+        const { data } = await api.get('/auth/public-config');
+        if (!active) return;
+        setAnnouncement(data.announcement || null);
+        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+      } catch {
+        // Keep the current list when the connection is temporarily unavailable.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 30 * 1000);
+    const onFocus = () => { void refresh(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
+    socket?.on('public_config_updated', refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      socket?.disconnect();
+    };
   }, []);
 
   const contents = useMemo(() => [

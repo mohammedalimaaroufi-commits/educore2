@@ -648,16 +648,20 @@ export default function AdminDashboard() {
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>طلبات التفعيل</button>
           <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>كل المعلمين</button>
           <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>03</span>الاشتراكات والعروض</button>
-          <button onClick={() => setTab('public-config')} className={`admin-tab ${tab === 'public-config' ? 'is-active' : ''}`}><span>04</span>الدفع والإعلانات</button>
-          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>05</span>طلبات كلمات المرور</button>
-          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>06</span>الدردشة مع المعلمين</button>
+          <button onClick={() => setTab('payment')} className={`admin-tab ${tab === 'payment' ? 'is-active' : ''}`}><span>04</span>الدفع</button>
+          <button onClick={() => setTab('announcement')} className={`admin-tab ${tab === 'announcement' ? 'is-active' : ''}`}><span>05</span>إعلان عاجل / تحديث</button>
+          <button onClick={() => setTab('notifications')} className={`admin-tab ${tab === 'notifications' ? 'is-active' : ''}`}><span>06</span>الإشعارات</button>
+          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>07</span>طلبات كلمات المرور</button>
+          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>08</span>الدردشة مع المعلمين</button>
         </nav>
       </div>
       <main className="admin-page-content">
         {tab === 'requests' && <PaymentRequests />}
         {tab === 'teachers' && <TeachersList onMessage={goToChat} />}
         {tab === 'subscriptions' && <SubscriptionConfig />}
-        {tab === 'public-config' && <AdminPublicConfig />}
+        {tab === 'payment' && <AdminPublicConfig section="payment" />}
+        {tab === 'announcement' && <AdminPublicConfig section="announcement" />}
+        {tab === 'notifications' && <AdminPublicConfig section="notifications" />}
         {tab === 'passwords' && <PasswordResetRequests />}
         {tab === 'chat' && <ChatPanel initialTeacher={chatTarget} />}
       </main>

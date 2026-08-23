@@ -53,6 +53,8 @@ router.patch('/public-config', (req, res) => {
     }
   }
   const config = savePublicConfig(input);
+  const io = req.app.get('io');
+  if (io) io.to('public').emit('public_config_updated', { updated_at: new Date().toISOString() });
   res.json({ config });
 });
 
