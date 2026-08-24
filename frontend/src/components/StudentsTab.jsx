@@ -42,6 +42,7 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
   const [feedback, setFeedback] = useState('');
   const [importPreview, setImportPreview] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [showArchivedStudents, setShowArchivedStudents] = useState(false);
   const teacherId = getTeacherId();
   const activeClassIds = new Set((snapshot?.classes || []).filter((classData) => !classData.archived).map((classData) => classData.id));
   const localActiveStudentCount = snapshot
@@ -53,6 +54,9 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
   const hasStudentLimit = Number.isFinite(planLimit) && planLimit > 0;
   const remainingSlots = hasStudentLimit ? Math.max(0, planLimit - localActiveStudentCount) : null;
   const hasReachedStudentLimit = hasStudentLimit && remainingSlots <= 0;
+  const archivedStudents = snapshot
+    ? (snapshot.students || []).filter((student) => Number(student.archived) === 1 && student.class_id === classId)
+    : [];
 
   const load = async () => {
     setLoading(true);
@@ -176,6 +180,57 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
     }
   };
 
+  const restoreStudent = async (student) => {
+    if (hasReachedStudentLimit) {
+      setFeedback(t('studentCapacityReached'));
+      return;
+    }
+    const previousSnapshot = snapshot;
+    const next = {
+      ...snapshot,
+      students: (snapshot?.students || []).map((item) => item.id === student.id ? { ...item, archived: 0, updated_at: new Date().toISOString() } : item),
+    };
+    applySnapshot(next);
+    try {
+      await api.post(`/students/${student.id}/restore`);
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
+      setFeedback(t('studentRestored'));
+    } catch (error) {
+      if (error?.response?.data?.code === 'STUDENT_LIMIT_REACHED') {
+        if (previousSnapshot) applySnapshot(previousSnapshot);
+        setFeedback(t('studentCapacityReached'));
+      } else {
+        await queueMutation(teacherId, { method: 'POST', url: `/students/${student.id}/restore` });
+        setFeedback(t('savedLocally'));
+      }
+    }
+    setTimeout(() => setFeedback(''), 2500);
+  };
+
+  const permanentlyDeleteStudent = async (student) => {
+    const accepted = await confirm({ title: t('deletePermanently'), message: t('confirmDeleteStudentPermanently'), confirmLabel: t('deletePermanently'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
+    const previousSnapshot = snapshot;
+    const next = {
+      ...snapshot,
+      students: (snapshot?.students || []).filter((item) => item.id !== student.id),
+      grades: (snapshot?.grades || []).filter((item) => item.student_id !== student.id),
+      behavior_logs: (snapshot?.behavior_logs || []).filter((item) => item.student_id !== student.id),
+      attendance_records: (snapshot?.attendance_records || []).filter((item) => item.student_id !== student.id),
+    };
+    applySnapshot(next);
+    try {
+      await api.delete(`/students/${student.id}/permanent`);
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
+      setFeedback(t('studentDeletedPermanently'));
+    } catch {
+      await queueMutation(teacherId, { method: 'DELETE', url: `/students/${student.id}/permanent` });
+      setFeedback(t('savedLocally'));
+    }
+    if (!previousSnapshot) setFeedback(t('savedLocally'));
+    setTimeout(() => setFeedback(''), 2500);
+  };
+
   const previewSheet = async (file, sheetName) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -255,6 +310,7 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <a href="/students_import_template.csv" download className="btn-secondary text-sm">{t('downloadCsv')}</a>
+          <button type="button" className="btn-secondary text-sm" onClick={() => setShowArchivedStudents((current) => !current)} aria-expanded={showArchivedStudents} title={t('archivedStudents')}><Icon name="archive" className="w-4 h-4" /> {t('archivedStudents')} {archivedStudents.length > 0 && `(${archivedStudents.length})`}</button>
           <button type="button" className="btn-secondary text-sm" onClick={() => fileRef.current?.click()} disabled={hasReachedStudentLimit} title={hasReachedStudentLimit ? t('studentCapacityReached') : t('importStudents')}>
             {t('importStudents')}
           </button>
@@ -267,6 +323,17 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
         <span className="student-capacity-banner__icon"><Icon name={hasReachedStudentLimit ? 'lock' : 'user'} className="w-4 h-4" /></span>
         <div><strong>{hasStudentLimit ? t('studentCapacityStatus', '', { current: localActiveStudentCount, limit: planLimit }) : t('studentCapacityUnlimited')}</strong><small>{hasStudentLimit ? (hasReachedStudentLimit ? t('studentCapacityReached') : t('studentCapacityRemaining', '', { count: remainingSlots })) : t('studentCapacity')}</small></div>
       </div>
+
+      {showArchivedStudents && <section className="students-archive-panel card mb-4" aria-labelledby="archived-students-title">
+        <div className="students-archive-panel__header">
+          <div><h4 id="archived-students-title">{t('archivedStudentsTitle')}</h4><span>{archivedStudents.length}</span></div>
+          <button type="button" className="icon-button" onClick={() => setShowArchivedStudents(false)} aria-label={t('cancel')} title={t('cancel')}><Icon name="x" className="w-4 h-4" /></button>
+        </div>
+        {archivedStudents.length === 0 ? <p className="students-archive-panel__empty">{t('noArchivedStudents')}</p> : <div className="students-archive-list">{archivedStudents.map((student) => <div className="students-archive-item" key={student.id}>
+          <div className="students-archive-item__identity"><StudentAvatar name={student.full_name} photoUrl={student.photo_url} size={34} /><strong>{student.full_name}</strong></div>
+          <div className="students-archive-item__actions"><button type="button" className="btn-secondary text-xs" onClick={() => restoreStudent(student)} disabled={hasReachedStudentLimit} title={hasReachedStudentLimit ? t('studentCapacityReached') : t('restoreStudent')}><Icon name="restore" className="w-3.5 h-3.5" />{t('restoreStudent')}</button><button type="button" className="btn-danger text-xs" onClick={() => permanentlyDeleteStudent(student)} title={t('deletePermanently')}><Icon name="trash" className="w-3.5 h-3.5" />{t('deletePermanently')}</button></div>
+        </div>)}</div>}
+      </section>}
 
       {(importMsg || feedback) && <p className="text-primary text-sm mb-3">{importMsg || feedback}</p>}
 

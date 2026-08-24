@@ -149,12 +149,18 @@ async function removeRejectedStudentFromSnapshot(teacherId, item) {
   }
 }
 
-async function performFlushOutbox(teacherId) {
-  if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0, failed: 0, rejected: 0 };
-  const items = await listOutbox(teacherId);
+function isPermanentMutationError(error) {
+  const status = Number(error?.response?.status || 0);
+  return status >= 400 && status < 500 && ![408, 429].includes(status);
+}
+
+async function performFlushOutbox(teacherId, { retryBlocked = false } = {}) {
+  if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0, failed: 0, rejected: 0, blocked: 0 };
+  const items = await listOutbox(teacherId, { includeBlocked: retryBlocked });
   let sent = 0;
   let failed = 0;
   let rejected = 0;
+  let blocked = 0;
   for (const item of items) {
     try {
       await api.request({ method: item.method, url: item.url, data: item.data, params: item.params, timeout: 15_000 });
@@ -167,31 +173,42 @@ async function performFlushOutbox(teacherId) {
         rejected += 1;
         continue;
       }
+      if (isPermanentMutationError(error)) {
+        await updateOutbox({
+          ...item,
+          blocked: true,
+          attempts: Number(item.attempts || 0) + 1,
+          lastAttemptAt: Date.now(),
+          lastErrorCode: error?.response?.data?.code || `HTTP_${error?.response?.status || 'ERROR'}`,
+        });
+        blocked += 1;
+        continue;
+      }
       failed += 1;
       await updateOutbox({ ...item, attempts: Number(item.attempts || 0) + 1, lastAttemptAt: Date.now() });
       break;
     }
   }
-  if (sent > 0 || rejected > 0) scheduleBackgroundSync(teacherId, { force: true, delayMs: 350 });
-  return { sent, failed, rejected };
+  if (sent > 0 || rejected > 0 || blocked > 0) scheduleBackgroundSync(teacherId, { force: true, delayMs: 350 });
+  return { sent, failed, rejected, blocked };
 }
 
-export function flushOutbox(teacherId) {
-  if (!teacherId) return Promise.resolve({ sent: 0, failed: 0 });
+export function flushOutbox(teacherId, options = {}) {
+  if (!teacherId) return Promise.resolve({ sent: 0, failed: 0, rejected: 0, blocked: 0 });
   const running = outboxPromises.get(teacherId);
   if (running) return running;
-  const promise = performFlushOutbox(teacherId).finally(() => outboxPromises.delete(teacherId));
+  const promise = performFlushOutbox(teacherId, options).finally(() => outboxPromises.delete(teacherId));
   outboxPromises.set(teacherId, promise);
   return promise;
 }
 
 export async function syncTeacherData(teacherId) {
-  const outbox = await flushOutbox(teacherId);
+  const outbox = await flushOutbox(teacherId, { retryBlocked: true });
   const snapshot = await syncSnapshot(teacherId, { force: true });
   return {
     ...outbox,
     snapshot,
-    successful: outbox.failed === 0 && !snapshot?.skipped && !snapshot?.fromLocal,
+    successful: outbox.failed === 0 && outbox.blocked === 0 && !snapshot?.skipped && !snapshot?.fromLocal,
   };
 }
 

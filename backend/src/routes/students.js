@@ -147,6 +147,14 @@ router.get('/', (req, res) => {
   res.json({ students });
 });
 
+// GET /api/students/archived?class_id=...
+router.get('/archived', (req, res) => {
+  const { class_id } = req.query;
+  if (!class_id || !assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
+  const students = db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 1 ORDER BY updated_at DESC, full_name COLLATE NOCASE').all(class_id);
+  res.json({ students });
+});
+
 // POST /api/students  (manual add)
 router.post('/', (req, res) => {
   const { id: requestedId, class_id, full_name, student_number, guardian_name, guardian_phone, guardian_email, health_notes, private_notes, photo_url } = req.body;
@@ -225,6 +233,16 @@ router.post('/import', upload.single('file'), (req, res) => {
   res.json({ imported: importResult.imported, duplicates: importResult.duplicates, limit_skipped: importResult.limitSkipped, skipped: parsed.skipped, sheet: parsed.selected_sheet, students: db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 0 ORDER BY created_at DESC LIMIT ?').all(class_id, importResult.imported) });
 });
 
+// POST /api/students/:id/restore
+router.post('/:id/restore', (req, res) => {
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND s.archived = 1').get(req.params.id, req.teacherId);
+  if (!student) return res.status(404).json({ error: 'الطالب المؤرشف غير موجود' });
+  const capacity = getStudentCapacity(req.teacherId);
+  if (capacity && capacity.remaining <= 0) return sendStudentLimitError(res, capacity);
+  db.prepare("UPDATE students SET archived = 0, updated_at = datetime('now') WHERE id = ?").run(student.id);
+  res.json({ student: db.prepare('SELECT * FROM students WHERE id = ?').get(student.id), restored: true });
+});
+
 // PATCH /api/students/:id
 router.patch('/:id', (req, res) => {
   const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
@@ -239,11 +257,25 @@ router.patch('/:id', (req, res) => {
   res.json({ student: db.prepare('SELECT * FROM students WHERE id = ?').get(student.id) });
 });
 
+// DELETE /api/students/:id/permanent (permanent delete; archived students only)
+router.delete('/:id/permanent', (req, res) => {
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND s.archived = 1').get(req.params.id, req.teacherId);
+  if (!student) return res.status(404).json({ error: 'الطالب المؤرشف غير موجود' });
+  const removeStudent = db.transaction(() => {
+    db.prepare('DELETE FROM grades WHERE student_id = ?').run(student.id);
+    db.prepare('DELETE FROM behavior_logs WHERE student_id = ?').run(student.id);
+    db.prepare('DELETE FROM attendance_records WHERE student_id = ?').run(student.id);
+    db.prepare('DELETE FROM students WHERE id = ?').run(student.id);
+  });
+  removeStudent();
+  res.json({ success: true, deleted: true, student_id: student.id });
+});
+
 // DELETE /api/students/:id (archive)
 router.delete('/:id', (req, res) => {
   const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
   if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
-  db.prepare('UPDATE students SET archived = 1 WHERE id = ?').run(student.id);
+  db.prepare("UPDATE students SET archived = 1, updated_at = datetime('now') WHERE id = ?").run(student.id);
   res.json({ success: true });
 });
 

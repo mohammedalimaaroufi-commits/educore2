@@ -108,12 +108,13 @@ export async function enqueueOutbox(teacherId, operation) {
   return item;
 }
 
-export async function listOutbox(teacherId) {
+export async function listOutbox(teacherId, options = {}) {
   const db = await openDb();
   if (!db || !teacherId) return [];
   const transaction = db.transaction(OUTBOX, 'readonly');
   const all = await requestToPromise(transaction.objectStore(OUTBOX).getAll());
-  return all.filter((item) => item.teacherId === teacherId).sort((a, b) => a.createdAt - b.createdAt);
+  const includeBlocked = Boolean(options.includeBlocked);
+  return all.filter((item) => item.teacherId === teacherId && (includeBlocked || !item.blocked)).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function removeOutbox(id) {
@@ -157,10 +158,12 @@ export async function getLocalStats(teacherId) {
     requestToPromise(transaction.objectStore(API_CACHE).getAll()),
     requestToPromise(transaction.objectStore(OUTBOX).getAll()),
   ]);
+  const teacherOutbox = outbox.filter((item) => item.teacherId === teacherId);
   return {
     snapshot: Boolean(snapshot),
     cacheEntries: caches.filter((item) => item.key.startsWith(`${teacherId}:`)).length,
-    queued: outbox.filter((item) => item.teacherId === teacherId).length,
+    queued: teacherOutbox.filter((item) => !item.blocked).length,
+    blocked: teacherOutbox.filter((item) => item.blocked).length,
   };
 }
 

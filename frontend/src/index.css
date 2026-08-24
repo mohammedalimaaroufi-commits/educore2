@@ -1821,3 +1821,44 @@ button, input, select, textarea { font-family: inherit; }
 @media (max-width: 900px) { .student-limits-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .subscription-activation-quote { display: grid; gap: .35rem; }.student-limit-price-input { align-items: stretch; flex-direction: column; }.student-limit-price-input span { white-space: normal; } }
 @media (prefers-reduced-motion: reduce) { .subscription-plan-card, .subscription-plan-card .btn-offer { transition: none; } }
+
+
+.students-archive-panel {
+  padding: 1rem;
+  border: 1px solid rgba(46, 125, 107, .18);
+  background: rgba(255, 255, 255, .78);
+}
+.students-archive-panel__header,
+.students-archive-panel__header > div,
+.students-archive-item,
+.students-archive-item__identity,
+.students-archive-item__actions {
+  display: flex;
+  align-items: center;
+}
+.students-archive-panel__header,
+.students-archive-item {
+  justify-content: space-between;
+  gap: .75rem;
+}
+.students-archive-panel__header {
+  margin-bottom: .75rem;
+  padding-bottom: .7rem;
+  border-bottom: 1px solid rgba(27, 36, 48, .08);
+}
+.students-archive-panel__header > div { gap: .55rem; }
+.students-archive-panel__header h4 { margin: 0; font-size: .95rem; font-weight: 800; }
+.students-archive-panel__header span { min-width: 1.6rem; padding: .18rem .4rem; color: #2e7d6b; background: rgba(46, 125, 107, .1); border-radius: 999px; text-align: center; font-size: .72rem; font-weight: 800; }
+.students-archive-panel__empty { margin: 0; padding: 1rem .5rem; color: rgba(27, 36, 48, .55); text-align: center; font-size: .8rem; }
+.students-archive-list { display: grid; gap: .55rem; }
+.students-archive-item { padding: .65rem .7rem; border: 1px solid rgba(27, 36, 48, .08); border-radius: .75rem; background: #fff; }
+.students-archive-item__identity { min-width: 0; gap: .55rem; }
+.students-archive-item__identity strong { overflow-wrap: anywhere; font-size: .82rem; }
+.students-archive-item__actions { flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.students-archive-item__actions button { display: inline-flex; align-items: center; gap: .3rem; }
+.btn-danger { @apply bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 font-medium hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+@media (max-width: 680px) {
+  .students-archive-item { align-items: flex-start; flex-direction: column; }
+  .students-archive-item__actions { width: 100%; justify-content: stretch; }
+  .students-archive-item__actions button { flex: 1; justify-content: center; }
+}
