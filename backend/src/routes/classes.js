@@ -95,7 +95,10 @@ function computeQuickStats(classId, studentCount) {
 
 // GET /api/classes
 router.get('/', (req, res) => {
-  const classes = db.prepare('SELECT * FROM classes WHERE teacher_id = ? AND archived = 0 ORDER BY created_at DESC').all(req.teacherId);
+  const classes = db.prepare(`SELECT * FROM classes
+                              WHERE teacher_id = ? AND archived = 0
+                              ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
+                                       sort_order ASC, created_at DESC, id DESC`).all(req.teacherId);
   const withCounts = classes.map((c) => {
     const { count } = db.prepare('SELECT COUNT(*) as count FROM students WHERE class_id = ? AND archived = 0').get(c.id);
     return { ...c, student_count: count, quick_stats: computeQuickStats(c.id, count) };
@@ -128,9 +131,10 @@ router.post('/', (req, res) => {
   const id = requestedId || uuid();
   const existing = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ class: existing, reused: true });
-  db.prepare(`INSERT INTO classes (id, teacher_id, name, subject, academic_year, color, icon)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, req.teacherId, name, subject || null, academic_year || null, color || '#2E7D6B', icon || 'book');
+  const nextOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM classes WHERE teacher_id = ? AND archived = 0').get(req.teacherId).next_order;
+  db.prepare(`INSERT INTO classes (id, teacher_id, name, subject, academic_year, color, icon, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, req.teacherId, name, subject || null, academic_year || null, color || '#2E7D6B', icon || 'book', nextOrder);
 
   // Seed starter behavior types: use the teacher's own saved presets from الإعدادات العامة
   // ("تحرير السلوك المخصص") if they've configured any, otherwise fall back to the built-ins.
@@ -164,6 +168,36 @@ router.post('/', (req, res) => {
 
   const created = db.prepare('SELECT * FROM classes WHERE id = ?').get(id);
   res.status(201).json({ class: created });
+});
+
+// PATCH /api/classes/reorder { class_ids: string[] }
+// Reordering changes presentation metadata only; all class-owned data remains untouched.
+router.patch('/reorder', (req, res) => {
+  const requestedIds = Array.isArray(req.body.class_ids) ? req.body.class_ids.map((id) => String(id)).filter(Boolean) : null;
+  if (!requestedIds || requestedIds.length > 1000) return res.status(400).json({ error: 'ترتيب الصفوف غير صالح' });
+
+  const existing = db.prepare(`SELECT id FROM classes
+                               WHERE teacher_id = ? AND archived = 0
+                               ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
+                                        sort_order ASC, created_at DESC, id DESC`).all(req.teacherId);
+  const allowed = new Set(existing.map((item) => item.id));
+  const seen = new Set();
+  const orderedIds = [];
+  requestedIds.forEach((id) => {
+    if (allowed.has(id) && !seen.has(id)) {
+      orderedIds.push(id);
+      seen.add(id);
+    }
+  });
+  existing.forEach((item) => {
+    if (!seen.has(item.id)) {
+      orderedIds.push(item.id);
+      seen.add(item.id);
+    }
+  });
+  const update = db.prepare("UPDATE classes SET sort_order = ?, updated_at = datetime('now') WHERE id = ? AND teacher_id = ? AND archived = 0");
+  db.transaction(() => orderedIds.forEach((id, index) => update.run(index, id, req.teacherId)))();
+  res.json({ class_ids: orderedIds });
 });
 
 // GET /api/classes/:id

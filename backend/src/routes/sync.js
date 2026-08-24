@@ -58,7 +58,7 @@ router.get('/snapshot', (req, res) => {
       )), '[]') FROM subscriptions s, context WHERE s.teacher_id = context.teacher_id) AS subscriptions,
       (SELECT COALESCE(json_group_array(json_object(
         'id', id, 'teacher_id', teacher_id, 'name', name, 'subject', subject,
-        'academic_year', academic_year, 'color', color, 'icon', icon, 'archived', archived,
+        'academic_year', academic_year, 'color', color, 'icon', icon, 'sort_order', sort_order, 'archived', archived,
         'created_at', created_at, 'updated_at', updated_at
       )), '[]') FROM owned_classes) AS classes,
       (SELECT COALESCE(json_group_array(json_object(

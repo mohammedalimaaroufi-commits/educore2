@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { invalidateApiCache } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, getLastSync, queueMutation, scheduleBackgroundSync, flushOutbox, syncSnapshot } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -23,6 +23,16 @@ function localId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toStr
 function classVisualIndex(classData) {
   const value = String(classData.id || classData.name || 'class');
   return Math.abs([...value].reduce((hash, char) => hash + char.charCodeAt(0), 0)) % VISUAL_LABELS.length;
+}
+
+function orderClasses(classList = []) {
+  return [...classList].sort((a, b) => {
+    const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : Number.MAX_SAFE_INTEGER;
+    const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    const created = new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    return created || String(a.id || '').localeCompare(String(b.id || ''));
+  });
 }
 
 function cardForClass(snapshot, classData) {
@@ -176,15 +186,23 @@ export default function Dashboard() {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const [saveState, setSaveState] = useState('idle');
   const [expandedClasses, setExpandedClasses] = useState({});
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState(0);
+  const [draggedClassId, setDraggedClassId] = useState(null);
+  const [dragOverClassId, setDragOverClassId] = useState(null);
+  const classOrderSaveRef = useRef(Promise.resolve());
 
   const load = async () => {
     setLoading(true);
     const data = await getOrSyncSnapshot(getTeacherId());
-    setClasses((data?.classes || []).filter((classData) => !classData.archived).map((classData) => cardForClass(data, classData)));
+    setClasses(orderClasses((data?.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData)));
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void load();
+    void getLastSync(getTeacherId()).then(setLastSyncAt);
+  }, []);
 
   useEffect(() => {
     const updateOnline = () => setIsOnline(navigator.onLine);
@@ -211,6 +229,73 @@ export default function Dashboard() {
       || (completionFilter === 'empty' && averageCoverage === 0);
     return matchesSearch && matchesSubject && matchesYear && matchesCompletion;
   });
+
+  const syncNow = async () => {
+    if (syncing) return;
+    const teacherId = getTeacherId();
+    setSyncing(true);
+    setSaveState('saving');
+    try {
+      await flushOutbox(teacherId);
+      const result = await syncSnapshot(teacherId, { force: true });
+      const data = result?.snapshot;
+      if (data) setClasses(orderClasses((data.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData)));
+      const syncedAt = await getLastSync(teacherId);
+      setLastSyncAt(syncedAt);
+      setSaveState(result?.skipped ? 'queued' : 'saved');
+    } catch {
+      setSaveState('queued');
+    } finally {
+      setSyncing(false);
+      window.setTimeout(() => setSaveState('idle'), 2500);
+    }
+  };
+
+  const persistClassOrderNow = async (orderedClasses) => {
+    const teacherId = getTeacherId();
+    const classIds = orderedClasses.map((item) => item.id);
+    const snapshot = await getOrSyncSnapshot(teacherId);
+    const localSnapshot = snapshot || { classes: [] };
+    const orderById = new Map(classIds.map((id, index) => [id, index]));
+    const now = new Date().toISOString();
+    const nextSnapshot = {
+      ...localSnapshot,
+      classes: (localSnapshot.classes || []).map((item) => orderById.has(item.id)
+        ? { ...item, sort_order: orderById.get(item.id), updated_at: now }
+        : item),
+    };
+    await saveSnapshot(teacherId, nextSnapshot);
+    try {
+      await api.patch('/classes/reorder', { class_ids: classIds });
+      await invalidateApiCache('/classes');
+      setSaveState('saved');
+    } catch {
+      await queueMutation(teacherId, { method: 'PATCH', url: '/classes/reorder', data: { class_ids: classIds } });
+      scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
+      setSaveState('queued');
+    } finally {
+      window.setTimeout(() => setSaveState('idle'), 2500);
+    }
+  };
+
+  const persistClassOrder = (orderedClasses) => {
+    classOrderSaveRef.current = classOrderSaveRef.current
+      .catch(() => undefined)
+      .then(() => persistClassOrderNow(orderedClasses));
+    return classOrderSaveRef.current;
+  };
+
+  const moveClass = (sourceId, targetId) => {
+    if (hasFilters || !sourceId || !targetId || sourceId === targetId) return;
+    const fromIndex = classes.findIndex((item) => item.id === sourceId);
+    const toIndex = classes.findIndex((item) => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const reordered = [...classes];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    setClasses(reordered);
+    void persistClassOrder(reordered);
+  };
 
   const startAdd = () => { setForm({ ...EMPTY_FORM, subject: teacher?.subject || '' }); setEditingId(null); setShowForm(true); };
   const startEdit = (e, c) => {
@@ -371,10 +456,17 @@ export default function Dashboard() {
 
         <TrialBanner />
 
+        <section className="dashboard-overview-strip" aria-label={t('dashboardQuickStats')}>
+          <article className="dashboard-stat-card dashboard-stat-card--classes"><span className="dashboard-stat-card__icon"><Icon name="reports" className="w-5 h-5" /></span><div><small>{t('classesTotal')}</small><strong>{classes.length}</strong></div></article>
+          <article className="dashboard-stat-card dashboard-stat-card--students"><span className="dashboard-stat-card__icon"><Icon name="user" className="w-5 h-5" /></span><div><small>{t('studentsTotal')}</small><strong>{classes.reduce((total, item) => total + Number(item.student_count || 0), 0)}</strong></div></article>
+          <article className="dashboard-sync-card"><div><small>{lastSyncAt ? `${t('lastSync')}: ${new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt))}` : t('syncBackground')}</small><span>{saveState === 'saved' ? t('syncCompleted') : saveState === 'queued' ? t('syncFailed') : isOnline ? t('syncBackground') : t('continueOffline')}</span></div><button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={syncing}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? t('syncing') : t('syncNow')}</button></article>
+        </section>
+
         <div className="dashboard-section-head">
               <div>
             <span className="eyebrow">{t('workspace')}</span>
             <h2>{t('myClasses')}</h2>
+            {!hasFilters && <small className="dashboard-order-hint">{t('reorderClasses')}</small>}
           </div>
           <div className="dashboard-actions">
             {saveState === 'saving' && <span className="save-feedback">{t('savingEdit')}</span>}
@@ -422,9 +514,41 @@ export default function Dashboard() {
               const accent = c.color || COLORS[visualIndex];
               const expanded = Boolean(expandedClasses[c.id]);
               return (
-                <article key={c.id} className={`class-card ${expanded ? 'is-expanded' : ''}`} style={{ '--card-accent': accent }}>
+                <article
+                  key={c.id}
+                  className={`class-card ${expanded ? 'is-expanded' : ''} ${dragOverClassId === c.id ? 'is-drag-over' : ''} ${draggedClassId === c.id ? 'is-dragged' : ''}`}
+                  style={{ '--card-accent': accent }}
+                  onDragOver={(event) => {
+                    if (!hasFilters && draggedClassId && draggedClassId !== c.id) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      setDragOverClassId(c.id);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    moveClass(draggedClassId, c.id);
+                    setDraggedClassId(null);
+                    setDragOverClassId(null);
+                  }}
+                >
                   <div className="class-card__compact">
-                    <Link to={`/classes/${c.id}`} className="class-card__compact-main" aria-label={`${t('openClass')}: ${c.name}`}>
+                    <button
+                      type="button"
+                      className="class-card__drag-handle"
+                      draggable={!hasFilters}
+                      disabled={hasFilters}
+                      aria-label={`${t('reorderClasses')}: ${c.name}`}
+                      title={hasFilters ? t('clearFiltersToReorder') : t('reorderClasses')}
+                      onDragStart={(event) => {
+                        if (hasFilters) { event.preventDefault(); return; }
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', c.id);
+                        setDraggedClassId(c.id);
+                      }}
+                      onDragEnd={() => { setDraggedClassId(null); setDragOverClassId(null); }}
+                    ><Icon name="grip" className="w-4 h-4" /></button>
+                    <Link to={`/classes/${c.id}`} className="class-card__compact-main" aria-label={`${t('openClass')}: ${c.name}`} >
                       <span className="class-card__accent-dot" style={{ background: accent }} aria-hidden="true" />
                       <span className="class-card__compact-copy"><strong>{c.name}</strong><small>{t('studentsCount', '', { count: c.student_count })}</small></span>
                     </Link>

@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS classes (
   academic_year TEXT,
   color TEXT DEFAULT '#2E7D6B',
   icon TEXT DEFAULT 'book',
+  sort_order INTEGER DEFAULT 0,
   archived INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -313,6 +314,16 @@ function hasColumn(table, column) {
 }
 if (!hasColumn('grading_schemes', 'is_default')) {
   db.exec('ALTER TABLE grading_schemes ADD COLUMN is_default INTEGER DEFAULT 0');
+}
+const addedClassSortOrder = !hasColumn('classes', 'sort_order');
+if (addedClassSortOrder) {
+  db.exec('ALTER TABLE classes ADD COLUMN sort_order INTEGER DEFAULT 0');
+  const teacherRows = db.prepare('SELECT DISTINCT teacher_id FROM classes').all();
+  const updateClassOrder = db.prepare('UPDATE classes SET sort_order = ? WHERE id = ? AND teacher_id = ?');
+  teacherRows.forEach(({ teacher_id }) => {
+    db.prepare('SELECT id FROM classes WHERE teacher_id = ? ORDER BY created_at DESC, id DESC').all(teacher_id)
+      .forEach((classData, index) => updateClassOrder.run(index, classData.id, teacher_id));
+  });
 }
 const addedGradingMode = !hasColumn('grade_categories', 'grading_mode');
 if (addedGradingMode) {
