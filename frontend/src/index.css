@@ -1611,3 +1611,56 @@ button, input, select, textarea { font-family: inherit; }
   .behavior-search-control, .behavior-select-control { grid-column: auto; }
   .behavior-modal-row { grid-template-columns: 1fr 6.5rem; }
 }
+
+/* Subscription command-center layout: compact hero, two clear data rows, and a tighter plan grid. */
+.subscription-page-shell { width: min(100% - 2rem, 1380px); max-width: 1380px; padding-top: .65rem; }
+.subscription-page-topline { margin-bottom: .55rem; }
+.subscription-page-hero { min-height: 8.6rem; padding: 1rem 1.35rem; border-radius: 1rem; }
+.subscription-page-hero h1 { margin: .15rem 0 .25rem; font-size: clamp(1.7rem, 3vw, 2.65rem); }
+.subscription-page-hero p { max-width: 46rem; font-size: .72rem; line-height: 1.55; }
+.subscription-hero-orbit { width: 6.5rem; height: 6.5rem; }
+.subscription-current-summary { margin: -.65rem 1rem .65rem; padding: .55rem .8rem; border-radius: .7rem; }
+.subscription-current-card, .subscription-activation-card { padding: .9rem 1rem; margin-bottom: .7rem; border-radius: .9rem; }
+.subscription-current-card__heading { align-items: center; margin-bottom: .55rem; }
+.subscription-current-card__heading h3 { margin: .12rem 0 0; font-size: .98rem; }
+.subscription-current-identity { gap: .5rem; margin-top: .45rem; }
+.subscription-current-identity > div { min-height: 3.1rem; gap: .12rem; padding: .55rem .65rem; align-content: center; }
+.subscription-current-identity span { font-size: .6rem; }
+.subscription-current-identity strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.subscription-details-grid { gap: .45rem; margin-top: .5rem; }
+.subscription-details-grid > div { min-height: 3.25rem; display: grid; align-content: center; padding: .55rem .65rem; }
+.subscription-details-grid p { margin-bottom: .16rem; font-size: .6rem; }
+.subscription-details-grid strong { overflow: hidden; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.subscription-current-card__meta { margin-top: .45rem; font-size: .58rem; }
+.subscription-current-card__note, .subscription-restrictions-note { margin-top: .5rem; padding: .45rem .6rem; font-size: .62rem; }
+.subscription-active-notice { margin: 0 0 .65rem; padding: .5rem .7rem; font-size: .64rem; }
+.subscription-plans-heading { align-items: center; margin: .7rem 0 .45rem; }
+.subscription-section-heading h2 { margin: .1rem 0 .15rem; font-size: 1rem; }
+.subscription-section-heading p { font-size: .64rem; line-height: 1.5; }
+.subscription-plans-grid { gap: .6rem; margin-bottom: .75rem; }
+.subscription-plan-card { min-height: 15.5rem; padding: .9rem; border-radius: .9rem; }
+.subscription-plan-card h3 { margin: .5rem 0 .25rem; font-size: 1rem; }
+.subscription-plan-price-block { min-height: 2rem; }
+.subscription-plan-price-block strong { font-size: 1.35rem; }
+.subscription-plan-note { min-height: 2.2rem; margin-bottom: .55rem; font-size: .64rem; line-height: 1.5; }
+.subscription-plan-features { gap: .25rem; margin: .35rem 0 .55rem; font-size: .63rem; line-height: 1.35; }
+.subscription-plan-duration { margin-bottom: .55rem; font-size: .62rem; }
+.subscription-plan-card .btn-primary, .subscription-plan-card .btn-offer { min-height: 2.25rem; padding: .5rem .7rem; font-size: .68rem; }
+.subscription-footnote { margin-top: .6rem; font-size: .58rem; }
+@media (max-width: 760px) {
+  .subscription-page-shell { width: min(100% - 1rem, 1380px); padding-top: .4rem; }
+  .subscription-page-hero { min-height: 7.2rem; padding: .85rem 1rem; }
+  .subscription-hero-orbit { width: 5.2rem; height: 5.2rem; }
+  .subscription-current-summary { margin-inline: .35rem; }
+  .subscription-current-card, .subscription-activation-card { padding: .75rem; }
+  .subscription-current-identity { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .subscription-current-identity > div { min-width: 0; }
+  .subscription-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subscription-plan-card { min-height: 0; }
+}
+@media (max-width: 480px) {
+  .subscription-current-identity { grid-template-columns: 1fr; }
+  .subscription-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subscription-details-grid strong { font-size: .72rem; }
+  .subscription-plan-card { padding: .75rem; }
+}
