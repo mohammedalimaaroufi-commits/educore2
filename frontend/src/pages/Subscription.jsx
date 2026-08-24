@@ -333,6 +333,10 @@ export default function Subscription() {
       <main className="subscription-page-content">
         <SubscriptionDetailsCard />
         {subscriptionInfo?.status === 'active' && canonicalPlanForUi(subscriptionInfo.plan) !== 'trial' && <div className="subscription-active-notice" role="status">{t('activePaidNotice')}</div>}
+        <section className="subscription-student-count-card" aria-live="polite">
+          <div className="subscription-student-count-card__copy"><span className="subscription-eyebrow">{t('pricingStudentNote')}</span><strong>{t('teacherStudentTotal')}</strong><small>{t('studentCountSource')}</small></div>
+          <label className="subscription-student-count-field"><span>{t('studentCountLabel')}</span><input className="input" type="number" min="0" value={pricingStudentCount ?? ''} readOnly aria-readonly="true" placeholder={pricingLoading ? '...' : '0'} /><small>{pricingLoading ? t('pricingQuoteLoading') : t('studentCountSource')}</small></label>
+        </section>
         <section className="subscription-plan-chooser">
           <button type="button" className="subscription-disclosure-heading subscription-section-disclosure" onClick={() => setPlansOpen((open) => !open)} aria-expanded={plansOpen} aria-controls="subscription-plans-content">
             <span><span className="subscription-eyebrow">{t('flexiblePlans')}</span><strong>{t('choosePlan')}</strong><small>{t('plansDescription')}</small></span>

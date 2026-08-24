@@ -574,6 +574,13 @@ button.analytics-kpi { width: 100%; border: 0; text-align: right; cursor: pointe
 .grade-subassessment-add:hover, .grade-subassessment-add:focus-visible { background: currentColor; color: #fff !important; transform: scale(1.04); outline: none; }
 
 .subscription-active-notice { margin: 0 0 1rem; padding: .85rem 1rem; color: #1f5d50; background: rgba(46,125,107,.09); border: 1px solid rgba(46,125,107,.2); border-radius: .85rem; font-size: .82rem; line-height: 1.7; }
+.subscription-student-count-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; padding: .9rem 1rem; background: linear-gradient(135deg, rgba(46,125,107,.08), rgba(63,111,176,.07)); border: 1px solid rgba(46,125,107,.18); border-radius: .9rem; }
+.subscription-student-count-card__copy { display: grid; gap: .2rem; min-width: 0; }
+.subscription-student-count-card__copy strong { color: #1b2430; font-size: .9rem; }
+.subscription-student-count-card__copy small, .subscription-student-count-field small { color: rgba(27,36,48,.52); font-size: .64rem; line-height: 1.6; }
+.subscription-student-count-field { display: grid; grid-template-columns: auto minmax(5rem, 7rem); align-items: center; gap: .45rem .65rem; flex: 0 0 auto; color: rgba(27,36,48,.58); font-size: .68rem; font-weight: 800; }
+.subscription-student-count-field .input { min-height: 2.25rem; text-align: center; font-weight: 900; color: #2e7d6b; background: rgba(255,255,255,.9); }
+.subscription-student-count-field small { grid-column: 1 / -1; max-width: 15rem; font-weight: 500; }
 .subscription-form-error { margin: .45rem 0 0; padding: .55rem .7rem; color: #a53f2d; background: rgba(193,85,61,.08); border: 1px solid rgba(193,85,61,.18); border-radius: .65rem; font-size: .78rem; }
 
 
@@ -1632,7 +1639,10 @@ button, input, select, textarea { font-family: inherit; }
 .subscription-details-grid p { margin-bottom: .16rem; font-size: .6rem; }
 .subscription-details-grid strong { overflow: hidden; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .subscription-current-card__meta { margin-top: .45rem; font-size: .58rem; }
-.subscription-current-card__note, .subscription-restrictions-note { margin-top: .5rem; padding: .45rem .6rem; font-size: .62rem; }
+  .subscription-current-card__note, .subscription-restrictions-note { margin-top: .5rem; padding: .45rem .6rem; font-size: .62rem; }
+  .subscription-student-count-card { align-items: stretch; flex-direction: column; gap: .6rem; padding: .75rem; }
+  .subscription-student-count-field { grid-template-columns: 1fr 6rem; }
+  .subscription-student-count-field small { grid-column: 1 / -1; }
 .subscription-active-notice { margin: 0 0 .65rem; padding: .5rem .7rem; font-size: .64rem; }
 .subscription-plans-heading { align-items: center; margin: .7rem 0 .45rem; }
 .subscription-section-heading h2 { margin: .1rem 0 .15rem; font-size: 1rem; }
