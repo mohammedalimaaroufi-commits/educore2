@@ -1504,3 +1504,33 @@ button, input, select, textarea { font-family: inherit; }
   .grade-matrix-table td:not(.grade-matrix-sticky) { min-width: 58px; width: 58px; }
   .grade-matrix-table td input.input { width: 3.15rem; min-width: 3.15rem; }
 }
+
+/* Grade matrix readability fixes: visible final scores, breathing room, and reliable last-row access. */
+.grade-matrix-table .grade-matrix-final-cell { min-width: 72px; color: #1b2430 !important; background: #e7f2ef !important; border-inline-start: 2px solid rgba(46,125,107,.22); }
+.grade-matrix-table .grade-matrix-final-cell.text-primary,
+.grade-matrix-table .grade-matrix-final-cell.text-primary\/80 { color: #176b62 !important; }
+.grade-matrix-table .grade-matrix-final-cell.text-accent { color: #a36600 !important; }
+.grade-matrix-table .grade-matrix-final-cell.text-danger { color: #b94b3a !important; }
+.grade-matrix-table tbody tr:nth-child(even) .grade-matrix-final-cell { background: #dcece7 !important; }
+.grade-matrix-table tbody tr:hover .grade-matrix-final-cell { background: #cfe5df !important; }
+.grade-category-header__content { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; max-width: 100%; }
+.grade-category-toggle { width: 1.7rem; height: 1.7rem; display: inline-grid; place-items: center; flex: 0 0 auto; color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.45); border-radius: .48rem; cursor: pointer; transition: background-color 160ms ease, transform 160ms var(--ux-ease); }
+.grade-category-toggle:hover { background: rgba(255,255,255,.28); transform: translateY(-1px); }
+.grade-category-toggle:active { transform: scale(.94); }
+.grade-category-summary-head { min-width: 64px; color: #176b62; font-size: .68rem; font-weight: 850; text-align: center; }
+.grade-category-summary-head span, .grade-category-summary-head small { display: block; }
+.grade-category-summary-head small { margin-top: .1rem; color: rgba(27,36,48,.52); font-size: .58rem; font-weight: 700; }
+.grade-category-summary-cell { min-width: 64px; text-align: center; vertical-align: middle; }
+.grade-category-summary-cell strong, .grade-category-summary-cell small { display: block; }
+.grade-category-summary-cell strong { font-size: .82rem; }
+.grade-category-summary-cell small { margin-top: .2rem; color: rgba(27,36,48,.48); font-size: .56rem; font-weight: 700; }
+.grade-matrix-table thead tr:nth-child(2) th { padding-bottom: .8rem !important; }
+.grade-matrix-table tbody tr:first-child td { padding-top: .95rem !important; }
+.grade-matrix-table tbody tr:last-child td { padding-bottom: 1.25rem !important; }
+.grade-matrix-scroll { padding-bottom: 1.25rem; }
+@media (max-width: 760px) {
+  .grade-category-header__content { gap: .28rem; }
+  .grade-category-toggle { width: 1.5rem; height: 1.5rem; }
+  .grade-matrix-table thead tr:nth-child(2) th { padding-bottom: .65rem !important; }
+  .grade-matrix-table tbody tr:first-child td { padding-top: .75rem !important; }
+}
