@@ -32,7 +32,7 @@ const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifeti
 const PAID_PLAN_DURATIONS = { '6_months': 182, yearly: 365, lifetime: null };
 const PLAN_ALIASES = {
   annual: 'yearly', year: 'yearly', '12_months': 'yearly', '12-months': 'yearly',
-  '6_month': '6_months', '6months': '6_months', '6-months': '6_months',
+  '6_month': '6_months', '6months': '6_months', '6-months': '6_months', months_6: '6_months', months6: '6_months',
   '6 أشهر': '6_months', 'باقة 6 أشهر': '6_months', 'ستة أشهر': '6_months',
   سنوية: 'yearly', 'باقة سنوية': 'yearly', 'الباقة السنوية': 'yearly',
   'مدى الحياة': 'lifetime', 'باقة مدى الحياة': 'lifetime', forever: 'lifetime', permanent: 'lifetime',

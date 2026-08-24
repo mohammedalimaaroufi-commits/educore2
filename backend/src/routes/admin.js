@@ -98,7 +98,9 @@ router.get('/student-limits', (req, res) => {
 router.patch('/student-limits', (req, res) => {
   if (!Array.isArray(req.body.plans)) return res.status(400).json({ error: 'بيانات حدود الطلاب غير صالحة' });
   const current = getPlanDefinitions();
-  const incoming = new Map(req.body.plans.map((plan) => [plan?.id, plan]));
+  const incoming = new Map(req.body.plans
+    .map((plan) => [normalizePlanId(plan?.id), plan])
+    .filter(([id]) => id));
   for (const plan of current) {
     const next = incoming.get(plan.id);
     if (!next) continue;

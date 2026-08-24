@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription, getStudentCount, getStudentQuote, getPlanPricingQuote, getCurrentSubscription } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription, getStudentCount, getStudentQuote, getPlanPricingQuote, getCurrentSubscription, getActiveStudentLimit } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
@@ -247,6 +247,7 @@ router.get('/me', requireAuth, (req, res) => {
         .run(presentationPlan, paidStart, paidEnd, new Date().toISOString(), sub.id);
       presentedSub = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(sub.id) || { ...sub, plan: presentationPlan, status: 'active', trial_start_date: null, trial_end_date: null, current_period_start: paidStart, current_period_end: paidEnd };
     }
+    const activeStudentLimit = getActiveStudentLimit(req.teacherId);
     const startDate = presentedSub.plan === 'trial' ? presentedSub.trial_start_date : presentedSub.current_period_start;
     const endDate = presentedSub.plan === 'trial' ? presentedSub.trial_end_date : presentedSub.current_period_end;
     const daysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
@@ -265,8 +266,14 @@ router.get('/me', requireAuth, (req, res) => {
       expired: daysLeft !== null && daysLeft <= 0,
       studentCount: getStudentCount(req.teacherId),
       includedStudents: isPaidPlanId(presentedSub.plan)
-        ? getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students || null
+        ? activeStudentLimit?.includedStudents
+          || getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students
+          || null
         : null,
+      // Explicitly expose the limit computed from the active paid row. The separate
+      // field lets clients fail closed when an older cached auth payload lacks it.
+      studentLimit: activeStudentLimit?.includedStudents || null,
+      studentLimitPlan: activeStudentLimit?.plan || null,
     };
   }
 

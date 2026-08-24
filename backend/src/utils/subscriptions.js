@@ -18,6 +18,9 @@ const PLAN_ID_ALIASES = {
   تجريبي: 'trial',
   'فترة تجريبية': 'trial',
   '6_months': '6_months',
+  months_6: '6_months',
+  months6: '6_months',
+  'months-6': '6_months',
   '6_month': '6_months',
   '6 months': '6_months',
   '6months': '6_months',
@@ -181,14 +184,18 @@ function getPlanDefinitions() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error('invalid plan settings');
-    return DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(parsed.find((plan) => plan?.id === fallback.id), fallback));
+    return DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(
+      parsed.find((plan) => normalizePlanId(plan?.id) === fallback.id),
+      fallback,
+    ));
   } catch {
     return DEFAULT_PLAN_DEFINITIONS.map((plan) => ({ ...plan, features: [...plan.features] }));
   }
 }
 
 function getPlanDefinition(planId) {
-  return getPlanDefinitions().find((plan) => plan.id === planId) || null;
+  const canonical = normalizePlanId(planId) || planId;
+  return getPlanDefinitions().find((plan) => plan.id === canonical) || null;
 }
 
 function addDays(date, days) {
@@ -290,7 +297,10 @@ function reconcileApprovedSubscription(teacherId, rawSub = null) {
 
 function savePlanDefinitions(plans) {
   const incoming = Array.isArray(plans) ? plans : [];
-  const normalized = DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(incoming.find((plan) => plan?.id === fallback.id), fallback));
+  const normalized = DEFAULT_PLAN_DEFINITIONS.map((fallback) => normalizePlan(
+    incoming.find((plan) => normalizePlanId(plan?.id) === fallback.id),
+    fallback,
+  ));
   db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
     .run(PLAN_SETTINGS_KEY, JSON.stringify(normalized));
   return normalized;
