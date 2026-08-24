@@ -75,6 +75,7 @@ function discountPercent(original, price) {
 function SubscriptionDetailsCard() {
   const { subscriptionInfo, restrictions } = useAuth();
   const { t, locale } = useLocale();
+  const [detailsOpen, setDetailsOpen] = useState(true);
   if (!subscriptionInfo) return null;
 
   const plan = canonicalPlanForUi(subscriptionInfo.plan);
@@ -98,24 +99,26 @@ function SubscriptionDetailsCard() {
 
   return (
     <section className="subscription-current-card">
-      <div className="subscription-current-card__heading">
-        <div><span className="subscription-eyebrow">{t('currentAccount')}</span><h3>{t('currentSubscription')}</h3></div>
-        <span className={`subscription-status-badge ${expired ? 'is-expired' : subscriptionInfo.status === 'active' ? 'is-active' : 'is-pending'}`}>{currentStatusLabel}</span>
-      </div>
-      <div className="subscription-current-identity">
-        <div><span>{t('plan')}</span><strong>{planTitle}</strong></div>
-        {offerTitle && <div><span>{t('offerLabel', 'العرض')}</span><strong>{offerTitle}</strong></div>}
-        {subscriptionInfo.amount !== null && subscriptionInfo.amount !== undefined && <div><span>{t('paidAmount', 'المبلغ')}</span><strong>{omrWithEquivalent(subscriptionInfo.amount)}</strong></div>}
-      </div>
-      <div className="subscription-details-grid">
-        <div><p>{t('activatedAt')}</p><strong>{formatDate(startDate, locale)}</strong></div>
-        <div><p>{t('expiresAt')}</p><strong>{isLifetime ? t('planLifetime') : formatDate(endDate, locale)}</strong></div>
-        <div><p>{t('remaining')}</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isLifetime ? t('unlimited') : isTrial ? t('trialPending') : '—') : expired ? t('statusExpired') : t('days', '', { count: daysLeft })}</strong></div>
-        <div><p>{t('status')}</p><strong>{currentStatusLabel}</strong></div>
-      </div>
-      {subscriptionInfo.approvedAt && <p className="subscription-current-card__meta">{t('approvedAt', 'اعتمد في')}: {formatDate(subscriptionInfo.approvedAt, locale, true)}</p>}
-      {subscriptionInfo.status !== 'active' && !expired && <p className="subscription-current-card__note">{t('currentStatusNote', '', { status: currentStatusLabel })}</p>}
-      {restrictions?.active && restrictions.blocked_features?.length > 0 && <div className="subscription-restrictions-note"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{restrictions.blocked_features.map((feature) => t({ students: 'featureStudents', gradebook: 'featureGradebook', behavior: 'featureBehavior', attendance: 'featureAttendance', analytics: 'featureAnalytics', reports: 'featureReports' }[feature] || feature)).join(' · ')}</small></div>}
+      <button type="button" className="subscription-disclosure-heading" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen}>
+        <span><span className="subscription-eyebrow">{t('currentAccount')}</span><strong>{t('currentSubscription')}</strong></span>
+        <span className="subscription-disclosure-heading__actions"><span className={`subscription-status-badge ${expired ? 'is-expired' : subscriptionInfo.status === 'active' ? 'is-active' : 'is-pending'}`}>{currentStatusLabel}</span><b aria-hidden="true">{detailsOpen ? '−' : '+'}</b></span>
+      </button>
+      {detailsOpen && <div className="subscription-disclosure-content">
+        <div className="subscription-current-identity">
+          <div><span>{t('plan')}</span><strong>{planTitle}</strong></div>
+          {offerTitle && <div><span>{t('offerLabel', 'العرض')}</span><strong>{offerTitle}</strong></div>}
+          {subscriptionInfo.amount !== null && subscriptionInfo.amount !== undefined && <div><span>{t('paidAmount', 'المبلغ')}</span><strong>{omrWithEquivalent(subscriptionInfo.amount)}</strong></div>}
+        </div>
+        <div className="subscription-details-grid">
+          <div><p>{t('activatedAt')}</p><strong>{formatDate(startDate, locale)}</strong></div>
+          <div><p>{t('expiresAt')}</p><strong>{isLifetime ? t('planLifetime') : formatDate(endDate, locale)}</strong></div>
+          <div><p>{t('remaining')}</p><strong className={expired ? 'is-danger' : daysLeft !== null && daysLeft <= 4 ? 'is-warning' : 'is-good'}>{daysLeft === null ? (isLifetime ? t('unlimited') : isTrial ? t('trialPending') : '—') : expired ? t('statusExpired') : t('days', '', { count: daysLeft })}</strong></div>
+          <div><p>{t('status')}</p><strong>{currentStatusLabel}</strong></div>
+        </div>
+        {subscriptionInfo.approvedAt && <p className="subscription-current-card__meta">{t('approvedAt', 'اعتمد في')}: {formatDate(subscriptionInfo.approvedAt, locale, true)}</p>}
+        {subscriptionInfo.status !== 'active' && !expired && <p className="subscription-current-card__note">{t('currentStatusNote', '', { status: currentStatusLabel })}</p>}
+        {restrictions?.active && restrictions.blocked_features?.length > 0 && <div className="subscription-restrictions-note"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{restrictions.blocked_features.map((feature) => t({ students: 'featureStudents', gradebook: 'featureGradebook', behavior: 'featureBehavior', attendance: 'featureAttendance', analytics: 'featureAnalytics', reports: 'featureReports' }[feature] || feature)).join(' · ')}</small></div>}
+      </div>}
     </section>
   );
 }
@@ -133,6 +136,9 @@ export default function Subscription() {
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [requestError, setRequestError] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [plansOpen, setPlansOpen] = useState(true);
+  const [offersOpen, setOffersOpen] = useState(true);
   const activationRef = useRef(null);
 
   useEffect(() => {
@@ -187,6 +193,30 @@ export default function Subscription() {
   const priceFor = (plan) => priceNumber(plan?.price_omr ?? plan?.offer_price_omr ?? plan?.base_price_omr);
   const originalPriceFor = (plan) => priceNumber(plan?.original_price_omr ?? plan?.offer?.original_price_omr ?? plan?.base_price_omr ?? priceFor(plan));
   const offerFor = (plan) => plan?.offer || (plan?.offer_id ? { id: plan.offer_id, title: plan.offer_title, description: plan.offer_description, original_price_omr: plan.original_price_omr, offer_price_omr: plan.price_omr, starts_at: plan.offer_starts_at, ends_at: plan.offer_ends_at } : null);
+  const isOfferPlan = (plan) => {
+    const offerData = offerFor(plan);
+    return Boolean(plan.has_offer || offerData?.id || offerData?.title || discountPercent(originalPriceFor(plan), priceFor(plan)) > 0);
+  };
+  const offerPlans = visiblePlans.filter(isOfferPlan);
+  const regularPlans = visiblePlans.filter((plan) => !isOfferPlan(plan));
+  const renderPlanCard = (plan) => {
+    const price = priceFor(plan);
+    const original = originalPriceFor(plan);
+    const discount = discountPercent(original, price);
+    const offerData = offerFor(plan);
+    const hasOffer = isOfferPlan(plan);
+    return <article key={plan.id} className={`subscription-plan-card ${plan.highlight ? 'is-highlighted' : ''} ${hasOffer ? 'has-offer' : ''} ${selectedPlan === plan.id ? 'is-selected' : ''}`}>
+      {hasOffer && <div className="subscription-plan-offer-top"><span>{offerData?.title || plan.offer_title || t('specialOffer')}</span>{discount > 0 && <b>{discount}% {t('discount', 'خصم')}</b>}</div>}
+      {plan.highlight && !hasOffer && <span className="subscription-plan-ribbon">{t('mostAttractive')}</span>}
+      <div className="subscription-plan-card__heading"><span className="subscription-plan-index">{plan.id === 'yearly' ? '02' : plan.id === 'lifetime' ? '03' : '01'}</span><h3>{planLabel(plan, t)}</h3></div>
+      <div className="subscription-plan-price-block">{hasOffer && <del>{omrWithEquivalent(original)}</del>}<strong>{price ? omrWithEquivalent(price) : '...'}</strong></div>
+      {hasOffer && <p className="subscription-offer-description">{offerData?.description || plan.offer_description || t('specialOfferDescription', 'عرض محدود لفترة محدودة')}</p>}
+      {plan.note && <p className="subscription-plan-note">{plan.note}</p>}
+      {Array.isArray(plan.features) && plan.features.length > 0 && <ul className="subscription-plan-features">{plan.features.map((feature) => <li key={feature}><span>✓</span>{feature}</li>)}</ul>}
+      <p className="subscription-plan-duration">{plan.duration_days === null || plan.duration_days === undefined ? t('unlimitedAccess') : t('planValidity', '', { days: plan.duration_days })}</p>
+      <button className={hasOffer ? 'btn-offer' : 'btn-primary'} onClick={() => { setSubmitted(false); setSelectedPlan(plan.id); }}>{t('chooseThisPlan')}</button>
+    </article>;
+  };
 
   const handleReceipt = async (e) => {
     const file = e.target.files[0];
@@ -223,27 +253,22 @@ export default function Subscription() {
       <main className="subscription-page-content">
         <SubscriptionDetailsCard />
         {subscriptionInfo?.status === 'active' && canonicalPlanForUi(subscriptionInfo.plan) !== 'trial' && <div className="subscription-active-notice" role="status">{locale === 'ar' ? 'لديك اشتراك مدفوع نشط حاليًا. يمكنك إرسال طلب تجديد أو تغيير، وسيتم اعتماد باقة واحدة فقط بعد مراجعة الطلب.' : 'You currently have one active paid subscription. You may submit a renewal or change request; only one package will remain active after approval.'}</div>}
-        <div className="subscription-section-heading subscription-plans-heading"><div><span className="subscription-eyebrow">{t('flexiblePlans')}</span><h2>{t('choosePlan')}</h2><p>{t('plansDescription')}</p></div></div>
-        <div className="subscription-plans-grid">
-        {visiblePlans.map((plan) => {
-          const price = priceFor(plan);
-          const original = originalPriceFor(plan);
-          const discount = discountPercent(original, price);
-          const offerData = offerFor(plan);
-          const hasOffer = Boolean(plan.has_offer || offerData?.id || offerData?.title || discount > 0);
-          return <article key={plan.id} className={`subscription-plan-card ${plan.highlight ? 'is-highlighted' : ''} ${hasOffer ? 'has-offer' : ''} ${selectedPlan === plan.id ? 'is-selected' : ''}`}>
-            {hasOffer && <div className="subscription-plan-offer-top"><span>{offerData?.title || plan.offer_title || t('specialOffer')}</span>{discount > 0 && <b>{discount}% {t('discount', 'خصم')}</b>}</div>}
-            {plan.highlight && !hasOffer && <span className="subscription-plan-ribbon">{t('mostAttractive')}</span>}
-            <div className="subscription-plan-card__heading"><span className="subscription-plan-index">{plan.id === 'yearly' ? '02' : plan.id === 'lifetime' ? '03' : '01'}</span><h3>{planLabel(plan, t)}</h3></div>
-            <div className="subscription-plan-price-block">{hasOffer && <del>{omrWithEquivalent(original)}</del>}<strong>{price ? omrWithEquivalent(price) : '...'}</strong></div>
-            {hasOffer && <p className="subscription-offer-description">{offerData?.description || plan.offer_description || t('specialOfferDescription', 'عرض محدود لفترة محدودة')}</p>}
-            {plan.note && <p className="subscription-plan-note">{plan.note}</p>}
-            {Array.isArray(plan.features) && plan.features.length > 0 && <ul className="subscription-plan-features">{plan.features.map((feature) => <li key={feature}><span>✓</span>{feature}</li>)}</ul>}
-            <p className="subscription-plan-duration">{plan.duration_days === null || plan.duration_days === undefined ? t('unlimitedAccess') : t('planValidity', '', { days: plan.duration_days })}</p>
-            <button className={hasOffer ? 'btn-offer' : 'btn-primary'} onClick={() => { setSubmitted(false); setSelectedPlan(plan.id); }}>{t('chooseThisPlan')}</button>
-          </article>;
-        })}
-      </div>
+        <section className="subscription-plan-chooser">
+          <button type="button" className="subscription-disclosure-heading subscription-section-disclosure" onClick={() => setPlansOpen((open) => !open)} aria-expanded={plansOpen} aria-controls="subscription-plans-content">
+            <span><span className="subscription-eyebrow">{t('flexiblePlans')}</span><strong>{t('choosePlan')}</strong><small>{t('plansDescription')}</small></span>
+            <b aria-hidden="true">{plansOpen ? '−' : '+'}</b>
+          </button>
+          {plansOpen && <div id="subscription-plans-content" className="subscription-plan-groups">
+            {offerPlans.length > 0 && <section className="subscription-offers-section">
+              <button type="button" className="subscription-disclosure-heading subscription-offers-disclosure" onClick={() => setOffersOpen((open) => !open)} aria-expanded={offersOpen} aria-controls="subscription-offers-content">
+                <span><span className="subscription-eyebrow">{t('specialOffer')}</span><strong>{t('offersSectionTitle')}</strong><small>{t('offersSectionDescription')}</small></span>
+                <b aria-hidden="true">{offersOpen ? '−' : '+'}</b>
+              </button>
+              {offersOpen && <div id="subscription-offers-content" className="subscription-plans-grid subscription-offers-grid">{offerPlans.map(renderPlanCard)}</div>}
+            </section>}
+            {regularPlans.length > 0 && <div className="subscription-plans-grid subscription-standard-grid">{regularPlans.map(renderPlanCard)}</div>}
+          </div>}
+        </section>
 
       {selected && <section ref={activationRef} className="subscription-activation-card scroll-mt-6"><div className="subscription-activation-card__heading"><div><span className="subscription-eyebrow">{t('activationTitle')}</span><h3>{planLabel(selected, t)}</h3></div><strong>{omrWithEquivalent(priceFor(selected))}</strong></div><div className="subscription-payment-details"><div><span>{locale === 'ar' ? 'رقم التحويل' : 'Transfer number'}</span><strong>{payment.phone || phone}</strong></div>{payment.recipient && <div><span>{locale === 'ar' ? 'المستلم' : 'Recipient'}</span><strong>{payment.recipient}</strong></div>}{payment.method && <div><span>{locale === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span><strong>{payment.method}</strong></div>}{payment.account && <div><span>{locale === 'ar' ? 'الحساب / IBAN' : 'Account / IBAN'}</span><strong>{payment.account}</strong></div>}</div><ol className="list-decimal list-inside text-sm text-ink/80 space-y-2 mb-5"><li>{t('activationStep1')} <span className="font-bold text-primary">{omrWithEquivalent(priceFor(selected))}</span> — <span className="font-bold">{payment.phone || phone}</span></li><li>{t('activationStep2')}</li><li>{t('activationStep3')}</li></ol>{(payment.note_ar || payment.note_en) && <p className="subscription-payment-note">{locale === 'ar' ? payment.note_ar || payment.note_en : payment.note_en || payment.note_ar}</p>}{submitted ? <p className="text-primary font-medium">{t('requestSent')}</p> : <form onSubmit={submitRequest} className="space-y-3"><div><label className="label">{t('transferReference')}</label><input className="input" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} placeholder={locale === 'ar' ? 'مثال: تحويل باسم أحمد - 123456' : 'e.g. Transfer by Ahmed - 123456'} /></div><div><label className="label">{t('receiptOptional')}</label><input type="file" accept="image/*" onChange={handleReceipt} className="text-sm" />{receiptImage && <img src={receiptImage} alt={t('receiptOptional')} className="mt-2 max-h-40 rounded-lg border border-line" />}</div><div className="flex gap-2"><button className="btn-primary" disabled={busy} type="submit">{busy ? '...' : t('submitActivation')}</button><button className="btn-secondary" type="button" onClick={() => { setSelectedPlan(null); setRequestError(''); }}>{t('cancel')}</button></div>{requestError && <p className="subscription-form-error" role="alert">{requestError}</p>}</form>}</section>}
         <p className="subscription-footnote">{t('manualActivationNote')}</p>
