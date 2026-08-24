@@ -66,7 +66,7 @@ function snapshotWithoutAssessment(snapshot, assessmentId) {
   return { ...snapshot, grades: filtered };
 }
 
-export default function GradeMatrix({ classId, className }) {
+export default function GradeMatrix({ classId, className, onActionsChange }) {
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [students, setStudents] = useState([]);
@@ -86,6 +86,7 @@ export default function GradeMatrix({ classId, className }) {
   const [quickScore, setQuickScore] = useState('');
   const [quickError, setQuickError] = useState('');
   const quickScoreRef = useRef(null);
+  const actionsRef = useRef(null);
   const teacherId = getTeacherId();
 
   const load = async () => {
@@ -443,6 +444,18 @@ export default function GradeMatrix({ classId, className }) {
     downloadCSV(`درجات_${className || 'الصف'}.csv`, rows, headers);
   };
 
+  actionsRef.current = { openQuickEntry, exportCSV, downloadGradebookPDF, canQuickEntry: quickOptions.length > 0 };
+  useEffect(() => {
+    if (!onActionsChange) return undefined;
+    onActionsChange({
+      openQuickEntry: () => actionsRef.current?.openQuickEntry(),
+      exportCSV: () => actionsRef.current?.exportCSV(),
+      downloadGradebookPDF: () => actionsRef.current?.downloadGradebookPDF(),
+      canQuickEntry: Boolean(actionsRef.current?.canQuickEntry),
+    });
+    return () => onActionsChange(null);
+  }, [onActionsChange]);
+
   if (loading) return <p className="text-ink/50">{t('gradebookLoading')}</p>;
   if (categories.length === 0) return <div className="card p-10 text-center"><p className="text-ink/60 mb-1">{t('noCategories')}</p><p className="text-ink/40 text-sm">{t('openCategoriesToAdd')}</p></div>;
   if (students.length === 0) return <div className="card p-10 text-center text-ink/60">{t('addStudentsFirst')}</div>;
@@ -450,18 +463,7 @@ export default function GradeMatrix({ classId, className }) {
   return (
     <div>
       {confirmDialog}
-      <div className="gradebook-toolbar print:hidden">
-        <div className="gradebook-toolbar__title">
-          <div className="gradebook-toolbar__title-row"><span className="gradebook-toolbar__marker"><Icon name="edit" className="w-4 h-4" /></span><div><h3>{t('fullGradeTable')}</h3><p>{t('gradebookDescription')}</p></div></div>
-          <span className="grade-matrix-hint">{t('horizontalHint')}</span>
-        </div>
-        <div className="gradebook-toolbar__actions">
-          <span className="gradebook-local-status">{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span>
-          <button className="quick-entry-trigger" type="button" onClick={openQuickEntry} disabled={!quickOptions.length}><Icon name="edit" className="w-4 h-4" /><span>{t('quickEntry')}</span></button>
-          <button className="btn-secondary text-sm" onClick={exportCSV}><Icon name="reports" className="w-4 h-4" /><span>{t('csvExport')}</span></button>
-          <button className="btn-primary text-sm" onClick={downloadGradebookPDF}><Icon name="fileCheck" className="w-4 h-4" /><span>{t('downloadPdf')}</span></button>
-        </div>
-      </div>
+      <div className="gradebook-local-strip print:hidden"><span>{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span><span>{t('horizontalHint')}</span></div>
       {quickEntryOpen && quickSelection && quickStudent && <div className="quick-grade-backdrop" role="presentation">
         <section className="quick-grade-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-grade-title" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
           <header className="quick-grade-dialog__header">
@@ -494,16 +496,16 @@ export default function GradeMatrix({ classId, className }) {
         <table className="grade-matrix-table text-xs border-collapse">
           <thead>
             <tr>
-              <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[150px] z-20">{t('students')}</th>
+              <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[132px] z-20">{t('students')}</th>
               {categories.map((category, index) => <th key={category.id} colSpan={itemsFor(category).length + 1} className="text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></th>)}
-              <th className="text-center px-3 py-2 border-b-2 border-ink min-w-[90px] bg-ink text-white">{t('finalGrade')} %</th>
+              <th className="text-center px-2 py-1.5 border-b-2 border-ink min-w-[72px] bg-ink text-white">{t('finalGrade')} %</th>
             </tr>
             <tr>
               <th className="grade-matrix-sticky grade-matrix-sticky--subheader text-right px-3 py-2 text-[11px] text-ink/50 font-medium z-20">{t('subCategoryDetails')}</th>
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
                   {itemsFor(category).map((assessment) => (
-                    <th key={assessment.id} className="grade-subassessment-head px-2 py-1.5 border-b border-line font-normal min-w-[82px]" style={{ background: `${categoryColor(index)}14` }}>
+                    <th key={assessment.id} className="grade-subassessment-head px-1 py-1 border-b border-line font-normal min-w-[64px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
                           <>
@@ -559,10 +561,10 @@ export default function GradeMatrix({ classId, className }) {
                       const key = cellKey(assessment.id, student.id);
                       const cell = grades[key] || {};
                       return (
-                        <td key={assessment.id} className="px-1 py-1 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}>
+                        <td key={assessment.id} className="px-0.5 py-1 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}>
                           <div className="flex flex-col gap-0.5 items-center">
                             <div className="relative">
-                              <input type="number" min="0" max={getAssessmentMaxScore(category, assessment)} step="any" inputMode="decimal" autoComplete="off" aria-label={`${student.full_name} — ${assessment.title}`} className="input text-xs py-1.5 text-center w-16 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} onBlur={() => saveCell(assessment.id, student.id)} />
+                              <input type="number" min="0" max={getAssessmentMaxScore(category, assessment)} step="any" inputMode="decimal" autoComplete="off" aria-label={`${student.full_name} — ${assessment.title}`} className="input text-xs py-1 text-center w-14 font-medium" value={cell.score_numeric ?? ''} onChange={(event) => setCell(assessment.id, student.id, 'score_numeric', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} onBlur={() => saveCell(assessment.id, student.id)} />
                               {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
                               {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
                             </div>
