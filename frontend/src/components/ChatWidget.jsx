@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api/client';
 import { connectSocket, releaseSocket } from '../api/socket';
 import Icon from './Icon.jsx';
-import { getTeacherId } from '../utils/localCache.js';
+import { getTeacherId, readAuthToken } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation } from '../utils/snapshotSync.js';
 import { saveSnapshot } from '../utils/localDb.js';
 
@@ -56,7 +56,7 @@ export default function ChatWidget() {
   }, [teacherId]);
 
   useEffect(() => {
-    const token = localStorage.getItem('educore_token');
+    const token = readAuthToken();
     if (!token || !teacherId) return undefined;
     void loadHistory();
     const onConnect = () => setStatus('');

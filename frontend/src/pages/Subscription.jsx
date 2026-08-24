@@ -6,6 +6,7 @@ import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
 import { connectSocket, releaseSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { readAuthToken } from '../utils/localCache.js';
 
 const FALLBACK_PLANS = [
   { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, price_omr: 4, original_price_omr: 4, duration_days: 182, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'] },
@@ -170,7 +171,7 @@ export default function Subscription() {
     const onReconnect = () => { void loadPlans({ force: true }); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
-    const socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect });
+    const socket = connectSocket(readAuthToken(), { onReconnect });
     socket.on('subscription_config_updated', onSubscriptionConfigUpdated);
     refreshMe({ force: true }).catch(() => undefined);
     return () => {

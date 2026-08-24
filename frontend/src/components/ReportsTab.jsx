@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend, LabelList } from 'recharts';
-import { getTeacherId, readSessionCache } from '../utils/localCache.js';
+import { getTeacherId, readSessionCache, readStoredTeacher } from '../utils/localCache.js';
 import { readSettingsCache } from '../utils/settingsCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
 import { buildClassRoster, buildGrowth, buildStudentReport, getClassData, buildFollowUpRows, DEFAULT_FOLLOW_UP_SETTINGS, normalizeFollowUpSettings } from '../utils/analyticsSelectors.js';
@@ -37,7 +37,7 @@ function escapeHtml(value) {
 
 function teacherProfile() {
   try {
-    const stored = JSON.parse(localStorage.getItem('educore_teacher') || '{}');
+    const stored = readStoredTeacher() || {};
     const session = stored?.id ? readSessionCache(stored.id) : null;
     return { ...(session?.teacher || {}), ...stored };
   } catch {

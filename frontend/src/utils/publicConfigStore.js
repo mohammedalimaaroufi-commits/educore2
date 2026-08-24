@@ -1,5 +1,6 @@
 import api from '../api/client';
 import { connectSocket, releaseSocket } from '../api/socket';
+import { readAuthToken } from './localCache.js';
 
 const PUBLIC_CONFIG_CACHE_KEY = 'educore:public-config:v1';
 const EMPTY_STATE = { announcement: null, notifications: [], loaded: false, revision: 0, lastEvent: null };
@@ -61,7 +62,7 @@ function start() {
   const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
   window.addEventListener('focus', onFocus);
   document.addEventListener('visibilitychange', onVisibility);
-  socket = connectSocket(localStorage.getItem('educore_token') || '', { onReconnect: refresh });
+  socket = connectSocket(readAuthToken(), { onReconnect: refresh });
   socket?.on('public_config_updated', handlePublicConfigUpdated);
   socketCleanup = () => {
     window.clearInterval(refreshTimer);

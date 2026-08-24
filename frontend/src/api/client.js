@@ -6,6 +6,8 @@ import {
   readSessionCache,
   removeApiCache,
   writeApiCache,
+  readAuthToken,
+  clearStoredAuth,
 } from '../utils/localCache.js';
 import { deleteApiCache, getApiCache, saveApiCache } from '../utils/localDb.js';
 
@@ -30,7 +32,7 @@ function localCacheKey(url, config = {}) {
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('educore_token');
+  const token = readAuthToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -46,8 +48,7 @@ api.interceptors.response.use(
   },
   async (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('educore_token');
-      localStorage.removeItem('educore_teacher');
+      clearStoredAuth();
       window.location.href = '/login';
       return Promise.reject(err);
     }

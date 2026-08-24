@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api/client';
 import CommentPicker from './CommentPicker.jsx';
-import { getTeacherId, readSessionCache } from '../utils/localCache.js';
+import { getTeacherId, readSessionCache, readStoredTeacher } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, calculateFinalGrade, getAssessmentMaxScore, getCategoryAssessments, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
@@ -36,8 +36,7 @@ function escapeHtml(value) {
 
 function teacherProfile() {
   try {
-    const raw = localStorage.getItem('educore_teacher');
-    const stored = raw ? JSON.parse(raw) : {};
+    const stored = readStoredTeacher() || {};
     const session = stored?.id ? readSessionCache(stored.id) : null;
     return { ...(session?.teacher || {}), ...stored };
   } catch {

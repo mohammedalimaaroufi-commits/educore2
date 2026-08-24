@@ -10,18 +10,16 @@ import {
   removePendingProfile,
   saveSessionCache,
   writeApiCache,
+  readAuthToken,
+  readStoredTeacher as readStoredTeacherCache,
+  writeStoredTeacher,
+  clearStoredAuth,
 } from '../utils/localCache.js';
 
 const AuthContext = createContext(null);
 
 function readStoredTeacher() {
-  try {
-    const raw = localStorage.getItem('educore_teacher');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    localStorage.removeItem('educore_teacher');
-    return null;
-  }
+  return readStoredTeacherCache();
 }
 
 function readInitialSession() {
@@ -115,7 +113,8 @@ function normalizeSubscriptionSession(data) {
 
 function persistTeacher(teacher) {
   if (!teacher?.id) return;
-  localStorage.setItem('educore_teacher', JSON.stringify(teacher));
+  const remember = Boolean(localStorage.getItem('educore_token'));
+  writeStoredTeacher(teacher, remember);
 }
 
 export function AuthProvider({ children }) {
@@ -135,7 +134,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const refreshMe = useCallback(async ({ force = false } = {}) => {
-    const token = localStorage.getItem('educore_token');
+    const token = readAuthToken();
     if (!token) {
       setLoading(false);
       return;
@@ -185,8 +184,7 @@ export function AuthProvider({ children }) {
       const responseStatus = error?.response?.status;
       const blocked = error?.response?.data?.code === 'ACCOUNT_BLOCKED';
       if (responseStatus === 401 || blocked) {
-        localStorage.removeItem('educore_token');
-        localStorage.removeItem('educore_teacher');
+        clearStoredAuth();
         setTeacher(null);
         setSubscription(null);
         setTrialInfo(null);
@@ -251,21 +249,28 @@ export function AuthProvider({ children }) {
     setRestrictions(null);
   };
 
-  const login = async (email, password) => {
+  const login = async (email, password, rememberMe = true) => {
     const { data } = await api.post('/auth/login', { email, password });
-    localStorage.setItem('educore_token', data.token);
+    if (rememberMe) {
+      localStorage.setItem('educore_token', data.token);
+      sessionStorage.removeItem('educore_token');
+    } else {
+      sessionStorage.setItem('educore_token', data.token);
+      localStorage.removeItem('educore_token');
+    }
     resetSubscriptionState();
     setTeacher(data.teacher);
-    persistTeacher(data.teacher);
+    writeStoredTeacher(data.teacher, rememberMe);
     await refreshMe({ force: true });
   };
 
   const register = async (payload) => {
     const { data } = await api.post('/auth/register', payload);
     localStorage.setItem('educore_token', data.token);
+    sessionStorage.removeItem('educore_token');
     resetSubscriptionState();
     setTeacher(data.teacher);
-    persistTeacher(data.teacher);
+    writeStoredTeacher(data.teacher, true);
     await refreshMe({ force: true });
   };
 
@@ -283,8 +288,7 @@ export function AuthProvider({ children }) {
   }, [teacher?.id]);
 
   const logout = () => {
-    localStorage.removeItem('educore_token');
-    localStorage.removeItem('educore_teacher');
+    clearStoredAuth();
     setTeacher(null);
     setSubscription(null);
     setTrialInfo(null);

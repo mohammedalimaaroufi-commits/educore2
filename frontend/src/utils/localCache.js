@@ -14,11 +14,66 @@ function safeRead(key) {
   }
 }
 
+function safeSessionRead(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readAuthToken() {
+  try {
+    return localStorage.getItem('educore_token') || sessionStorage.getItem('educore_token') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function readStoredTeacher() {
+  return safeRead('educore_teacher') || safeSessionRead('educore_teacher');
+}
+
+export function writeStoredTeacher(teacher, remember = true) {
+  if (!teacher?.id) return false;
+  if (remember) {
+    const saved = safeWrite('educore_teacher', teacher);
+    try { sessionStorage.removeItem('educore_teacher'); } catch { /* ignore unavailable storage */ }
+    return saved;
+  }
+  const saved = safeSessionWrite('educore_teacher', teacher);
+  try { localStorage.removeItem('educore_teacher'); } catch { /* ignore unavailable storage */ }
+  return saved;
+}
+
+export function clearStoredAuth() {
+  try {
+    localStorage.removeItem('educore_token');
+    localStorage.removeItem('educore_teacher');
+    sessionStorage.removeItem('educore_token');
+    sessionStorage.removeItem('educore_teacher');
+  } catch {
+    // Ignore unavailable storage.
+  }
+}
+
 function safeWrite(key, value) {
   try {
     const raw = JSON.stringify(value);
     if (raw.length > MAX_ENTRY_BYTES) return false;
     localStorage.setItem(key, raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeSessionWrite(key, value) {
+  try {
+    const raw = JSON.stringify(value);
+    if (raw.length > MAX_ENTRY_BYTES) return false;
+    sessionStorage.setItem(key, raw);
     return true;
   } catch {
     return false;
@@ -34,8 +89,7 @@ function safeRemove(key) {
 }
 
 export function getTeacherId() {
-  const teacher = safeRead('educore_teacher');
-  return teacher?.id || 'anonymous';
+  return readStoredTeacher()?.id || 'anonymous';
 }
 
 export function buildRequestKey(config = {}) {
