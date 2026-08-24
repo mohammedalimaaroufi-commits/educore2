@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { invalidateApiCache } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, getLastSync, queueMutation, scheduleBackgroundSync, syncTeacherData } from '../utils/snapshotSync.js';
-import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
+import { buildSnapshotIndexes, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -35,16 +35,17 @@ function orderClasses(classList = []) {
   });
 }
 
-function cardForClass(snapshot, classData) {
-  const { students, categories } = getClassData(snapshot, classData.id);
-  const roster = buildClassRoster(snapshot, classData.id);
-  const gradeMap = buildGradeMap(snapshot);
+function cardForClass(snapshot, classData, indexes = buildSnapshotIndexes(snapshot)) {
+  const { students, categories } = getClassData(snapshot, classData.id, indexes);
+  const roster = buildClassRoster(snapshot, classData.id, indexes);
+  const gradeMap = indexes.gradeMap;
   const grading = categories.flatMap((category) => (
     getCategoryAssessments(category).map((assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap))
   ));
   const ordered = [...roster].sort((a, b) => b.behaviorScore - a.behaviorScore);
-  const sessionsToday = (snapshot.attendance_sessions || []).filter((session) => session.class_id === classData.id && session.session_date === new Date().toISOString().slice(0, 10));
-  const attendance_marked_today = sessionsToday.some((session) => (snapshot.attendance_records || []).some((record) => record.session_id === session.id));
+  const today = new Date().toISOString().slice(0, 10);
+  const sessionsToday = (snapshot.attendance_sessions || []).filter((session) => session.class_id === classData.id && session.session_date === today);
+  const attendance_marked_today = sessionsToday.some((session) => (indexes.attendanceBySession.get(session.id) || []).length > 0);
   return { ...classData, student_count: students.length, quick_stats: { grading, behavior: ordered.length ? { best: { student_id: ordered[0].student_id, full_name: ordered[0].full_name, points: ordered[0].behaviorScore }, worst: ordered.length > 1 ? { student_id: ordered[ordered.length - 1].student_id, full_name: ordered[ordered.length - 1].full_name, points: ordered[ordered.length - 1].behaviorScore } : null } : null, attendance_marked_today } };
 }
 
@@ -99,12 +100,12 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
     setLoading(true);
     try {
       const snapshot = await getOrSyncSnapshot(getTeacherId());
-      const students = snapshot?.students || [];
+      const indexes = buildSnapshotIndexes(snapshot);
       setArchived((snapshot?.classes || [])
         .filter((classData) => Number(classData.archived) === 1)
         .map((classData) => ({
           ...classData,
-          student_count: students.filter((student) => student.class_id === classData.id && !student.archived).length,
+          student_count: (indexes.studentsByClass.get(classData.id) || []).filter((student) => !student.archived).length,
         })));
     } catch {
       setArchived([]);
@@ -203,6 +204,7 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(0);
   const [rejectedSyncCount, setRejectedSyncCount] = useState(0);
+  const [blockedSyncCount, setBlockedSyncCount] = useState(0);
   const [draggedClassId, setDraggedClassId] = useState(null);
   const [dragOverClassId, setDragOverClassId] = useState(null);
   const classOrderSaveRef = useRef(Promise.resolve());
@@ -210,7 +212,8 @@ export default function Dashboard() {
   const load = async () => {
     setLoading(true);
     const data = await getOrSyncSnapshot(getTeacherId());
-    setClasses(orderClasses((data?.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData)));
+    const indexes = buildSnapshotIndexes(data);
+    setClasses(orderClasses((data?.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData, indexes)));
     setLoading(false);
   };
 
@@ -229,9 +232,9 @@ export default function Dashboard() {
     };
   }, []);
 
-  const subjects = [...new Set(classes.map((classData) => classData.subject).filter(Boolean))];
-  const years = [...new Set(classes.map((classData) => classData.academic_year).filter(Boolean))];
-  const visibleClasses = classes.filter((classData) => {
+  const subjects = useMemo(() => [...new Set(classes.map((classData) => classData.subject).filter(Boolean))], [classes]);
+  const years = useMemo(() => [...new Set(classes.map((classData) => classData.academic_year).filter(Boolean))], [classes]);
+  const visibleClasses = useMemo(() => classes.filter((classData) => {
     const needle = searchTerm.trim().toLocaleLowerCase();
     const matchesSearch = !needle || `${classData.name} ${classData.subject || ''} ${classData.academic_year || ''}`.toLocaleLowerCase().includes(needle);
     const matchesSubject = subjectFilter === 'all' || classData.subject === subjectFilter;
@@ -243,7 +246,7 @@ export default function Dashboard() {
       || (completionFilter === 'progress' && averageCoverage > 0 && averageCoverage < 100)
       || (completionFilter === 'empty' && averageCoverage === 0);
     return matchesSearch && matchesSubject && matchesYear && matchesCompletion;
-  });
+  }), [classes, searchTerm, subjectFilter, yearFilter, completionFilter]);
 
   const syncNow = async () => {
     if (syncing) return;
@@ -253,13 +256,18 @@ export default function Dashboard() {
     try {
       const result = await syncTeacherData(teacherId);
       const data = result?.snapshot?.snapshot;
-      if (data) setClasses(orderClasses((data.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData)));
+      if (data) {
+        const indexes = buildSnapshotIndexes(data);
+        setClasses(orderClasses((data.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData, indexes)));
+      }
       const syncedAt = await getLastSync(teacherId);
       setLastSyncAt(syncedAt);
       setRejectedSyncCount(Number(result?.rejected || 0));
-      setSaveState(result?.successful ? (result?.rejected ? 'limit' : 'saved') : 'queued');
+      setBlockedSyncCount(Number(result?.blocked || 0));
+      setSaveState(result?.successful ? (result?.blocked ? 'blocked' : result?.rejected ? 'limit' : 'saved') : 'queued');
     } catch {
       setRejectedSyncCount(0);
+      setBlockedSyncCount(0);
       setSaveState('queued');
     } finally {
       setSyncing(false);
@@ -475,7 +483,7 @@ export default function Dashboard() {
         <section className="dashboard-overview-strip" aria-label={t('dashboardQuickStats')}>
           <article className="dashboard-stat-card dashboard-stat-card--classes"><span className="dashboard-stat-card__icon"><Icon name="reports" className="w-5 h-5" /></span><div><small>{t('classesTotal')}</small><strong>{classes.length}</strong></div></article>
           <article className="dashboard-stat-card dashboard-stat-card--students"><span className="dashboard-stat-card__icon"><Icon name="user" className="w-5 h-5" /></span><div><small>{t('studentsTotal')}</small><strong>{classes.reduce((total, item) => total + Number(item.student_count || 0), 0)}</strong></div></article>
-          <article className="dashboard-sync-card"><div><small>{lastSyncAt ? `${t('lastSync')}: ${new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt))}` : t('syncBackground')}</small><span>{saveState === 'saved' ? t('syncCompleted') : saveState === 'limit' ? t('syncCompletedWithRejected', '', { count: rejectedSyncCount }) : saveState === 'queued' ? t('syncFailed') : isOnline ? t('syncBackground') : t('continueOffline')}</span></div><button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={syncing}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? t('syncing') : t('syncNow')}</button></article>
+          <article className="dashboard-sync-card"><div><small>{lastSyncAt ? `${t('lastSync')}: ${new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt))}` : t('syncBackground')}</small><span>{saveState === 'saved' ? t('syncCompleted') : saveState === 'blocked' ? t('syncCompletedWithBlocked', '', { count: blockedSyncCount }) : saveState === 'limit' ? t('syncCompletedWithRejected', '', { count: rejectedSyncCount }) : saveState === 'queued' ? t('syncFailed') : isOnline ? t('syncBackground') : t('continueOffline')}</span></div><button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={syncing}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? t('syncing') : t('syncNow')}</button></article>
         </section>
 
         <div className="dashboard-section-head">

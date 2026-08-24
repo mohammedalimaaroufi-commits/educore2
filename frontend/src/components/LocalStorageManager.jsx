@@ -10,7 +10,7 @@ export default function LocalStorageManager() {
   const { teacher, clearLocalCache } = useAuth();
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
-  const [stats, setStats] = useState({ entries: 0, bytes: 0, snapshot: false, cacheEntries: 0, queued: 0 });
+  const [stats, setStats] = useState({ entries: 0, bytes: 0, snapshot: false, cacheEntries: 0, queued: 0, blocked: 0 });
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState({ enabled: true, frequency: 'daily' });
   const [lastSync, setLastSync] = useState(0);
@@ -45,6 +45,7 @@ export default function LocalStorageManager() {
       const result = await syncTeacherData(teacher.id);
       await refreshStats();
       if (!result.successful) setMessage(t('syncFailed'));
+      else if (result.blocked > 0) setMessage(t('syncCompletedWithBlocked', '', { count: result.blocked }));
       else if (result.rejected > 0) setMessage(t('syncCompletedWithRejected', '', { count: result.rejected }));
       else setMessage(t('teacherDataSynced'));
     } catch {

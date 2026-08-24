@@ -3,7 +3,7 @@ import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveCo
 import { getTeacherId, readSessionCache, readStoredTeacher } from '../utils/localCache.js';
 import { readSettingsCache } from '../utils/settingsCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
-import { buildClassRoster, buildGrowth, buildStudentReport, getClassData, buildFollowUpRows, DEFAULT_FOLLOW_UP_SETTINGS, normalizeFollowUpSettings } from '../utils/analyticsSelectors.js';
+import { buildClassRoster, buildGrowth, buildStudentReport, getClassData, DEFAULT_FOLLOW_UP_SETTINGS, normalizeFollowUpSettings } from '../utils/analyticsSelectors.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 function downloadCSV(filename, rows, headers) {
@@ -87,8 +87,14 @@ function ClassReport({ snapshot, classId, className }) {
   const classData = snapshot?.classes?.find((item) => item.id === classId);
   const roster = useMemo(() => buildClassRoster(snapshot, classId), [snapshot, classId]);
   const followUpSettings = useMemo(() => normalizeFollowUpSettings(readSettingsCache(getTeacherId(), 'follow-up-rules', DEFAULT_FOLLOW_UP_SETTINGS)), []);
-  const followUpRows = useMemo(() => buildFollowUpRows(snapshot, classId, followUpSettings, t), [snapshot, classId, followUpSettings, t]);
-  const followUpIds = useMemo(() => new Set(followUpRows.map((row) => row.student_id)), [followUpRows]);
+  const followUpIds = useMemo(() => new Set(roster.filter((row) => {
+    const { enabled, thresholds } = followUpSettings;
+    return (enabled.behavior && row.behaviorScore <= thresholds.behaviorScore)
+      || (enabled.grade && row.finalGrade !== null && row.finalGrade < thresholds.finalGrade)
+      || (enabled.missingGrade && row.finalGrade === null)
+      || (enabled.absence && row.absentCount >= thresholds.absentDays)
+      || (enabled.late && row.lateCount >= thresholds.lateDays);
+  }).map((row) => row.student_id)), [roster, followUpSettings]);
   const [studentSearch, setStudentSearch] = useState('');
   const [reportFilter, setReportFilter] = useState('all');
   const visibleRoster = useMemo(() => {
@@ -112,9 +118,9 @@ function ClassReport({ snapshot, classId, className }) {
       students: roster.length,
       average: graded.length ? Math.round(graded.reduce((sum, row) => sum + row.finalGrade, 0) / graded.length) : null,
       attendance: attendance.length ? Math.round(attendance.reduce((sum, row) => sum + row.attendanceRate, 0) / attendance.length) : null,
-      alerts: followUpRows.length,
+      alerts: followUpIds.size,
     };
-  }, [roster, followUpRows]);
+  }, [roster, followUpIds]);
 
   const printClassReport = () => {
     const profile = teacherProfile();

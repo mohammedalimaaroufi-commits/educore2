@@ -205,10 +205,13 @@ export function flushOutbox(teacherId, options = {}) {
 export async function syncTeacherData(teacherId) {
   const outbox = await flushOutbox(teacherId, { retryBlocked: true });
   const snapshot = await syncSnapshot(teacherId, { force: true });
+  const snapshotSynced = !snapshot?.skipped && !snapshot?.fromLocal;
   return {
     ...outbox,
     snapshot,
-    successful: outbox.failed === 0 && outbox.blocked === 0 && !snapshot?.skipped && !snapshot?.fromLocal,
+    snapshotSynced,
+    partial: snapshotSynced && outbox.blocked > 0,
+    successful: outbox.failed === 0 && snapshotSynced,
   };
 }
 

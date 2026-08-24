@@ -2,23 +2,102 @@ function round(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
 }
 
-export function getClassData(snapshot, classId) {
-  const classData = snapshot?.classes?.find((item) => item.id === classId) || null;
-  const students = (snapshot?.students || []).filter((item) => item.class_id === classId && !item.archived);
-  const categories = (snapshot?.grade_categories || [])
-    .filter((item) => item.class_id === classId)
+const snapshotIndexCache = new WeakMap();
+
+export function buildSnapshotIndexes(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return {
+      classesById: new Map(),
+      studentsById: new Map(),
+      studentsByClass: new Map(),
+      categoriesByClass: new Map(),
+      assessmentsByCategory: new Map(),
+      gradeMap: new Map(),
+      gradesByStudent: new Map(),
+      behaviorTypes: new Map(),
+      behaviorLogsByStudent: new Map(),
+      sessionsById: new Map(),
+      attendanceByStudent: new Map(),
+      attendanceBySession: new Map(),
+      classDataById: new Map(),
+    };
+  }
+  const cached = snapshotIndexCache.get(snapshot);
+  if (cached) return cached;
+  const index = {
+    classesById: new Map((snapshot.classes || []).map((item) => [item.id, item])),
+    studentsById: new Map(),
+    studentsByClass: new Map(),
+    categoriesByClass: new Map(),
+    assessmentsByCategory: new Map(),
+    gradeMap: new Map(),
+    gradesByStudent: new Map(),
+    behaviorTypes: new Map((snapshot.behavior_types || []).map((item) => [item.id, item])),
+    behaviorLogsByStudent: new Map(),
+    sessionsById: new Map((snapshot.attendance_sessions || []).map((item) => [item.id, item])),
+    attendanceByStudent: new Map(),
+    attendanceBySession: new Map(),
+    classDataById: new Map(),
+  };
+  (snapshot.students || []).forEach((student) => {
+    index.studentsById.set(student.id, student);
+    const rows = index.studentsByClass.get(student.class_id) || [];
+    rows.push(student);
+    index.studentsByClass.set(student.class_id, rows);
+  });
+  (snapshot.grade_categories || []).forEach((category) => {
+    const rows = index.categoriesByClass.get(category.class_id) || [];
+    rows.push(category);
+    index.categoriesByClass.set(category.class_id, rows);
+  });
+  (snapshot.assessments || []).forEach((assessment) => {
+    const rows = index.assessmentsByCategory.get(assessment.category_id) || [];
+    rows.push(assessment);
+    index.assessmentsByCategory.set(assessment.category_id, rows);
+  });
+  (snapshot.grades || []).forEach((grade) => {
+    index.gradeMap.set(`${grade.assessment_id}:${grade.student_id}`, grade);
+    const rows = index.gradesByStudent.get(grade.student_id) || [];
+    rows.push(grade);
+    index.gradesByStudent.set(grade.student_id, rows);
+  });
+  (snapshot.behavior_logs || []).forEach((log) => {
+    const rows = index.behaviorLogsByStudent.get(log.student_id) || [];
+    rows.push(log);
+    index.behaviorLogsByStudent.set(log.student_id, rows);
+  });
+  (snapshot.attendance_records || []).forEach((record) => {
+    if (!index.sessionsById.has(record.session_id)) return;
+    const studentRows = index.attendanceByStudent.get(record.student_id) || [];
+    studentRows.push(record);
+    index.attendanceByStudent.set(record.student_id, studentRows);
+    const sessionRows = index.attendanceBySession.get(record.session_id) || [];
+    sessionRows.push(record);
+    index.attendanceBySession.set(record.session_id, sessionRows);
+  });
+  snapshotIndexCache.set(snapshot, index);
+  return index;
+}
+
+export function getClassData(snapshot, classId, indexes = buildSnapshotIndexes(snapshot)) {
+  const cached = indexes.classDataById.get(classId);
+  if (cached) return cached;
+  const classData = indexes.classesById.get(classId) || null;
+  const students = (indexes.studentsByClass.get(classId) || []).filter((item) => !item.archived);
+  const categories = [...(indexes.categoriesByClass.get(classId) || [])]
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((category) => ({
       ...category,
-      assessments: (snapshot?.assessments || [])
-        .filter((assessment) => assessment.category_id === category.id)
+      assessments: [...(indexes.assessmentsByCategory.get(category.id) || [])]
         .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.created_at || '').localeCompare(String(b.created_at || ''))),
     }));
-  return { classData, students, categories };
+  const result = { classData, students, categories };
+  indexes.classDataById.set(classId, result);
+  return result;
 }
 
 export function buildGradeMap(snapshot) {
-  return new Map((snapshot?.grades || []).map((grade) => [`${grade.assessment_id}:${grade.student_id}`, grade]));
+  return buildSnapshotIndexes(snapshot).gradeMap;
 }
 
 export function getCategoryAssessments(category) {
@@ -68,8 +147,9 @@ export function calculateAssessmentCoverage(category, assessment, students, grad
 }
 
 export function buildAssessmentCoverage(snapshot, classId) {
-  const { students, categories } = getClassData(snapshot, classId);
-  const gradeMap = buildGradeMap(snapshot);
+  const indexes = buildSnapshotIndexes(snapshot);
+  const { students, categories } = getClassData(snapshot, classId, indexes);
+  const gradeMap = indexes.gradeMap;
   return categories.flatMap((category) => (
     getCategoryAssessments(category).map((assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap))
   ));
@@ -122,10 +202,9 @@ export function calculateFinalGrade(studentId, categories, gradeMap) {
   return weightUsed > 0 ? round((weightedTotal / weightUsed) * 100) : null;
 }
 
-export function calculateBehaviorScore(studentId, snapshot) {
-  const typeMap = new Map((snapshot?.behavior_types || []).map((item) => [item.id, item]));
-  return (snapshot?.behavior_logs || [])
-    .filter((log) => log.student_id === studentId)
+export function calculateBehaviorScore(studentId, snapshot, indexes = buildSnapshotIndexes(snapshot)) {
+  const typeMap = indexes.behaviorTypes;
+  return (indexes.behaviorLogsByStudent.get(studentId) || [])
     .reduce((sum, log) => {
       const behavior = typeMap.get(log.behavior_type_id);
       const points = Math.abs(Number(behavior?.points || 0));
@@ -133,26 +212,24 @@ export function calculateBehaviorScore(studentId, snapshot) {
     }, 0);
 }
 
-export function calculateAttendanceRate(studentId, snapshot) {
-  const sessions = new Map((snapshot?.attendance_sessions || []).map((session) => [session.id, session]));
-  const records = (snapshot?.attendance_records || []).filter((record) => record.student_id === studentId && sessions.has(record.session_id));
+export function calculateAttendanceRate(studentId, snapshot, indexes = buildSnapshotIndexes(snapshot)) {
+  const records = indexes.attendanceByStudent.get(studentId) || [];
   if (!records.length) return null;
   const present = records.filter((record) => record.status === 'present').length;
   return round((present / records.length) * 100, 1);
 }
 
-export function buildClassRoster(snapshot, classId) {
-  const { students, categories } = getClassData(snapshot, classId);
-  const gradeMap = buildGradeMap(snapshot);
-  const sessions = new Map((snapshot?.attendance_sessions || []).map((session) => [session.id, session]));
+export function buildClassRoster(snapshot, classId, indexes = buildSnapshotIndexes(snapshot)) {
+  const { students, categories } = getClassData(snapshot, classId, indexes);
+  const gradeMap = indexes.gradeMap;
   return students.map((student) => {
-    const attendanceRecords = (snapshot?.attendance_records || []).filter((record) => record.student_id === student.id && sessions.has(record.session_id));
+    const attendanceRecords = indexes.attendanceByStudent.get(student.id) || [];
     return {
       student_id: student.id,
       full_name: student.full_name,
       finalGrade: calculateFinalGrade(student.id, categories, gradeMap),
-      behaviorScore: calculateBehaviorScore(student.id, snapshot),
-      attendanceRate: calculateAttendanceRate(student.id, snapshot),
+      behaviorScore: calculateBehaviorScore(student.id, snapshot, indexes),
+      attendanceRate: calculateAttendanceRate(student.id, snapshot, indexes),
       absentCount: attendanceRecords.filter((record) => record.status === 'absent').length,
       lateCount: attendanceRecords.filter((record) => record.status === 'late').length,
       attendanceRecords,
@@ -182,11 +259,13 @@ function formatFollowUpValue(value, suffix = '') {
 export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_UP_SETTINGS, translate = null) {
   const normalized = normalizeFollowUpSettings(settings);
   const t = typeof translate === 'function' ? translate : (_key, fallback) => fallback;
-  const { students } = getClassData(snapshot, classId);
-  const roster = buildClassRoster(snapshot, classId);
+  const indexes = buildSnapshotIndexes(snapshot);
+  const { students } = getClassData(snapshot, classId, indexes);
+  const roster = buildClassRoster(snapshot, classId, indexes);
+  const rosterByStudent = new Map(roster.map((row) => [row.student_id, row]));
   return students.map((student) => {
-    const base = roster.find((row) => row.student_id === student.id);
-    const report = buildStudentReport(snapshot, student.id);
+    const base = rosterByStudent.get(student.id);
+    const report = buildStudentReport(snapshot, student.id, indexes);
     if (!base || !report) return null;
     const reasons = [];
     const negativeLogs = report.behaviorLogs.filter((log) => log.polarity === 'negative');
@@ -241,8 +320,9 @@ export function buildDistribution(roster) {
 }
 
 export function buildCategoryAverages(snapshot, classId) {
-  const { students, categories } = getClassData(snapshot, classId);
-  const gradeMap = buildGradeMap(snapshot);
+  const indexes = buildSnapshotIndexes(snapshot);
+  const { students, categories } = getClassData(snapshot, classId, indexes);
+  const gradeMap = indexes.gradeMap;
   return categories.map((category) => {
     const rows = [];
     getCategoryAssessments(category).forEach((assessment) => {
@@ -264,10 +344,11 @@ export function buildCategoryAverages(snapshot, classId) {
 }
 
 export function buildGrowth(snapshot, studentId) {
+  const indexes = buildSnapshotIndexes(snapshot);
   const assessmentMap = new Map((snapshot?.assessments || []).map((assessment) => [assessment.id, assessment]));
   const categoryMap = new Map((snapshot?.grade_categories || []).map((category) => [category.id, category]));
-  return (snapshot?.grades || [])
-    .filter((grade) => grade.student_id === studentId && grade.score_numeric !== null && assessmentMap.has(grade.assessment_id))
+  return (indexes.gradesByStudent.get(studentId) || [])
+    .filter((grade) => grade.score_numeric !== null && assessmentMap.has(grade.assessment_id))
     .map((grade) => {
       const assessment = assessmentMap.get(grade.assessment_id);
       return {
@@ -282,11 +363,11 @@ export function buildGrowth(snapshot, studentId) {
     .map((item, index) => ({ ...item, index: index + 1 }));
 }
 
-export function buildStudentReport(snapshot, studentId) {
-  const student = snapshot?.students?.find((item) => item.id === studentId);
+export function buildStudentReport(snapshot, studentId, indexes = buildSnapshotIndexes(snapshot)) {
+  const student = indexes.studentsById.get(studentId);
   if (!student) return null;
-  const { classData, categories } = getClassData(snapshot, student.class_id);
-  const gradeMap = buildGradeMap(snapshot);
+  const { classData, categories } = getClassData(snapshot, student.class_id, indexes);
+  const gradeMap = indexes.gradeMap;
   const gradesByCategory = categories.map((category) => {
     const items = getCategoryAssessments(category).map((assessment) => {
       const grade = gradeMap.get(`${assessment.id}:${student.id}`);
@@ -301,11 +382,10 @@ export function buildStudentReport(snapshot, studentId) {
       items,
     };
   });
-  const behaviorTypeMap = new Map((snapshot.behavior_types || []).map((item) => [item.id, item]));
-  const behaviorLogs = (snapshot.behavior_logs || []).filter((log) => log.student_id === student.id).map((log) => ({ ...log, ...(behaviorTypeMap.get(log.behavior_type_id) || {}) }));
-  const sessions = new Map((snapshot.attendance_sessions || []).map((session) => [session.id, session]));
-  const attendance = (snapshot.attendance_records || []).filter((record) => record.student_id === student.id && sessions.has(record.session_id)).map((record) => ({ ...record, session_date: sessions.get(record.session_id).session_date }));
+  const behaviorTypeMap = indexes.behaviorTypes;
+  const behaviorLogs = (indexes.behaviorLogsByStudent.get(student.id) || []).map((log) => ({ ...log, ...(behaviorTypeMap.get(log.behavior_type_id) || {}) }));
+  const attendance = (indexes.attendanceByStudent.get(student.id) || []).map((record) => ({ ...record, session_date: indexes.sessionsById.get(record.session_id)?.session_date }));
   const finalGrade = calculateFinalGrade(student.id, categories, gradeMap);
   const rules = (snapshot.grade_recommendation_rules || []).filter((rule) => finalGrade !== null && finalGrade >= rule.min_score && finalGrade <= rule.max_score);
-  return { student, class: classData, gradesByCategory, behaviorLogs, behaviorScore: calculateBehaviorScore(student.id, snapshot), attendance, attendanceTotals: attendance.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {}), finalGrade, autoRecommendation: rules[0]?.text || null, generated_at: new Date().toISOString() };
+  return { student, class: classData, gradesByCategory, behaviorLogs, behaviorScore: calculateBehaviorScore(student.id, snapshot, indexes), attendance, attendanceTotals: attendance.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {}), finalGrade, autoRecommendation: rules[0]?.text || null, generated_at: new Date().toISOString() };
 }

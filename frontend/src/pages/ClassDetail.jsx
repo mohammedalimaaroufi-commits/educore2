@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../api/client';
 import TrialBanner from '../components/TrialBanner.jsx';
@@ -11,6 +11,7 @@ const AnalyticsTab = lazy(() => import('../components/AnalyticsTab.jsx'));
 const ReportsTab = lazy(() => import('../components/ReportsTab.jsx'));
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
+import { buildSnapshotIndexes, getClassData } from '../utils/analyticsSelectors.js';
 import Icon from '../components/Icon.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -62,9 +63,11 @@ export default function ClassDetail() {
     return () => { active = false; };
   }, [id]);
 
-  const studentsCount = (snapshot?.students || []).filter((student) => student.class_id === id && !student.archived).length;
-  const categoriesCount = (snapshot?.grade_categories || []).filter((category) => category.class_id === id).length;
-  const assessmentsCount = (snapshot?.assessments || []).filter((assessment) => (snapshot?.grade_categories || []).some((category) => category.id === assessment.category_id && category.class_id === id)).length;
+  const snapshotIndexes = useMemo(() => buildSnapshotIndexes(snapshot), [snapshot]);
+  const classData = useMemo(() => getClassData(snapshot, id, snapshotIndexes), [snapshot, id, snapshotIndexes]);
+  const studentsCount = classData.students.length;
+  const categoriesCount = classData.categories.length;
+  const assessmentsCount = classData.categories.reduce((total, category) => total + category.assessments.length, 0);
   const attendanceSessionsCount = (snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length;
   const isArabic = locale === 'ar';
   const blockedFeatures = new Set(restrictions?.active ? (restrictions.blocked_features || []) : []);

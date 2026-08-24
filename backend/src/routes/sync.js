@@ -5,7 +5,11 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
+let lastMessagePurgeAt = 0;
 function purgeExpiredMessages() {
+  const now = Date.now();
+  if (now - lastMessagePurgeAt < 5 * 60 * 1000) return;
+  lastMessagePurgeAt = now;
   db.prepare("DELETE FROM messages WHERE datetime(created_at) < datetime('now', '-24 hours')").run();
 }
 

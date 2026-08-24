@@ -41,6 +41,8 @@ export default function ChatWidget() {
   const [status, setStatus] = useState('');
   const scrollRef = useRef(null);
   const openRef = useRef(open);
+  const historyFetchedAtRef = useRef(0);
+  const historyRequestRef = useRef(null);
   const teacherId = getTeacherId();
 
   useEffect(() => { openRef.current = open; }, [open]);
@@ -50,8 +52,19 @@ export default function ChatWidget() {
       const local = await getOrSyncSnapshot(teacherId);
       if (local?.messages) setMessages(freshMessages(local.messages));
       if (openRef.current) setUnread(0);
-      // Refresh the conversation without blocking the local first paint.
-      api.get('/messages').then(({ data }) => setMessages(freshMessages(data.messages))).catch(() => undefined);
+      // Refresh at most once per short window and share an in-flight request
+      // when mount/reconnect/open happen together.
+      if (Date.now() - historyFetchedAtRef.current < 30_000) return;
+      if (!historyRequestRef.current) {
+        historyRequestRef.current = api.get('/messages')
+          .then(({ data }) => {
+            historyFetchedAtRef.current = Date.now();
+            setMessages(freshMessages(data.messages));
+          })
+          .catch(() => undefined)
+          .finally(() => { historyRequestRef.current = null; });
+      }
+      await historyRequestRef.current;
     } catch {
       setStatus(t('chatLocalOnly'));
     }

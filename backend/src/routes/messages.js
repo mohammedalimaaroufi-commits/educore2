@@ -7,7 +7,11 @@ const router = express.Router();
 router.use(requireAuth);
 
 const MESSAGE_RETENTION_HOURS = 24;
+let lastMessagePurgeAt = 0;
 function purgeExpiredMessages() {
+  const now = Date.now();
+  if (now - lastMessagePurgeAt < 5 * 60 * 1000) return;
+  lastMessagePurgeAt = now;
   db.prepare("DELETE FROM messages WHERE datetime(created_at) < datetime('now', ?)").run(`-${MESSAGE_RETENTION_HOURS} hours`);
 }
 

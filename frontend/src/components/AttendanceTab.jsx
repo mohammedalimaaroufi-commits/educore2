@@ -5,7 +5,7 @@ import StudentDetailModal from './StudentDetailModal.jsx';
 import { ATTENDANCE_STATUS } from '../constants.js';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
-import { getClassData, calculateAttendanceRate } from '../utils/analyticsSelectors.js';
+import { buildSnapshotIndexes, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 
@@ -13,27 +13,23 @@ function localId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildSessionData(snapshot, classId, date) {
-  const { students } = getClassData(snapshot, classId);
+function buildSessionData(snapshot, classId, date, indexes = buildSnapshotIndexes(snapshot)) {
+  const { students } = getClassData(snapshot, classId, indexes);
   let session = (snapshot?.attendance_sessions || []).find((item) => item.class_id === classId && item.session_date === date);
   if (!session) session = { id: localId('attendance-session'), class_id: classId, session_date: date };
-  const records = new Map((snapshot?.attendance_records || []).filter((record) => record.session_id === session.id).map((record) => [record.student_id, record]));
+  const records = new Map((indexes.attendanceBySession.get(session.id) || []).map((record) => [record.student_id, record]));
   return { session, roster: students.map((student) => ({ student_id: student.id, full_name: student.full_name, status: records.get(student.id)?.status || 'present' })) };
 }
 
-function buildStats(snapshot, classId) {
-  const { students } = getClassData(snapshot, classId);
+function buildStats(snapshot, classId, indexes = buildSnapshotIndexes(snapshot)) {
+  const { students } = getClassData(snapshot, classId, indexes);
   return students.map((student) => {
-    const records = (snapshot?.attendance_records || []).filter((record) => record.student_id === student.id);
-    return {
-      student_id: student.id,
-      full_name: student.full_name,
-      present_count: records.filter((record) => record.status === 'present').length,
-      absent_count: records.filter((record) => record.status === 'absent').length,
-      late_count: records.filter((record) => record.status === 'late').length,
-      excused_count: records.filter((record) => record.status === 'excused').length,
-      total_sessions: records.length,
-    };
+    const records = indexes.attendanceByStudent.get(student.id) || [];
+    const counts = records.reduce((result, record) => {
+      if (result[`${record.status}_count`] !== undefined) result[`${record.status}_count`] += 1;
+      return result;
+    }, { present_count: 0, absent_count: 0, late_count: 0, excused_count: 0 });
+    return { student_id: student.id, full_name: student.full_name, ...counts, total_sessions: records.length };
   });
 }
 
@@ -50,11 +46,12 @@ export default function AttendanceTab({ classId }) {
   const teacherId = getTeacherId();
 
   const refreshLocal = (data, selectedDate = date) => {
-    const sessionData = buildSessionData(data, classId, selectedDate);
+    const indexes = buildSnapshotIndexes(data);
+    const sessionData = buildSessionData(data, classId, selectedDate, indexes);
     setSnapshot(data);
     setSession(sessionData.session);
     setRoster(sessionData.roster);
-    setStats(buildStats(data, classId));
+    setStats(buildStats(data, classId, indexes));
   };
 
   useEffect(() => {

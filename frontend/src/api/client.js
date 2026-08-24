@@ -33,7 +33,9 @@ function localCacheKey(url, config = {}) {
 
 api.interceptors.request.use((config) => {
   const token = readAuthToken();
+  const requestTeacherId = getTeacherId();
   const locale = localStorage.getItem('educore_locale') === 'en' ? 'en' : 'ar';
+  config.__eduTeacherId = requestTeacherId;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   config.headers['Accept-Language'] = locale;
   return config;
@@ -44,7 +46,7 @@ api.interceptors.response.use(
     if (canUseLocalCache(res.config)) {
       const requestKey = buildRequestKey(res.config);
       writeApiCache(requestKey, res.data);
-      void saveApiCache(requestKey, getTeacherId(), res.data);
+      void saveApiCache(requestKey, res.config.__eduTeacherId || getTeacherId(), res.data);
     }
     return res;
   },
@@ -58,7 +60,7 @@ api.interceptors.response.use(
     const config = err.config;
     if ((!err.response || err.response.status >= 500) && canUseLocalCache(config)) {
       const requestKey = buildRequestKey(config);
-      const indexedData = await getApiCache(requestKey, getTeacherId());
+      const indexedData = await getApiCache(requestKey, config?.__eduTeacherId || getTeacherId());
       const cachedData = indexedData ?? readApiCache(requestKey);
       if (cachedData !== null) {
         return {

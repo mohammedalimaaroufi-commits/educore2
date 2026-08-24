@@ -47,21 +47,21 @@ function ensureSummaryAssessment(category) {
   return summary;
 }
 
-function weightedPercent(studentId, category) {
+function weightedPercentFromMemory(studentId, category, assessments, gradeMap) {
   const direct = category?.grading_mode !== 'detailed';
-  const detailRows = direct ? [] : db.prepare(`SELECT a.max_score, g.score_numeric
-    FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
-    WHERE a.category_id = ? AND a.is_summary = 0`).all(studentId, category.id);
-  const hasEnteredDetail = detailRows.some((row) => row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '');
-  const rows = hasEnteredDetail ? detailRows : db.prepare(`SELECT a.max_score, g.score_numeric
-    FROM assessments a LEFT JOIN grades g ON g.assessment_id = a.id AND g.student_id = ?
-    WHERE a.category_id = ? AND a.is_summary = 1`).all(studentId, category.id);
+  const details = direct ? [] : assessments.filter((assessment) => Number(assessment.is_summary) === 0);
+  const hasEnteredDetail = details.some((assessment) => {
+    const score = gradeMap.get(`${assessment.id}:${studentId}`)?.score_numeric;
+    return score !== null && score !== undefined && score !== '';
+  });
+  const rows = hasEnteredDetail ? details : assessments.filter((assessment) => Number(assessment.is_summary) === 1);
   let earned = 0;
   let possible = 0;
-  rows.forEach((row) => {
-    if (row.score_numeric !== null && row.score_numeric !== undefined && row.score_numeric !== '') {
-      earned += Number(row.score_numeric);
-      possible += direct ? Number(category.weight_percent || 0) : Number(row.max_score || 0);
+  rows.forEach((assessment) => {
+    const score = gradeMap.get(`${assessment.id}:${studentId}`)?.score_numeric;
+    if (score !== null && score !== undefined && score !== '') {
+      earned += Number(score);
+      possible += direct ? Number(category.weight_percent || 0) : Number(assessment.max_score || 0);
     }
   });
   return possible > 0 ? (earned / possible) * 100 : null;
@@ -265,21 +265,46 @@ router.get('/matrix', (req, res) => {
   const students = db.prepare('SELECT id, full_name FROM students WHERE class_id = ? AND archived = 0 ORDER BY full_name COLLATE NOCASE').all(class_id);
   const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
 
-  // Self-heal: any category created before this behavior existed (or restored from an old backup)
-  // gets its first grade column created on the fly, so grading never requires "+ تقييم" as a first step.
-  const insertDefaultAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`);
-  categories.forEach((cat) => {
-    const hasAny = db.prepare('SELECT 1 FROM assessments WHERE category_id = ? LIMIT 1').get(cat.id);
-    if (!hasAny) insertDefaultAssessment.run(uuid(), cat.id, cat.name, Number(cat.weight_percent || 0));
-    else if (!db.prepare('SELECT 1 FROM assessments WHERE category_id = ? AND is_summary = 1 LIMIT 1').get(cat.id)) ensureSummaryAssessment(cat);
+  // Self-heal categories in one read/write batch. The previous implementation did
+  // two existence queries plus one assessment query per category on every matrix load.
+  const categoryIds = categories.map((cat) => cat.id);
+  const placeholders = categoryIds.map(() => '?').join(',');
+  const existingAssessments = categoryIds.length
+    ? db.prepare(`SELECT id, category_id, is_summary FROM assessments WHERE category_id IN (${placeholders})`).all(...categoryIds)
+    : [];
+  const existingByCategory = new Map();
+  existingAssessments.forEach((assessment) => {
+    const rows = existingByCategory.get(assessment.category_id) || [];
+    rows.push(assessment);
+    existingByCategory.set(assessment.category_id, rows);
   });
+  const repairs = categories.flatMap((cat) => {
+    const rows = existingByCategory.get(cat.id) || [];
+    return rows.length === 0 || !rows.some((assessment) => Number(assessment.is_summary) === 1) ? [cat] : [];
+  });
+  if (repairs.length > 0) {
+    const insertDefaultAssessment = db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary) VALUES (?, ?, ?, ?, 1)`);
+    const repairAll = db.transaction((items) => {
+      items.forEach((cat) => insertDefaultAssessment.run(uuid(), cat.id, cat.name, Number(cat.weight_percent || 0)));
+    });
+    repairAll(repairs);
+  }
 
+  const allAssessments = categoryIds.length
+    ? db.prepare(`SELECT * FROM assessments WHERE category_id IN (${placeholders}) ORDER BY category_id, is_summary DESC, date, created_at`).all(...categoryIds)
+    : [];
+  const assessmentsByCategory = new Map();
+  allAssessments.forEach((assessment) => {
+    const rows = assessmentsByCategory.get(assessment.category_id) || [];
+    rows.push(assessment);
+    assessmentsByCategory.set(assessment.category_id, rows);
+  });
   const categoriesWithAssessments = categories.map((cat) => ({
     ...cat,
-    assessments: categoryAssessments(cat.id),
+    assessments: assessmentsByCategory.get(cat.id) || [],
   }));
 
-  const allAssessmentIds = categoriesWithAssessments.flatMap((c) => c.assessments.map((a) => a.id));
+  const allAssessmentIds = allAssessments.map((assessment) => assessment.id);
   const grades = {};
   if (allAssessmentIds.length > 0) {
     const placeholders = allAssessmentIds.map(() => '?').join(',');
@@ -338,14 +363,33 @@ router.get('/summary', (req, res) => {
   const { class_id } = req.query;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
 
-  const students = db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 0').all(class_id);
+  const students = db.prepare('SELECT id, full_name FROM students WHERE class_id = ? AND archived = 0').all(class_id);
   const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
+  const categoryIds = categories.map((category) => category.id);
+  const categoryPlaceholders = categoryIds.map(() => '?').join(',');
+  const assessments = categoryIds.length
+    ? db.prepare(`SELECT id, category_id, max_score, is_summary FROM assessments WHERE category_id IN (${categoryPlaceholders})`).all(...categoryIds)
+    : [];
+  const assessmentIds = assessments.map((assessment) => assessment.id);
+  const gradePlaceholders = assessmentIds.map(() => '?').join(',');
+  const studentIds = students.map((student) => student.id);
+  const studentPlaceholders = studentIds.map(() => '?').join(',');
+  const gradeRows = assessmentIds.length && studentIds.length
+    ? db.prepare(`SELECT assessment_id, student_id, score_numeric FROM grades WHERE assessment_id IN (${gradePlaceholders}) AND student_id IN (${studentPlaceholders})`).all(...assessmentIds, ...studentIds)
+    : [];
+  const assessmentsByCategory = new Map();
+  assessments.forEach((assessment) => {
+    const rows = assessmentsByCategory.get(assessment.category_id) || [];
+    rows.push(assessment);
+    assessmentsByCategory.set(assessment.category_id, rows);
+  });
+  const gradeMap = new Map(gradeRows.map((grade) => [`${grade.assessment_id}:${grade.student_id}`, grade]));
 
   const summary = students.map((student) => {
     let weightedTotal = 0;
     let weightUsed = 0;
     const perCategory = categories.map((cat) => {
-      const pct = weightedPercent(student.id, cat);
+      const pct = weightedPercentFromMemory(student.id, cat, assessmentsByCategory.get(cat.id) || [], gradeMap);
       if (pct !== null) {
         weightedTotal += pct * (Number(cat.weight_percent || 0) / 100);
         weightUsed += Number(cat.weight_percent || 0);

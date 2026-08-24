@@ -359,24 +359,36 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
     }
   };
 
-  const finalGrade = (studentId) => calculateFinalGrade(studentId, categories, gradeMap);
-
-  const categoryScore = (studentId, category) => {
-    const items = itemsFor(category);
-    const detailed = items.filter((assessment) => !Number(assessment.is_summary));
-    const enteredDetails = detailed.filter((assessment) => {
-      const value = gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric;
-      return value !== null && value !== undefined && value !== '';
-    });
-    if (enteredDetails.length > 0) {
-      const maxTotal = detailed.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
-      const scoreTotal = detailed.reduce((sum, assessment) => sum + Number(gradeMap.get(cellKey(assessment.id, studentId))?.score_numeric || 0), 0);
-      return maxTotal > 0 ? (scoreTotal / maxTotal) * Number(category.weight_percent || 0) : null;
-    }
-    const summary = (category.assessments || []).find((assessment) => Number(assessment.is_summary));
-    const score = gradeMap.get(cellKey(summary?.id, studentId))?.score_numeric;
-    return score === '' || score == null ? null : Number(score);
-  };
+  const categoryScores = useMemo(() => {
+    const scores = new Map();
+    students.forEach((student) => categories.forEach((category) => {
+      const assessments = category?.assessments || [];
+      const details = assessments.filter((assessment) => !Number(assessment.is_summary));
+      const summary = assessments.find((assessment) => Number(assessment.is_summary));
+      const items = details.length > 0 ? details : summary ? [summary] : getCategoryAssessments(category);
+      const enteredDetails = details.filter((assessment) => {
+        const value = gradeMap.get(cellKey(assessment.id, student.id))?.score_numeric;
+        return value !== null && value !== undefined && value !== '';
+      });
+      let score = null;
+      if (enteredDetails.length > 0) {
+        const maxTotal = details.reduce((sum, assessment) => sum + Number(assessment.max_score || 0), 0);
+        const scoreTotal = details.reduce((sum, assessment) => sum + Number(gradeMap.get(cellKey(assessment.id, student.id))?.score_numeric || 0), 0);
+        score = maxTotal > 0 ? (scoreTotal / maxTotal) * Number(category.weight_percent || 0) : null;
+      } else {
+        const fallback = summary || items.find((assessment) => Number(assessment.is_summary));
+        const value = gradeMap.get(cellKey(fallback?.id, student.id))?.score_numeric;
+        score = value === '' || value == null ? null : Number(value);
+      }
+      scores.set(`${student.id}:${category.id}`, score);
+    }));
+    return scores;
+  }, [students, categories, gradeMap]);
+  const finalGrades = useMemo(() => new Map(students.map((student) => (
+    [student.id, calculateFinalGrade(student.id, categories, gradeMap)]
+  ))), [students, categories, gradeMap]);
+  const finalGrade = (studentId) => finalGrades.get(studentId) ?? null;
+  const categoryScore = (studentId, category) => categoryScores.get(`${studentId}:${category.id}`) ?? null;
 
   const downloadGradebookPDF = () => {
     const profile = teacherProfile();

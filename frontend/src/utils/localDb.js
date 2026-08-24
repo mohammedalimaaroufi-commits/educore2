@@ -1,5 +1,5 @@
 const DB_NAME = 'educore-local-data';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SNAPSHOTS = 'snapshots';
 const API_CACHE = 'api-cache';
 const OUTBOX = 'outbox';
@@ -36,6 +36,8 @@ function openDb() {
         if (!db.objectStoreNames.contains(SNAPSHOTS)) db.createObjectStore(SNAPSHOTS, { keyPath: 'teacherId' });
         if (!db.objectStoreNames.contains(API_CACHE)) db.createObjectStore(API_CACHE, { keyPath: 'key' });
         if (!db.objectStoreNames.contains(OUTBOX)) db.createObjectStore(OUTBOX, { keyPath: 'id' });
+        const outboxStore = request.transaction.objectStore(OUTBOX);
+        if (!outboxStore.indexNames.contains('teacherId')) outboxStore.createIndex('teacherId', 'teacherId', { unique: false });
         if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'key' });
       };
       request.onsuccess = () => resolve(request.result);
@@ -112,9 +114,12 @@ export async function listOutbox(teacherId, options = {}) {
   const db = await openDb();
   if (!db || !teacherId) return [];
   const transaction = db.transaction(OUTBOX, 'readonly');
-  const all = await requestToPromise(transaction.objectStore(OUTBOX).getAll());
+  const store = transaction.objectStore(OUTBOX);
+  const all = store.indexNames.contains('teacherId')
+    ? await requestToPromise(store.index('teacherId').getAll(teacherId))
+    : await requestToPromise(store.getAll());
   const includeBlocked = Boolean(options.includeBlocked);
-  return all.filter((item) => item.teacherId === teacherId && (includeBlocked || !item.blocked)).sort((a, b) => a.createdAt - b.createdAt);
+  return all.filter((item) => (includeBlocked || !item.blocked)).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function removeOutbox(id) {
@@ -153,10 +158,11 @@ export async function getLocalStats(teacherId) {
   const db = await openDb();
   if (!db || !teacherId) return { snapshot: false, cacheEntries: 0, queued: 0 };
   const transaction = db.transaction([SNAPSHOTS, API_CACHE, OUTBOX], 'readonly');
+  const outboxStore = transaction.objectStore(OUTBOX);
   const [snapshot, caches, outbox] = await Promise.all([
     requestToPromise(transaction.objectStore(SNAPSHOTS).get(teacherId)),
     requestToPromise(transaction.objectStore(API_CACHE).getAll()),
-    requestToPromise(transaction.objectStore(OUTBOX).getAll()),
+    requestToPromise(outboxStore.indexNames.contains('teacherId') ? outboxStore.index('teacherId').getAll(teacherId) : outboxStore.getAll()),
   ]);
   const teacherOutbox = outbox.filter((item) => item.teacherId === teacherId);
   return {
@@ -171,9 +177,10 @@ export async function clearTeacherDatabase(teacherId) {
   const db = await openDb();
   if (!db || !teacherId) return;
   const readTransaction = db.transaction([API_CACHE, OUTBOX], 'readonly');
+  const readOutboxStore = readTransaction.objectStore(OUTBOX);
   const [caches, outbox] = await Promise.all([
     requestToPromise(readTransaction.objectStore(API_CACHE).getAll()),
-    requestToPromise(readTransaction.objectStore(OUTBOX).getAll()),
+    requestToPromise(readOutboxStore.indexNames.contains('teacherId') ? readOutboxStore.index('teacherId').getAll(teacherId) : readOutboxStore.getAll()),
   ]);
   const transaction = db.transaction([SNAPSHOTS, API_CACHE, OUTBOX], 'readwrite');
   transaction.objectStore(SNAPSHOTS).delete(teacherId);

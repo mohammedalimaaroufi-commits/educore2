@@ -7,6 +7,7 @@ const path = require('path');
 const express = require('express');
 
 const cors = require('cors');
+const compression = require('compression');
 
 const http = require('http');
 
@@ -47,6 +48,9 @@ const app = express();
 const BUILD_VERSION = process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || 'ca0a49f';
 
 app.use(cors());
+// Compress JSON snapshots/reports and other responses above 1 KB. This reduces
+// transfer time on Render/mobile networks without changing local-first payloads.
+app.use(compression({ threshold: 1024 }));
 
 app.use(express.json({ limit: '5mb' }));
 

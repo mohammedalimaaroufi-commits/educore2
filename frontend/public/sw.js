@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const SHELL_CACHE = `educore-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `educore-runtime-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
@@ -39,10 +39,16 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(
-      caches.match(request).then((cached) => cacheNetworkResponse(request, RUNTIME_CACHE, cached)
-        .then((response) => response || cached || caches.match('/') || Response.error())),
-    );
+    event.respondWith((async () => {
+      const cached = await caches.match(request) || await caches.match('/');
+      const networkPromise = cacheNetworkResponse(request, RUNTIME_CACHE, cached);
+      if (cached) {
+        // Return the cached shell immediately; update it without delaying navigation.
+        event.waitUntil(networkPromise.then(() => undefined));
+        return cached;
+      }
+      return (await networkPromise) || Response.error();
+    })());
     return;
   }
 

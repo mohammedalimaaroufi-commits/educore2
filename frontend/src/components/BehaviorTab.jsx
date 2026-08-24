@@ -6,7 +6,7 @@ import StudentDetailModal from './StudentDetailModal.jsx';
 import { POSITIVE_BEHAVIOR_ICONS, NEGATIVE_BEHAVIOR_ICONS } from '../constants.js';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
-import { buildClassRoster, getClassData } from '../utils/analyticsSelectors.js';
+import { buildSnapshotIndexes, getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -31,32 +31,28 @@ const BEHAVIOR_FILTERS = [
 ];
 
 function buildSummary(snapshot, classId) {
-  const roster = buildClassRoster(snapshot, classId);
-  const typeMap = new Map((snapshot?.behavior_types || []).map((type) => [type.id, type]));
-  const { students } = getClassData(snapshot, classId);
+  const indexes = buildSnapshotIndexes(snapshot);
+  const typeMap = indexes.behaviorTypes;
+  const { students } = getClassData(snapshot, classId, indexes);
   return students.map((student) => {
-    const logs = (snapshot?.behavior_logs || [])
-      .filter((log) => log.student_id === student.id)
+    const logs = [...(indexes.behaviorLogsByStudent.get(student.id) || [])]
       .sort((a, b) => String(b.occurred_at || '').localeCompare(String(a.occurred_at || '')));
     const enrichedLogs = logs.map((log) => ({ ...log, behavior: typeMap.get(log.behavior_type_id) }));
+    const counts = logs.reduce((result, log) => {
+      const behavior = typeMap.get(log.behavior_type_id);
+      const positive = behavior?.polarity === 'positive';
+      const hasNote = Boolean(String(log.note_text || '').trim());
+      if (positive) { result.positive_count += 1; result.positive_points += Math.abs(Number(behavior?.points || 0)); }
+      else if (behavior?.polarity === 'negative') { result.negative_count += 1; result.negative_points += Math.abs(Number(behavior?.points || 0)); }
+      if (hasNote) { result.note_count += 1; if (positive) result.positive_note_count += 1; else if (behavior?.polarity === 'negative') result.negative_note_count += 1; }
+      return result;
+    }, { positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, positive_note_count: 0, negative_note_count: 0 });
     const latestNoteLog = enrichedLogs.find((log) => String(log.note_text || '').trim());
     return {
       student_id: student.id,
       full_name: student.full_name,
-      behavior_score: roster.find((row) => row.student_id === student.id)?.behaviorScore || 0,
-      positive_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'positive').length,
-      negative_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'negative').length,
-      positive_points: logs.reduce((sum, log) => {
-        const behavior = typeMap.get(log.behavior_type_id);
-        return sum + (behavior?.polarity === 'positive' ? Math.abs(Number(behavior.points || 0)) : 0);
-      }, 0),
-      negative_points: logs.reduce((sum, log) => {
-        const behavior = typeMap.get(log.behavior_type_id);
-        return sum + (behavior?.polarity === 'negative' ? Math.abs(Number(behavior.points || 0)) : 0);
-      }, 0),
-      note_count: logs.filter((log) => String(log.note_text || '').trim()).length,
-      positive_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'positive' && String(log.note_text || '').trim()).length,
-      negative_note_count: logs.filter((log) => typeMap.get(log.behavior_type_id)?.polarity === 'negative' && String(log.note_text || '').trim()).length,
+      behavior_score: counts.positive_points - counts.negative_points,
+      ...counts,
       latest_logs: enrichedLogs.slice(0, 3),
       latest_note: latestNoteLog?.note_text || '',
       latest_note_label: latestNoteLog?.behavior?.label || '',
@@ -94,23 +90,23 @@ export default function BehaviorTab({ classId }) {
     setStudents(classData.students);
     setTypes((data.behavior_types || []).filter((type) => type.class_id === classId));
     setSummary(buildSummary(data, classId));
-    try {
-      const { data: templateData } = await api.get('/settings/behavior-templates');
+    setLoading(false);
+    // Templates are optional for first paint; refresh them without delaying the
+    // locally available behavior roster.
+    void api.get('/settings/behavior-templates').then(({ data: templateData }) => {
       const nextTemplates = templateData.templates || [];
       setTemplates(nextTemplates);
       writeSettingsCache(teacherId, 'behavior-templates', nextTemplates);
-    } catch {
-      // Cached templates remain available when the teacher is offline.
-    }
-    setLoading(false);
+    }).catch(() => undefined);
   };
 
   useEffect(() => { load().catch(() => setLoading(false)); }, [classId]);
 
+  const summaryByStudent = useMemo(() => new Map(summary.map((item) => [item.student_id, item])), [summary]);
   const filteredStudents = useMemo(() => {
     const value = query.trim().toLowerCase();
     const rows = students
-      .map((student) => ({ student, row: summary.find((item) => item.student_id === student.id) || {} }))
+      .map((student) => ({ student, row: summaryByStudent.get(student.id) || {} }))
       .filter(({ student, row }) => {
         const matchesSearch = !value || student.full_name.toLowerCase().includes(value);
         const matchesFilter = behaviorFilter === 'all'
@@ -129,7 +125,7 @@ export default function BehaviorTab({ classId }) {
       return (b.row.behavior_score || 0) - (a.row.behavior_score || 0);
     });
     return rows.map(({ student }) => student);
-  }, [students, query, summary, behaviorFilter, behaviorSort]);
+  }, [students, query, summaryByStudent, behaviorFilter, behaviorSort, locale]);
 
   const applySnapshot = (next) => {
     setSnapshot(next);
@@ -279,7 +275,7 @@ export default function BehaviorTab({ classId }) {
         <div className="behavior-students-scroll" role="region" aria-label={t('students')}>
           <div className="behavior-student-grid">
           {filteredStudents.map((student) => {
-              const row = summary.find((item) => item.student_id === student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, latest_logs: [] };
+              const row = summaryByStudent.get(student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, latest_logs: [] };
             return (
               <div key={student.id} className="border border-line rounded-xl2 overflow-hidden">
                 <button onClick={() => setOpenStudent((current) => (current === student.id ? null : student.id))} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-right hover:bg-surface ${openStudent === student.id ? 'bg-surface' : ''}`}>

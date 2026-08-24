@@ -104,7 +104,19 @@ export default function AnalyticsTab({ classId }) {
     });
   }, [roster, studentSearch, studentFilter]);
   const sortedRoster = useMemo(() => [...filteredRoster].sort(SORT_OPTIONS[sortBy]), [filteredRoster, sortBy]);
-  const followUpRows = useMemo(() => buildFollowUpRows(snapshot, classId, followUpSettings, t), [snapshot, classId, followUpSettings, t]);
+  const followUpCount = useMemo(() => {
+    const { enabled, thresholds } = followUpSettings;
+    return roster.filter((row) => (
+      (enabled.behavior && row.behaviorScore <= thresholds.behaviorScore)
+      || (enabled.grade && row.finalGrade !== null && row.finalGrade < thresholds.finalGrade)
+      || (enabled.missingGrade && row.finalGrade === null)
+      || (enabled.absence && row.absentCount >= thresholds.absentDays)
+      || (enabled.late && row.lateCount >= thresholds.lateDays)
+    )).length;
+  }, [roster, followUpSettings]);
+  const followUpRows = useMemo(() => (
+    followUpOpen ? buildFollowUpRows(snapshot, classId, followUpSettings, t) : []
+  ), [snapshot, classId, followUpSettings, t, followUpOpen]);
   const analyticsKpis = useMemo(() => {
     const graded = roster.filter((row) => row.finalGrade !== null);
     const attendance = roster.filter((row) => row.attendanceRate !== null);
@@ -112,9 +124,9 @@ export default function AnalyticsTab({ classId }) {
       students: roster.length,
       average: graded.length ? Math.round(graded.reduce((sum, row) => sum + row.finalGrade, 0) / graded.length) : null,
       attendance: attendance.length ? Math.round(attendance.reduce((sum, row) => sum + row.attendanceRate, 0) / attendance.length) : null,
-      needsAttention: followUpRows.length,
+      needsAttention: followUpCount,
     };
-  }, [roster, followUpRows]);
+  }, [roster, followUpCount]);
 
   const loadGrowth = (studentId) => {
     setSelectedStudent(studentId);
