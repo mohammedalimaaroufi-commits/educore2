@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import api from '../api/client';
 import StudentAvatar from './StudentAvatar.jsx';
+import Icon from './Icon.jsx';
 import { resizeImageFile } from '../utils/image.js';
 import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../utils/snapshotSync.js';
