@@ -167,6 +167,8 @@ export default function Subscription() {
   const [plans, setPlans] = useState([]);
   const [pricingQuotes, setPricingQuotes] = useState({});
   const [pricingStudentCount, setPricingStudentCount] = useState(null);
+  const [studentCountInput, setStudentCountInput] = useState('');
+  const studentCountDirtyRef = useRef(false);
   const [pricingLoading, setPricingLoading] = useState(true);
   const [pricingError, setPricingError] = useState('');
   const [phone, setPhone] = useState('');
@@ -209,7 +211,9 @@ export default function Subscription() {
       try {
         const { data } = await api.get('/auth/student-pricing');
         if (!active) return;
-        setPricingStudentCount(Number(data.student_count || 0));
+        const actualCount = Math.max(0, Math.floor(Number(data.student_count || 0)));
+        setPricingStudentCount(actualCount);
+        setStudentCountInput((current) => studentCountDirtyRef.current ? current : String(actualCount));
         setPricingQuotes(Object.fromEntries((data.quotes || []).map((quote) => [quote.plan_id, quote])));
         setPricingError('');
       } catch {
@@ -258,6 +262,17 @@ export default function Subscription() {
   const activeStudentCount = Math.max(0, Math.ceil(Number(pricingStudentCount ?? subscriptionInfo?.studentCount ?? 0)));
   const includedStudentsFor = (plan) => Math.max(1, Number(plan?.student_limit ?? plan?.included_students ?? 120));
   const extraStudentPriceFor = (plan) => Math.max(0, priceNumber(plan?.extra_student_price_omr ?? 0.1));
+  const enteredStudentCount = studentCountInput.trim() === '' ? null : Math.max(0, Math.floor(Number(studentCountInput)));
+  const updateStudentCount = (event) => {
+    const next = event.target.value;
+    if (!/^\d*$/.test(next)) return;
+    studentCountDirtyRef.current = true;
+    setStudentCountInput(next);
+  };
+  const useActualStudentCount = () => {
+    studentCountDirtyRef.current = false;
+    setStudentCountInput(String(pricingStudentCount ?? 0));
+  };
   const quoteFor = (plan) => {
     const serverQuote = pricingQuotes[plan?.id];
     if (!serverQuote) return null;
@@ -265,12 +280,13 @@ export default function Subscription() {
     const original = priceNumber(serverQuote.original_base_amount_omr ?? originalPriceFor(plan));
     const included = Math.max(1, Number(serverQuote.included_students ?? includedStudentsFor(plan)));
     const unit = Math.max(0, priceNumber(serverQuote.extra_student_price_omr ?? extraStudentPriceFor(plan)));
-    const extra = Math.max(0, Number(serverQuote.extra_students ?? 0));
-    const surcharge = priceNumber(serverQuote.extra_amount_omr);
-    const studentCount = Math.max(0, Number(serverQuote.student_count ?? activeStudentCount));
-    const total = priceNumber(serverQuote.total_amount_omr ?? serverQuote.amount_omr ?? (base + surcharge));
-    const originalTotal = priceNumber(serverQuote.original_amount_omr ?? (original + surcharge));
-    return { base, original, included, unit, extra, surcharge, studentCount, total, originalTotal };
+    const actualStudentCount = Math.max(0, Math.floor(Number(serverQuote.student_count ?? activeStudentCount)));
+    const studentCount = enteredStudentCount === null ? actualStudentCount : enteredStudentCount;
+    const extra = Math.max(0, studentCount - included);
+    const surcharge = Number((extra * unit).toFixed(3));
+    const total = Number((base + surcharge).toFixed(3));
+    const originalTotal = Number((original + surcharge).toFixed(3));
+    return { base, original, included, unit, extra, surcharge, studentCount, actualStudentCount, isPreview: studentCount !== actualStudentCount, total, originalTotal };
   };
   const offerPlans = visiblePlans.filter(isOfferPlan);
   const regularPlans = visiblePlans.filter((plan) => !isOfferPlan(plan));
@@ -307,17 +323,29 @@ export default function Subscription() {
   const submitRequest = async (e) => {
     e.preventDefault();
     if (!selected) return;
+    if (enteredStudentCount === null || !Number.isInteger(enteredStudentCount) || enteredStudentCount < 0) {
+      setRequestError(t('studentCountRequired'));
+      return;
+    }
     setBusy(true);
     setRequestError('');
     try {
-      await api.post('/auth/payment-requests', { plan: selected.id, offer_id: selected.offer?.id || null, reference_note: referenceNote, receipt_image: receiptImage });
+      await api.post('/auth/payment-requests', { plan: selected.id, offer_id: selected.offer?.id || null, student_count: enteredStudentCount, reference_note: referenceNote, receipt_image: receiptImage });
       setSubmitted(true);
       setSelectedPlan(null);
       setReferenceNote('');
       setReceiptImage('');
       await refreshMe({ force: true });
     } catch (error) {
-      setRequestError(localizeApiError(error, t, locale, 'unableSubmitActivation'));
+      if (error.response?.data?.code === 'STUDENT_COUNT_MISMATCH') {
+        const actual = Math.max(0, Math.floor(Number(error.response.data.actual_student_count || 0)));
+        setPricingStudentCount(actual);
+        studentCountDirtyRef.current = false;
+        setStudentCountInput(String(actual));
+        setRequestError(t('studentCountChanged', '', { count: actual }));
+      } else {
+        setRequestError(localizeApiError(error, t, locale, 'unableSubmitActivation'));
+      }
     } finally {
       setBusy(false);
     }
@@ -335,7 +363,7 @@ export default function Subscription() {
         {subscriptionInfo?.status === 'active' && canonicalPlanForUi(subscriptionInfo.plan) !== 'trial' && <div className="subscription-active-notice" role="status">{t('activePaidNotice')}</div>}
         <section className="subscription-student-count-card" aria-live="polite">
           <div className="subscription-student-count-card__copy"><span className="subscription-eyebrow">{t('pricingStudentNote')}</span><strong>{t('teacherStudentTotal')}</strong><small>{t('studentCountSource')}</small></div>
-          <label className="subscription-student-count-field"><span>{t('studentCountLabel')}</span><input className="input" type="number" min="0" value={pricingStudentCount ?? ''} readOnly aria-readonly="true" placeholder={pricingLoading ? '...' : '0'} /><small>{pricingLoading ? t('pricingQuoteLoading') : t('studentCountSource')}</small></label>
+          <label className="subscription-student-count-field"><span>{t('studentCountLabel')}</span><input className="input" type="number" min="0" inputMode="numeric" value={studentCountInput} onChange={updateStudentCount} disabled={pricingLoading} placeholder={pricingLoading ? '...' : '0'} /><small>{pricingLoading ? t('pricingQuoteLoading') : t('studentCountSource')}</small>{pricingStudentCount !== null && <small>{t('serverActualStudentCount', '', { count: pricingStudentCount })}</small>}<button type="button" className="subscription-student-count-reset" onClick={useActualStudentCount} disabled={pricingLoading}>{t('useActualStudentCount')}</button></label>
         </section>
         <section className="subscription-plan-chooser">
           <button type="button" className="subscription-disclosure-heading subscription-section-disclosure" onClick={() => setPlansOpen((open) => !open)} aria-expanded={plansOpen} aria-controls="subscription-plans-content">

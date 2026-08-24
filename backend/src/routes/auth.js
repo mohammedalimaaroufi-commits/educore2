@@ -328,6 +328,18 @@ router.post('/payment-requests', requireAuth, (req, res) => {
   const offer = activeOffers.find((item) => item.id === offer_id) || activeOffers[0] || null;
   const definition = getPlanDefinitions().find((item) => item.id === canonicalPlan);
   const studentCount = getStudentCount(req.teacherId);
+  if (req.body.student_count !== undefined && req.body.student_count !== null && req.body.student_count !== '') {
+    const requestedStudentCount = Number(req.body.student_count);
+    if (!Number.isInteger(requestedStudentCount) || requestedStudentCount < 0) return res.status(400).json({ error: 'إجمالي عدد الطلاب يجب أن يكون عددًا صحيحًا غير سالب' });
+    if (requestedStudentCount !== studentCount) {
+      const acceptsEnglish = String(req.headers['accept-language'] || '').toLowerCase().startsWith('en');
+      return res.status(409).json({
+        error: acceptsEnglish ? 'The active student count changed. Refresh the quote and try again.' : 'تغيّر العدد الفعلي للطلاب. حدّث السعر ثم أرسل الطلب مجددًا.',
+        code: 'STUDENT_COUNT_MISMATCH',
+        actual_student_count: studentCount,
+      });
+    }
+  }
   const pricing = getPlanPricingQuote(definition, studentCount, offer);
   const originalAmount = pricing.original_amount_omr;
   const amount = pricing.total_amount_omr;
