@@ -3,13 +3,13 @@ import { useLocation } from 'react-router-dom';
 import { useLocale } from '../context/LocaleContext.jsx';
 
 const SECTION_BY_PATH = {
-  '/': { key: 'dashboard', title: 'لوحة التحكم', text: 'guideDashboard' },
-  '/subscription': { key: 'subscription', title: 'إدارة الاشتراك', text: 'guideSubscription' },
-  '/settings': { key: 'settings', title: 'الإعدادات', text: 'guideStudents' },
+  '/': { key: 'dashboard', title: 'teacherBoard', text: 'guideDashboard' },
+  '/subscription': { key: 'subscription', title: 'subscription', text: 'guideSubscription' },
+  '/settings': { key: 'settings', title: 'generalSettings', text: 'guideStudents' },
 };
 
 function sectionFor(pathname) {
-  if (pathname.startsWith('/classes/')) return { key: 'class', title: 'مساحة الصف', text: 'guideStudents' };
+  if (pathname.startsWith('/classes/')) return { key: 'class', title: 'workspace', text: 'guideStudents' };
   return SECTION_BY_PATH[pathname] || null;
 }
 
@@ -27,12 +27,12 @@ export default function OnboardingTutorial() {
     if (localStorage.getItem(key) === '1') return;
     const nextSteps = section.key === 'class'
       ? [
-          { title: 'قائمة الطلاب', text: 'guideStudents' },
-          { title: 'دفتر الدرجات', text: 'guideGrades' },
-          { title: 'السلوك', text: 'guideBehavior' },
-          { title: 'التحليلات', text: 'guideAnalytics' },
+          { title: 'studentsTitle', text: 'guideStudents' },
+          { title: 'gradebookTitle', text: 'guideGrades' },
+          { title: 'behavior', text: 'guideBehavior' },
+          { title: 'analytics', text: 'guideAnalytics' },
         ]
-      : [{ title: section.title, text: section.text }, { title: 'الخطوة التالية', text: 'guideGrades' }];
+      : [{ title: section.title, text: section.text }, { title: 'guideNext', text: 'guideGrades' }];
     setSteps(nextSteps);
     setStep(0);
     setVisible(true);
@@ -48,8 +48,8 @@ export default function OnboardingTutorial() {
     <div className="tutorial-card">
       <div className="tutorial-card__accent" />
       <div className="tutorial-card__top"><span className="tutorial-badge">EduCore Guide</span><button type="button" className="tutorial-close" onClick={finish} aria-label={t('guideSkip')}>×</button></div>
-      <p className="tutorial-eyebrow">{step === 0 ? t('guideWelcome') : section.title}</p>
-      <h2>{step === 0 ? t('guideWelcome') : current.title}</h2>
+      <p className="tutorial-eyebrow">{step === 0 ? t('guideWelcome') : t(section.title)}</p>
+      <h2>{step === 0 ? t('guideWelcome') : t(current.title)}</h2>
       <p>{step === 0 ? t('guideWelcomeText') : t(current.text)}</p>
       <div className="tutorial-progress">{steps.map((_, index) => <span key={index} className={index <= step ? 'is-active' : ''} />)}</div>
       <div className="tutorial-actions"><button type="button" className="btn-secondary" onClick={finish}>{t('guideSkip')}</button><div className="flex gap-2">{step > 0 && <button type="button" className="btn-secondary" onClick={() => setStep((value) => value - 1)}>{t('guideBack')}</button>}<button type="button" className="btn-primary" onClick={() => step >= steps.length - 1 ? finish() : setStep((value) => value + 1)}>{step >= steps.length - 1 ? t('guideFinish') : t('guideNext')}</button></div></div>

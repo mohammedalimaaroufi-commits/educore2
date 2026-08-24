@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 export default function TrialBanner() {
   const { subscription, subscriptionInfo, trialInfo } = useAuth();
+  const { t } = useLocale();
   // A paid server presentation is authoritative during reconciliation; never
   // show a stale trial countdown above an already activated paid package.
   const effectivePlan = subscriptionInfo?.plan || subscription?.plan;
@@ -20,11 +22,9 @@ export default function TrialBanner() {
   return (
     <div className={`dashboard-trial-banner border rounded-xl2 px-4 py-3 mb-4 flex items-center justify-between ${styles[alertLevel]}`}>
       <span className="text-sm font-medium">
-        {daysLeft > 0
-          ? `تبقّى ${daysLeft} ${daysLeft === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية المجانية.`
-          : 'انتهت الفترة التجريبية. رجاءً قم بترقية اشتراكك للاستمرار في استخدام كل الميزات.'}
+        {daysLeft > 0 ? (daysLeft === 1 ? t('trialRemainingDay') : t('trialRemainingDays', '', { count: daysLeft })) : t('trialExpired')}
       </span>
-      <Link to="/subscription" className="btn-primary text-sm">ترقية الاشتراك</Link>
+      <Link to="/subscription" className="btn-primary text-sm">{t('upgradeSubscription')}</Link>
     </div>
   );
 }

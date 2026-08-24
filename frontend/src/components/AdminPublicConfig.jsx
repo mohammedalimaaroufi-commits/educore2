@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import adminApi from '../api/adminClient';
+import { useLocale } from '../context/LocaleContext.jsx';
+import { localizeApiError } from '../utils/apiError.js';
 
 const EMPTY_NOTIFICATION = { id: '', type: 'info', title_ar: '', title_en: '', message_ar: '', message_en: '', enabled: true };
 
@@ -61,6 +63,7 @@ function toSectionPayload(section, config) {
 }
 
 export default function AdminPublicConfig({ section = 'payment' }) {
+  const { t, locale } = useLocale();
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [notificationDraft, setNotificationDraft] = useState(EMPTY_NOTIFICATION);
   const [busy, setBusy] = useState(false);
@@ -75,7 +78,7 @@ export default function AdminPublicConfig({ section = 'payment' }) {
   useEffect(() => {
     setMessage('');
     setError('');
-    load().catch(() => setError('تعذر تحميل هذا القسم حاليًا.'));
+    load().catch(() => setError(t('loadSectionFailed')));
   }, [section]);
 
   const update = (field, value) => setConfig((current) => ({ ...current, [field]: value }));
@@ -91,7 +94,7 @@ export default function AdminPublicConfig({ section = 'payment' }) {
       setMessage(successText);
       return true;
     } catch (err) {
-      setError(err.response?.data?.error || 'تعذر حفظ التغييرات.');
+      setError(localizeApiError(err, t, locale, 'saveChangesFailed'));
       return false;
     } finally {
       setBusy(false);
@@ -101,24 +104,24 @@ export default function AdminPublicConfig({ section = 'payment' }) {
   const saveCurrentSection = async (event) => {
     event.preventDefault();
     if (section === 'payment' && config.payment_phone.trim().length < 3) {
-      setError('أدخل رقم التحويل أولًا.');
+      setError(t('enterTransferNumber'));
       return;
     }
     if (section === 'announcement' && !config.announcement_title_ar.trim() && !config.announcement_title_en.trim() && !config.announcement_message_ar.trim() && !config.announcement_message_en.trim()) {
-      setError('أدخل عنوان الإعلان أو رسالته قبل النشر.');
+      setError(t('enterAnnouncement'));
       return;
     }
-    await persist(toSectionPayload(section, config), section === 'payment' ? 'تم حفظ بيانات الدفع فقط.' : 'تم حفظ الإعلان وسيظهر فورًا للمستخدمين المتصلين.');
+    await persist(toSectionPayload(section, config), section === 'payment' ? t('savedPaymentOnly') : t('publishedAnnouncement'));
   };
 
   const hideAnnouncement = async () => {
-    await persist({ announcement_enabled: '0' }, 'تم إخفاء الإعلان عن المستخدمين.');
+    await persist({ announcement_enabled: '0' }, t('hiddenAnnouncement'));
   };
 
   const addNotification = async () => {
     const hasContent = notificationDraft.title_ar.trim() || notificationDraft.title_en.trim() || notificationDraft.message_ar.trim() || notificationDraft.message_en.trim();
     if (!hasContent) {
-      setError('أدخل عنوان الإشعار أو نصه قبل الإضافة.');
+      setError(t('enterNotificationContent'));
       return;
     }
     const item = {
@@ -132,13 +135,13 @@ export default function AdminPublicConfig({ section = 'payment' }) {
       created_at: new Date().toISOString(),
     };
     const nextConfig = { ...config, announcement_notifications: [item, ...(config.announcement_notifications || [])] };
-    const saved = await persist(toSectionPayload('notifications', nextConfig), 'تم نشر الإشعار فورًا للمستخدمين.');
+    const saved = await persist(toSectionPayload('notifications', nextConfig), t('publishedNotification'));
     if (saved) setNotificationDraft(EMPTY_NOTIFICATION);
   };
 
   const removeNotification = async (id) => {
     const nextConfig = { ...config, announcement_notifications: (config.announcement_notifications || []).filter((item) => item.id !== id) };
-    await persist(toSectionPayload('notifications', nextConfig), 'تم حذف الإشعار من جميع حسابات المستخدمين.');
+    await persist(toSectionPayload('notifications', nextConfig), t('deletedNotification'));
   };
 
   const isAnnouncement = section === 'announcement';
@@ -146,40 +149,40 @@ export default function AdminPublicConfig({ section = 'payment' }) {
 
   return <form className="admin-public-config" onSubmit={saveCurrentSection}>
     {section === 'payment' && <section className="admin-config-card admin-config-card--payment">
-      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">بيانات استقبال التحويل</span><h3>بيانات الدفع</h3><p>يكفي إدخال رقم التحويل. اسم المستلم والحساب اختياريان ويظهران للمعلم عند طلب الاشتراك.</p></div><span className="admin-config-icon">ر.ع</span></div>
+      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">{t('adminPaymentEyebrow')}</span><h3>{t('adminPaymentTitle')}</h3><p>{t('adminPaymentDescription')}</p></div><span className="admin-config-icon">{t('currencyOMR')}</span></div>
       <div className="admin-public-grid admin-public-grid--compact">
-        <label className="label admin-public-grid__wide">رقم التحويل<input className="input" value={config.payment_phone} onChange={(e) => update('payment_phone', e.target.value)} placeholder="00968..." required /></label>
-        <label className="label">اسم المستلم <span className="admin-label-hint">اختياري</span><input className="input" value={config.payment_recipient} onChange={(e) => update('payment_recipient', e.target.value)} placeholder="اسم صاحب الحساب" /></label>
-        <label className="label">الحساب أو IBAN <span className="admin-label-hint">اختياري</span><input className="input" value={config.payment_account} onChange={(e) => update('payment_account', e.target.value)} placeholder="اختياري" /></label>
+        <label className="label admin-public-grid__wide">{t('transferNumber')}<input className="input" value={config.payment_phone} onChange={(e) => update('payment_phone', e.target.value)} placeholder={t('transferNumberPlaceholder')} required /></label>
+        <label className="label">{t('recipientName')} <span className="admin-label-hint">{t('optional')}</span><input className="input" value={config.payment_recipient} onChange={(e) => update('payment_recipient', e.target.value)} placeholder={t('recipientPlaceholder')} /></label>
+        <label className="label">{t('accountIban')} <span className="admin-label-hint">{t('optional')}</span><input className="input" value={config.payment_account} onChange={(e) => update('payment_account', e.target.value)} placeholder={t('accountIbanPlaceholder')} /></label>
       </div>
     </section>}
 
     {isAnnouncement && <section className="admin-config-card admin-config-card--announcement">
-      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">رسالة عامة للمستخدمين</span><h3>إعلان عاجل أو تحديث</h3><p>أدخل النص الأساسي فقط. عند الحفظ يُنشر الإعلان فورًا، ويمكن للمستخدم إغلاقه من شاشته.</p></div><span className="admin-config-icon">!</span></div>
-      <div className="admin-announcement-publish-note"><span className="admin-announcement-publish-dot" aria-hidden="true" /> <strong>النشر الفوري مفعّل</strong><span>سيظهر الإعلان للمستخدمين مباشرة عند الضغط على «حفظ ونشر الإعلان».</span></div>
+      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">{t('adminAnnouncementEyebrow')}</span><h3>{t('adminAnnouncementTitle')}</h3><p>{t('adminAnnouncementDescription')}</p></div><span className="admin-config-icon">!</span></div>
+      <div className="admin-announcement-publish-note"><span className="admin-announcement-publish-dot" aria-hidden="true" /> <strong>{t('instantPublish')}</strong><span>{t('instantPublishDescription')}</span></div>
       <div className="admin-public-grid admin-public-grid--compact">
-        <label className="label">نوع الإعلان<select className="input" value={config.announcement_type} onChange={(e) => update('announcement_type', e.target.value)}><option value="urgent">عاجل</option><option value="maintenance">صيانة</option><option value="info">معلومة</option></select></label>
-        <label className="label">العنوان بالعربية<input className="input" value={config.announcement_title_ar} onChange={(e) => update('announcement_title_ar', e.target.value)} placeholder="تحديث مهم قريبًا" /></label>
-        <label className="label">العنوان بالإنجليزية <span className="admin-label-hint">اختياري</span><input className="input" value={config.announcement_title_en} onChange={(e) => update('announcement_title_en', e.target.value)} placeholder="Important update" /></label>
-        <label className="label admin-public-grid__wide">الرسالة بالعربية<textarea className="input" rows={3} value={config.announcement_message_ar} onChange={(e) => update('announcement_message_ar', e.target.value)} placeholder="اكتب الرسالة التي ستظهر للمستخدمين..." /></label>
-        <label className="label admin-public-grid__wide">الرسالة بالإنجليزية <span className="admin-label-hint">اختياري</span><textarea className="input" rows={2} value={config.announcement_message_en} onChange={(e) => update('announcement_message_en', e.target.value)} placeholder="Optional English message" /></label>
+        <label className="label">{t('announcementType')}<select className="input" value={config.announcement_type} onChange={(e) => update('announcement_type', e.target.value)}><option value="urgent">{t('urgent')}</option><option value="maintenance">{t('maintenance')}</option><option value="info">{t('information')}</option></select></label>
+        <label className="label">{t('titleArabic')}<input className="input" value={config.announcement_title_ar} onChange={(e) => update('announcement_title_ar', e.target.value)} placeholder={t('announcementTitlePlaceholder')} /></label>
+        <label className="label">{t('titleEnglish')} <span className="admin-label-hint">{t('optional')}</span><input className="input" value={config.announcement_title_en} onChange={(e) => update('announcement_title_en', e.target.value)} placeholder={t('announcementTitlePlaceholder')} /></label>
+        <label className="label admin-public-grid__wide">{t('messageArabic')}<textarea className="input" rows={3} value={config.announcement_message_ar} onChange={(e) => update('announcement_message_ar', e.target.value)} placeholder={t('announcementMessagePlaceholder')} /></label>
+        <label className="label admin-public-grid__wide">{t('messageEnglish')} <span className="admin-label-hint">{t('optional')}</span><textarea className="input" rows={2} value={config.announcement_message_en} onChange={(e) => update('announcement_message_en', e.target.value)} placeholder={t('messageEnglish')} /></label>
       </div>
     </section>}
 
     {isNotifications && <section className="admin-config-card admin-config-card--notifications">
-      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">مركز الإشعارات</span><h3>إشعارات قابلة للمسح</h3><p>أضف عنوانًا أو نصًا فقط. النشر والحذف يتمان مباشرة دون زر حفظ إضافي أو تواريخ مربكة.</p></div><span className="admin-notification-count">{config.announcement_notifications?.length || 0}</span></div>
+      <div className="admin-config-card__heading"><div><span className="admin-config-eyebrow">{t('adminNotificationEyebrow')}</span><h3>{t('dismissibleNotifications')}</h3><p>{t('adminNotificationDescription')}</p></div><span className="admin-notification-count">{config.announcement_notifications?.length || 0}</span></div>
       <div className="admin-public-grid admin-public-grid--compact">
-        <label className="label">النوع<select className="input" value={notificationDraft.type} onChange={(e) => updateNotification('type', e.target.value)}><option value="urgent">عاجل</option><option value="maintenance">صيانة</option><option value="info">معلومة</option></select></label>
-        <label className="label">العنوان بالعربية<input className="input" value={notificationDraft.title_ar} onChange={(e) => updateNotification('title_ar', e.target.value)} placeholder="عنوان قصير" /></label>
-        <label className="label">العنوان بالإنجليزية <span className="admin-label-hint">اختياري</span><input className="input" value={notificationDraft.title_en} onChange={(e) => updateNotification('title_en', e.target.value)} placeholder="Optional title" /></label>
-        <label className="label admin-public-grid__wide">نص الإشعار بالعربية<textarea className="input" rows={2} value={notificationDraft.message_ar} onChange={(e) => updateNotification('message_ar', e.target.value)} placeholder="اكتب الإشعار هنا..." /></label>
-        <label className="label admin-public-grid__wide">النص بالإنجليزية <span className="admin-label-hint">اختياري</span><textarea className="input" rows={2} value={notificationDraft.message_en} onChange={(e) => updateNotification('message_en', e.target.value)} placeholder="Optional notification text" /></label>
+        <label className="label">{t('notificationType')}<select className="input" value={notificationDraft.type} onChange={(e) => updateNotification('type', e.target.value)}><option value="urgent">{t('urgent')}</option><option value="maintenance">{t('maintenance')}</option><option value="info">{t('information')}</option></select></label>
+        <label className="label">{t('notificationTitleArabic')}<input className="input" value={notificationDraft.title_ar} onChange={(e) => updateNotification('title_ar', e.target.value)} placeholder={t('notificationTitlePlaceholder')} /></label>
+        <label className="label">{t('notificationTitleEnglish')} <span className="admin-label-hint">{t('optional')}</span><input className="input" value={notificationDraft.title_en} onChange={(e) => updateNotification('title_en', e.target.value)} placeholder={t('notificationTitlePlaceholder')} /></label>
+        <label className="label admin-public-grid__wide">{t('notificationMessageArabic')}<textarea className="input" rows={2} value={notificationDraft.message_ar} onChange={(e) => updateNotification('message_ar', e.target.value)} placeholder={t('notificationMessagePlaceholder')} /></label>
+        <label className="label admin-public-grid__wide">{t('notificationMessageEnglish')} <span className="admin-label-hint">{t('optional')}</span><textarea className="input" rows={2} value={notificationDraft.message_en} onChange={(e) => updateNotification('message_en', e.target.value)} placeholder={t('notificationMessagePlaceholder')} /></label>
       </div>
-      <div className="admin-public-actions"><button type="button" className="btn-primary" onClick={addNotification} disabled={busy}>{busy ? 'جارِ النشر...' : '+ نشر الإشعار فورًا'}</button></div>
-      <div className="admin-notification-list">{(config.announcement_notifications || []).map((item) => <article key={item.id} className="admin-notification-row"><div className="admin-notification-row__body"><div className="admin-notification-row__top"><span className={`admin-notification-type admin-notification-type--${item.type || 'info'}`}>{item.type === 'urgent' ? 'عاجل' : item.type === 'maintenance' ? 'صيانة' : 'معلومة'}</span><strong>{item.title_ar || item.title_en || 'إشعار'}</strong></div><p>{item.message_ar || item.message_en || '—'}</p><small>{item.title_en || item.message_en ? 'AR / EN' : 'AR'}</small></div><button type="button" className="admin-notification-delete" onClick={() => removeNotification(item.id)} disabled={busy} aria-label="حذف الإشعار" title="حذف الإشعار">×</button></article>)}{(!config.announcement_notifications || config.announcement_notifications.length === 0) && <p className="admin-empty-notifications">لا توجد إشعارات منشورة حاليًا.</p>}</div>
+      <div className="admin-public-actions"><button type="button" className="btn-primary" onClick={addNotification} disabled={busy}>{busy ? t('publishing') : `+ ${t('publishNotificationNow')}`}</button></div>
+      <div className="admin-notification-list">{(config.announcement_notifications || []).map((item) => <article key={item.id} className="admin-notification-row"><div className="admin-notification-row__body"><div className="admin-notification-row__top"><span className={`admin-notification-type admin-notification-type--${item.type || 'info'}`}>{item.type === 'urgent' ? t('urgent') : item.type === 'maintenance' ? t('maintenance') : t('information')}</span><strong>{item.title_ar || item.title_en || t('notification')}</strong></div><p>{item.message_ar || item.message_en || '—'}</p><small>{item.title_en || item.message_en ? t('localeBoth') : t('localeArabic')}</small></div><button type="button" className="admin-notification-delete" onClick={() => removeNotification(item.id)} disabled={busy} aria-label={t('deleteNotification')} title={t('deleteNotification')}>×</button></article>)}{(!config.announcement_notifications || config.announcement_notifications.length === 0) && <p className="admin-empty-notifications">{t('noPublishedNotifications')}</p>}</div>
     </section>}
 
-    {!isNotifications && <div className="admin-public-actions"><button className="btn-primary" type="submit" disabled={busy}>{busy ? 'جارِ الحفظ...' : isAnnouncement ? 'حفظ ونشر الإعلان' : 'حفظ بيانات الدفع'}</button>{isAnnouncement && <button className="btn-secondary admin-announcement-hide" type="button" onClick={hideAnnouncement} disabled={busy}>إخفاء الإعلان</button>}{message && <span className="save-feedback save-feedback--success" role="status">{message}</span>}{error && <span className="save-feedback save-feedback--error" role="alert">{error}</span>}</div>}
+    {!isNotifications && <div className="admin-public-actions"><button className="btn-primary" type="submit" disabled={busy}>{busy ? t('saving') : isAnnouncement ? t('saveAndPublish') : t('savePayment')}</button>{isAnnouncement && <button className="btn-secondary admin-announcement-hide" type="button" onClick={hideAnnouncement} disabled={busy}>{t('hideAnnouncement')}</button>}{message && <span className="save-feedback save-feedback--success" role="status">{message}</span>}{error && <span className="save-feedback save-feedback--error" role="alert">{error}</span>}</div>}
     {isNotifications && (message || error) && <div className={`admin-action-feedback ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || message}</div>}
   </form>;
 }

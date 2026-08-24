@@ -33,7 +33,9 @@ function localCacheKey(url, config = {}) {
 
 api.interceptors.request.use((config) => {
   const token = readAuthToken();
+  const locale = localStorage.getItem('educore_locale') === 'en' ? 'en' : 'ar';
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers['Accept-Language'] = locale;
   return config;
 });
 

@@ -165,11 +165,11 @@ export function flushOutbox(teacherId) {
   return promise;
 }
 
-export function getSyncIntervalLabel(frequency) {
-  return {
-    manual: 'عند الطلب فقط',
-    daily: 'يوميًا',
-    weekly: 'أسبوعيًا',
-    monthly: 'شهريًا',
-  }[frequency] || 'يوميًا';
+export function getSyncIntervalLabel(frequency, locale = 'ar', translate = null) {
+  const key = { manual: 'onDemandOnly', daily: 'daily', weekly: 'weekly', monthly: 'monthly' }[frequency] || 'daily';
+  if (typeof translate === 'function') return translate(key);
+  const labels = locale === 'en'
+    ? { onDemandOnly: 'On demand only', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }
+    : { onDemandOnly: 'عند الطلب فقط', daily: 'يوميًا', weekly: 'أسبوعيًا', monthly: 'شهريًا' };
+  return labels[key];
 }

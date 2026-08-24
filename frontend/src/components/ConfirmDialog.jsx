@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 export function useConfirmDialog() {
+  const { t } = useLocale();
   const [request, setRequest] = useState(null);
   const confirm = useCallback((options = {}) => new Promise((resolve) => {
     setRequest({
-      title: options.title || 'تأكيد الإجراء',
-      message: options.message || 'هل تريد المتابعة؟',
-      confirmLabel: options.confirmLabel || 'تأكيد',
-      cancelLabel: options.cancelLabel || 'إلغاء',
+      title: options.title || t('confirmAction'),
+      message: options.message || t('confirmContinue'),
+      confirmLabel: options.confirmLabel || t('confirm'),
+      cancelLabel: options.cancelLabel || t('cancel'),
       danger: options.danger !== false,
       resolve,
     });
-  }), []);
+  }), [t]);
   const close = useCallback((value) => {
     setRequest((current) => {
       current?.resolve(Boolean(value));
@@ -37,18 +39,19 @@ export function useConfirmDialog() {
 }
 
 export function useTextDialog() {
+  const { t } = useLocale();
   const [request, setRequest] = useState(null);
   const askText = useCallback((options = {}) => new Promise((resolve) => {
     setRequest({
-      title: options.title || 'إدخال ملاحظة',
+      title: options.title || t('enterNote'),
       message: options.message || '',
       placeholder: options.placeholder || '',
-      confirmLabel: options.confirmLabel || 'حفظ',
-      cancelLabel: options.cancelLabel || 'إلغاء',
+      confirmLabel: options.confirmLabel || t('save'),
+      cancelLabel: options.cancelLabel || t('cancel'),
       value: options.defaultValue || '',
       resolve,
     });
-  }), []);
+  }), [t]);
   const close = useCallback((submitted, value = '') => {
     setRequest((current) => {
       current?.resolve(submitted ? value : null);

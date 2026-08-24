@@ -25,7 +25,7 @@ const TABS = [
   { id: 'schemes', key: 'schemes' },
   { id: 'behavior', key: 'behaviorTemplates' },
   { id: 'recommendations', key: 'finalRecommendations' },
-  { id: 'follow-up', key: 'followUpRules', label: { ar: 'شروط المتابعة', en: 'Follow-up rules' } },
+  { id: 'follow-up', key: 'followUpRules' },
   { id: 'templates', key: 'gradeTemplates' },
   { id: 'backup', key: 'backup' },
 ];
@@ -207,52 +207,10 @@ function RecommendationsTab() {
 }
 
 function FollowUpRulesTab() {
-  const { locale } = useLocale();
+  const { t } = useLocale();
   const teacherId = getTeacherId();
   const [settings, setSettings] = useState(() => normalizeFollowUpSettings(readSettingsCache(teacherId, 'follow-up-rules', DEFAULT_FOLLOW_UP_SETTINGS)));
   const [saved, setSaved] = useState(false);
-  const isArabic = locale === 'ar';
-  const labels = isArabic ? {
-    title: 'شروط الطلاب الذين يحتاجون متابعة',
-    description: 'حدّد متى يظهر الطالب في بطاقة «يحتاجون متابعة» داخل التحليلات والتقارير. تحفظ التعديلات محليًا على جهازك وتطبق فورًا.',
-    enabled: 'تفعيل الشرط',
-    threshold: 'القيمة المحددة',
-    behavior: 'السلوك السلبي',
-    behaviorHelp: 'يظهر الطالب عندما يكون صافي نقاط السلوك مساويًا أو أقل من القيمة.',
-    grade: 'إجمالي الدرجة',
-    gradeHelp: 'يظهر الطالب عندما تكون الدرجة النهائية أقل من النسبة المحددة.',
-    missingGrade: 'درجة غير مكتملة',
-    missingGradeHelp: 'يظهر الطالب الذي لم تكتمل له درجة نهائية بعد.',
-    absence: 'أيام الغياب',
-    absenceHelp: 'يظهر الطالب عند بلوغ عدد أيام الغياب أو تجاوزه.',
-    late: 'أيام التأخير',
-    lateHelp: 'يظهر الطالب عند بلوغ عدد مرات التأخير أو تجاوزه.',
-    saved: 'تم حفظ شروط المتابعة على الجهاز',
-    reset: 'إعادة القيم الافتراضية',
-    points: 'نقطة',
-    percent: '%',
-    days: 'يومًا',
-  } : {
-    title: 'Students who need follow-up',
-    description: 'Choose when a student appears in the Follow-up card in analytics and reports. Changes are saved locally and apply immediately.',
-    enabled: 'Enable rule',
-    threshold: 'Threshold',
-    behavior: 'Negative behavior',
-    behaviorHelp: 'Shows a student when net behavior points are equal to or below this value.',
-    grade: 'Overall grade',
-    gradeHelp: 'Shows a student when the final grade is below this percentage.',
-    missingGrade: 'Incomplete grade',
-    missingGradeHelp: 'Shows a student with no completed final grade.',
-    absence: 'Absence days',
-    absenceHelp: 'Shows a student when absence days reach this value.',
-    late: 'Late days',
-    lateHelp: 'Shows a student when late records reach this value.',
-    saved: 'Follow-up rules saved on this device',
-    reset: 'Reset defaults',
-    points: 'points',
-    percent: '%',
-    days: 'days',
-  };
   const persist = (next) => {
     const normalized = normalizeFollowUpSettings(next);
     setSettings(normalized);
@@ -264,18 +222,18 @@ function FollowUpRulesTab() {
   const updateEnabled = (key, value) => persist({ ...settings, enabled: { ...settings.enabled, [key]: value } });
   const updateThreshold = (key, value) => persist({ ...settings, thresholds: { ...settings.thresholds, [key]: value } });
   const ruleRows = [
-    { key: 'behavior', label: labels.behavior, help: labels.behaviorHelp, input: 'behaviorScore', suffix: labels.points },
-    { key: 'grade', label: labels.grade, help: labels.gradeHelp, input: 'finalGrade', suffix: labels.percent },
-    { key: 'missingGrade', label: labels.missingGrade, help: labels.missingGradeHelp, input: null, suffix: '' },
-    { key: 'absence', label: labels.absence, help: labels.absenceHelp, input: 'absentDays', suffix: labels.days },
-    { key: 'late', label: labels.late, help: labels.lateHelp, input: 'lateDays', suffix: labels.days },
+    { key: 'behavior', label: t('negativeBehavior'), help: t('negativeBehaviorHelp'), input: 'behaviorScore', suffix: t('pointsUnit') },
+    { key: 'grade', label: t('overallGrade'), help: t('overallGradeHelp'), input: 'finalGrade', suffix: '%' },
+    { key: 'missingGrade', label: t('incompleteGrade'), help: t('incompleteGradeHelp'), input: null, suffix: '' },
+    { key: 'absence', label: t('absenceDays'), help: t('absenceDaysHelp'), input: 'absentDays', suffix: t('daysUnit') },
+    { key: 'late', label: t('lateDays'), help: t('lateDaysHelp'), input: 'lateDays', suffix: t('daysUnit') },
   ];
   return <div className="card p-5 settings-follow-up-rules">
-    <div className="settings-panel__heading"><div><span className="settings-eyebrow">{isArabic ? 'تنبيهات ذكية' : 'Smart alerts'}</span><h3>{labels.title}</h3><p>{labels.description}</p></div><span className="settings-panel__icon">!</span></div>
+    <div className="settings-panel__heading"><div><span className="settings-eyebrow">{t('smartAlerts')}</span><h3>{t('followUpRulesTitle')}</h3><p>{t('followUpRulesDescription')}</p></div><span className="settings-panel__icon">!</span></div>
     <div className="space-y-2">
-      {ruleRows.map((rule) => <div key={rule.key} className="settings-follow-up-rule"><label className="flex items-start gap-3 flex-1 cursor-pointer"><input type="checkbox" checked={Boolean(settings.enabled[rule.key])} onChange={(event) => updateEnabled(rule.key, event.target.checked)} /><span><strong className="block text-sm">{rule.label}</strong><small className="block text-xs text-ink/55 mt-1">{rule.help}</small></span></label>{rule.input && <div className="flex items-center gap-1"><span className="text-[11px] text-ink/45">{labels.threshold}</span><input className="input text-sm w-24 text-center" type="number" step="any" value={settings.thresholds[rule.input]} onChange={(event) => updateThreshold(rule.input, event.target.value)} aria-label={rule.label} /><span className="text-xs text-ink/45">{rule.suffix}</span></div>}</div>)}
+      {ruleRows.map((rule) => <div key={rule.key} className="settings-follow-up-rule"><label className="flex items-start gap-3 flex-1 cursor-pointer"><input type="checkbox" checked={Boolean(settings.enabled[rule.key])} onChange={(event) => updateEnabled(rule.key, event.target.checked)} /><span><strong className="block text-sm">{rule.label}</strong><small className="block text-xs text-ink/55 mt-1">{rule.help}</small></span></label>{rule.input && <div className="flex items-center gap-1"><span className="text-[11px] text-ink/45">{t('settingsThreshold')}</span><input className="input text-sm w-24 text-center" type="number" step="any" value={settings.thresholds[rule.input]} onChange={(event) => updateThreshold(rule.input, event.target.value)} aria-label={rule.label} /><span className="text-xs text-ink/45">{rule.suffix}</span></div>}</div>)}
     </div>
-    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3"><button type="button" className="btn-secondary text-xs" onClick={() => persist(DEFAULT_FOLLOW_UP_SETTINGS)}>{labels.reset}</button>{saved && <span className="text-primary text-xs">{labels.saved}</span>}</div>
+    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3"><button type="button" className="btn-secondary text-xs" onClick={() => persist(DEFAULT_FOLLOW_UP_SETTINGS)}>{t('resetDefaults')}</button>{saved && <span className="text-primary text-xs">{t('followUpRulesSaved')}</span>}</div>
   </div>;
 }
 
@@ -365,7 +323,7 @@ export default function Settings() {
   return (
     <div className="settings-page-shell">
       <div className="settings-page-fixed-header">
-        <div className="settings-page-topline"><Link to="/" className="settings-back">{locale === 'ar' ? '← العودة للوحة التحكم' : '← Back to dashboard'}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
+        <div className="settings-page-topline"><Link to="/" className="settings-back">← {t('backToDashboard')}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
         <header className="settings-page-hero"><div><span className="settings-eyebrow">{t('settingsCustomization')}</span><h1>{t('generalSettings')}</h1><p>{t('settingsDescription')}</p></div><div className="settings-hero-grid"><span>01<small>{t('profile')}</small></span><span>02<small>{t('gradeTemplates')}</small></span><span>03<small>{t('backup')}</small></span></div></header>
         <nav className="settings-tabs" aria-label={t('settings')}>
           {TABS.map((tabItem) => (

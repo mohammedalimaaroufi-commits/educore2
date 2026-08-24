@@ -8,7 +8,7 @@ import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 export default function LocalStorageManager() {
   const { teacher, clearLocalCache } = useAuth();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [stats, setStats] = useState({ entries: 0, bytes: 0, snapshot: false, cacheEntries: 0, queued: 0 });
   const [message, setMessage] = useState('');
@@ -34,7 +34,7 @@ export default function LocalStorageManager() {
   const changeSettings = async (event) => {
     const next = await saveSyncSettings({ ...settings, frequency: event.target.value });
     setSettings(next);
-    setMessage(`تم ضبط المزامنة: ${getSyncIntervalLabel(next.frequency)}`);
+    setMessage(t('syncConfigured', '', { frequency: getSyncIntervalLabel(next.frequency, locale, t) }));
     setTimeout(() => setMessage(''), 2500);
   };
 
@@ -44,19 +44,19 @@ export default function LocalStorageManager() {
     await syncSnapshot(teacher.id, { force: true });
     await refreshStats();
     setSyncing(false);
-    setMessage('تمت مزامنة بيانات المعلم عند الطلب');
+    setMessage(t('teacherDataSynced'));
     setTimeout(() => setMessage(''), 2500);
   };
 
   const clearCache = async () => {
-    const accepted = await confirm({ title: 'مسح بيانات الجهاز', message: 'سيتم حذف النسخ المحلية وطابور المزامنة من هذا الجهاز فقط، ولن تُحذف البيانات من الخادم. هل تريد المتابعة؟', confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    const accepted = await confirm({ title: t('clearDeviceTitle'), message: t('clearDeviceMessage'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
     if (!accepted) return;
     await clearLocalCache();
     await clearTeacherDatabase(teacher?.id);
     await refreshStats();
-    setMessage('تم حذف النسخ المحلية وطابور المزامنة من هذا الجهاز');
+    setMessage(t('deviceDataCleared'));
     setTimeout(() => setMessage(''), 3000);
   };
 
-  return <div className="card p-5 mt-4">{confirmDialog}<h3 className="font-bold text-lg mb-1">بيانات الجهاز المحلية</h3><p className="text-xs text-ink/60 mb-3">يحتفظ التطبيق بنسخة محلية من بيانات المعلم والصفوف والطلاب والدرجات والسلوك والحضور والتقارير. تظهر البيانات فورًا من الجهاز ثم تُحدّث في الخلفية.</p><div className="flex flex-wrap items-center gap-3 text-sm"><span className="text-ink/60">{stats.snapshot ? 'snapshot محفوظ' : 'لا يوجد snapshot بعد'} — {stats.cacheEntries} كاش، {stats.queued} عمليات معلقة</span><button className="btn-primary text-xs" type="button" onClick={syncNow} disabled={syncing}>{syncing ? 'جارِ المزامنة...' : 'مزامنة الآن'}</button><button className="btn-secondary text-xs" type="button" onClick={clearCache}>مسح بيانات الجهاز</button></div><div className="flex flex-wrap items-center gap-3 text-sm mt-3 pt-3 border-t border-line"><label className="text-ink/60">المزامنة التلقائية:</label><select className="input text-xs w-36" value={settings.frequency} onChange={changeSettings}><option value="manual">عند الطلب</option><option value="daily">يوميًا</option><option value="weekly">أسبوعيًا</option><option value="monthly">شهريًا</option></select><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={settings.enabled} onChange={async (event) => { const next = await saveSyncSettings({ ...settings, enabled: event.target.checked }); setSettings(next); }} /> مفعّلة</label>{lastSync > 0 && <span className="text-xs text-ink/40">آخر مزامنة: {new Date(lastSync).toLocaleString('ar')}</span>}</div>{message && <p className="text-primary text-sm mt-3">{message}</p>}</div>;
+  return <div className="card p-5 mt-4">{confirmDialog}<h3 className="font-bold text-lg mb-1">{t('localDeviceData')}</h3><p className="text-xs text-ink/60 mb-3">{t('localDataDescription')}</p><div className="flex flex-wrap items-center gap-3 text-sm"><span className="text-ink/60">{stats.snapshot ? t('snapshotSaved') : t('noSnapshot')} — {t('cacheCount', '', { count: stats.cacheEntries })}{t('analyticsListSeparator')}{t('queuedOperations', '', { count: stats.queued })} · {formatBytes(stats.bytes, locale, t)}</span><button className="btn-primary text-xs" type="button" onClick={syncNow} disabled={syncing}>{syncing ? t('syncing') : t('syncNow')}</button><button className="btn-secondary text-xs" type="button" onClick={clearCache}>{t('clearDeviceData')}</button></div><div className="flex flex-wrap items-center gap-3 text-sm mt-3 pt-3 border-t border-line"><label className="text-ink/60">{t('autoSync')}:</label><select className="input text-xs w-36" value={settings.frequency} onChange={changeSettings}><option value="manual">{t('manual')}</option><option value="daily">{t('daily')}</option><option value="weekly">{t('weekly')}</option><option value="monthly">{t('monthly')}</option></select><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={settings.enabled} onChange={async (event) => { const next = await saveSyncSettings({ ...settings, enabled: event.target.checked }); setSettings(next); }} /> {t('enabled')}</label>{lastSync > 0 && <span className="text-xs text-ink/40">{t('lastSync')}: {new Date(lastSync).toLocaleString(locale === 'ar' ? 'ar' : 'en-US')}</span>}</div>{message && <p className="text-primary text-sm mt-3">{message}</p>}</div>;
 }

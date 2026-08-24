@@ -216,8 +216,11 @@ export function getTeacherLocalStats(teacherId = getTeacherId()) {
   return { entries, bytes };
 }
 
-export function formatBytes(bytes) {
-  if (!bytes) return '0 كيلوبايت';
-  if (bytes < 1024) return `${bytes} بايت`;
-  return `${(bytes / 1024).toFixed(1)} كيلوبايت`;
+export function formatBytes(bytes, locale = 'ar', translate = null) {
+  const isEnglish = locale === 'en';
+  const bytesUnit = typeof translate === 'function' ? translate('bytesUnit') : (isEnglish ? 'bytes' : 'بايت');
+  const kilobyteUnit = typeof translate === 'function' ? translate('kilobyteUnit') : (isEnglish ? 'KB' : 'كيلوبايت');
+  if (!bytes) return `0 ${kilobyteUnit}`;
+  if (bytes < 1024) return `${bytes} ${bytesUnit}`;
+  return `${(bytes / 1024).toFixed(1)} ${kilobyteUnit}`;
 }

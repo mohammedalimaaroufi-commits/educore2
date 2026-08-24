@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const SHELL_CACHE = `educore-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `educore-runtime-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];

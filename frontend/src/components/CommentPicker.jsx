@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/client';
+import { useLocale } from '../context/LocaleContext.jsx';
 
 export default function CommentPicker({ value, onChange, category = 'grade' }) {
+  const { t } = useLocale();
   const [templates, setTemplates] = useState([]);
   const [open, setOpen] = useState(false);
 
@@ -12,7 +14,7 @@ export default function CommentPicker({ value, onChange, category = 'grade' }) {
   return (
     <div className="relative">
       <div className="flex gap-1">
-        <input className="input text-xs py-1" placeholder="ملاحظة (اختياري)" value={value || ''} onChange={(e) => onChange(e.target.value)} />
+        <input className="input text-xs py-1" placeholder={t('optionalNotePlaceholder')} value={value || ''} onChange={(e) => onChange(e.target.value)} />
         {templates.length > 0 && (
           <button type="button" className="text-xs text-primary border border-line rounded px-2" onClick={() => setOpen((o) => !o)}>▾</button>
         )}

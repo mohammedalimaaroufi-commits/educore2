@@ -5,7 +5,9 @@ const adminApi = axios.create({ baseURL: API_BASE_URL, timeout: 15_000 });
 
 adminApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('educore_admin_token');
+  const locale = localStorage.getItem('educore_locale') === 'en' ? 'en' : 'ar';
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers['Accept-Language'] = locale;
   return config;
 });
 

@@ -436,20 +436,22 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
   };
 
   const exportCSV = () => {
+    const nameHeader = t('students');
+    const finalHeader = `${t('finalGrade')} %`;
     const headers = [
-      'الاسم',
+      nameHeader,
       ...categories.flatMap((category) => itemsFor(category).map((assessment) => `${category.name} - ${assessment.title}`)),
-      'الدرجة النهائية %',
+      finalHeader,
     ];
     const rows = students.map((student) => {
-      const row = { الاسم: student.full_name };
+      const row = { [nameHeader]: student.full_name };
       categories.forEach((category) => itemsFor(category).forEach((assessment) => {
         row[`${category.name} - ${assessment.title}`] = grades[cellKey(assessment.id, student.id)]?.score_numeric ?? '';
       }));
-      row['الدرجة النهائية %'] = finalGrade(student.id) ?? '';
+      row[finalHeader] = finalGrade(student.id) ?? '';
       return row;
     });
-    downloadCSV(`درجات_${className || 'الصف'}.csv`, rows, headers);
+    downloadCSV(`${t('csvGradebookPrefix')}_${className || t('className')}.csv`, rows, headers);
   };
 
   actionsRef.current = { openQuickEntry, exportCSV, downloadGradebookPDF, canQuickEntry: quickOptions.length > 0 };

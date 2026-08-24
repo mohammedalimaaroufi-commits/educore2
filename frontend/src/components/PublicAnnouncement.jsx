@@ -19,7 +19,7 @@ function buildContent(item, locale, fallbackPrefix = 'legacy') {
 }
 
 export default function PublicAnnouncement({ placement = 'global' }) {
-  const { locale } = useLocale();
+  const { t, locale } = useLocale();
   const [publicConfig, setPublicConfig] = useState(() => getPublicConfigState());
   const [dismissed, setDismissed] = useState({});
 
@@ -52,7 +52,7 @@ export default function PublicAnnouncement({ placement = 'global' }) {
       return <aside key={content.key} className={`public-announcement public-announcement--${isUrgent ? 'urgent' : isMaintenance ? 'maintenance' : 'info'} public-announcement--${placement}`} role={isUrgent ? 'alert' : 'status'}>
         <div className="public-announcement__icon" aria-hidden="true">{isUrgent ? '!' : isMaintenance ? '◷' : 'i'}</div>
         <div className="public-announcement__body"><strong>{content.title}</strong>{content.message && <p>{content.message}</p>}{content.ctaLabel && content.cta_url && <a href={content.cta_url}>{content.ctaLabel}</a>}</div>
-        <button type="button" className="public-announcement__close" onClick={() => dismiss(content.key)} aria-label={locale === 'ar' ? 'مسح الإشعار' : 'Dismiss notification'}>×</button>
+        <button type="button" className="public-announcement__close" onClick={() => dismiss(content.key)} aria-label={t('dismissNotification')}>×</button>
       </aside>;
     })}
   </div>;

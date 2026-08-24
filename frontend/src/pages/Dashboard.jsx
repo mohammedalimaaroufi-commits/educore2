@@ -12,12 +12,11 @@ import LoadingOverlay from '../components/LoadingOverlay.jsx';
 import Icon from '../components/Icon.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
 import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
-import { APP_NAME } from '../constants.js';
 
 const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86', '#2C8D9A', '#B05C78', '#6B7280', '#D27A2E'];
 const EMPTY_FORM = { name: '', subject: '', academic_year: '', color: COLORS[0] };
 
-const VISUAL_LABELS = ['كتب وتعلّم', 'متابعة وتقدّم', 'نشاط وتطبيق'];
+const VISUAL_LABELS = ['learning', 'progress', 'activity'];
 
 function localId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
 
@@ -46,7 +45,7 @@ function gradingPillClasses(percent) {
   return 'bg-ink/5 text-ink/40';
 }
 
-// Compact "بطاقة الصف" stats: how much of each visible assessment has been recorded,
+// Compact class-card stats: how much of each visible assessment has been recorded,
 // who's leading/needs support on behavior, and whether today's attendance was taken.
 function ClassQuickStats({ stats }) {
   const { t } = useLocale();
@@ -233,13 +232,13 @@ export default function Dashboard() {
     const existingClass = (next.classes || []).find((item) => item.id === classId);
     const localClass = { ...(existingClass || {}), id: classId, teacher_id: teacherId, ...formPayload, archived: 0, created_at: existingClass?.created_at || now, updated_at: now };
     const defaultCategories = [
-      ['مشاركة', 10], ['واجبات منزلية', 15], ['اختبارات قصيرة', 20], ['مشروع', 15], ['اختبار نهائي', 40],
+      [t('defaultCategoryParticipation'), 10], [t('defaultCategoryHomework'), 15], [t('defaultCategoryQuizzes'), 20], [t('defaultCategoryProject'), 15], [t('defaultCategoryFinalExam'), 40],
     ];
     const localCategories = defaultCategories.map(([name, weight_percent], index) => ({ id: localId('category'), class_id: classId, name, weight_percent, grading_type: 'numeric', grading_mode: 'direct', sort_order: index, created_at: now }));
     const localAssessments = localCategories.map((category) => ({ id: localId('assessment'), category_id: category.id, title: category.name, max_score: category.weight_percent, is_summary: 1, date: null, created_at: now }));
     const behaviorDefaults = [
-      ['مشاركة متميزة', 'positive', 2, 'star'], ['إحضار الأدوات', 'positive', 1, 'check'], ['مساعدة زميل', 'positive', 1, 'heart'],
-      ['تأخر عن الحصة', 'negative', -1, 'clock'], ['إزعاج الصف', 'negative', -2, 'alert'], ['عدم إحضار الواجب', 'negative', -1, 'x'],
+      [t('defaultBehaviorParticipation'), 'positive', 2, 'star'], [t('defaultBehaviorMaterials'), 'positive', 1, 'check'], [t('defaultBehaviorHelp'), 'positive', 1, 'heart'],
+      [t('defaultBehaviorLate'), 'negative', -1, 'clock'], [t('defaultBehaviorDisruption'), 'negative', -2, 'alert'], [t('defaultBehaviorHomework'), 'negative', -1, 'x'],
     ].map(([label, polarity, points, icon]) => ({ id: localId('behavior-type'), class_id: classId, label, polarity, points, icon, is_default: 1 }));
     const nextClasses = isEditing
       ? (next.classes || []).some((item) => item.id === classId)
@@ -324,7 +323,7 @@ export default function Dashboard() {
     try { await api.delete(`/classes/${id}?permanent=1`); scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 }); } catch { await queueMutation(teacherId, { method: 'DELETE', url: `/classes/${id}?permanent=1` }); }
   };
 
-  const initials = (teacher?.full_name || 'س').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const initials = (teacher?.full_name || 'E').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const hasFilters = Boolean(searchTerm || subjectFilter !== 'all' || yearFilter !== 'all' || completionFilter !== 'all');
   const toggleClassDetails = (classId) => setExpandedClasses((current) => ({ ...current, [classId]: !current[classId] }));
 
@@ -335,7 +334,7 @@ export default function Dashboard() {
         <div className="brand-lockup">
           <div className="brand-mark brand-mark--image"><img src="/educore-logo.webp" alt="EduCore" /></div>
           <div>
-            <div className="brand-title">{APP_NAME}</div>
+            <div className="brand-title">{t('appName')}</div>
             <div className="brand-subtitle">{t('appSubtitle')}</div>
           </div>
         </div>
@@ -347,13 +346,13 @@ export default function Dashboard() {
         <div className="dashboard-utilities">
           <span className={`offline-chip ${isOnline ? 'is-online' : ''}`}><span className="offline-dot" />{isOnline ? t('online') : t('offlineMode')}</span>
           <span className="utility-date">{new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>
-          <nav className="dashboard-nav-actions" aria-label={locale === 'ar' ? 'إجراءات الحساب' : 'Account actions'}>
+          <nav className="dashboard-nav-actions" aria-label={t('accountActions')}>
             <NotificationBell />
             <Link to="/subscription" className="topbar-icon-action" aria-label={t('subscription')} title={t('subscription')}><Icon name="subscription" className="w-5 h-5" /></Link>
             <Link to="/settings" className="topbar-icon-action" aria-label={t('settings')} title={t('settings')}><Icon name="settings" className="w-5 h-5" /></Link>
             <button type="button" className="topbar-icon-action topbar-icon-action--danger" onClick={logout} aria-label={t('logout')} title={t('logout')}><Icon name="logout" className="w-5 h-5" /></button>
           </nav>
-          <span className="teacher-avatar" title={teacher?.full_name || 'المعلم'}>{initials}</span>
+          <span className="teacher-avatar" title={teacher?.full_name || t('teacherName')}>{initials}</span>
         </div>
       </div>
 
@@ -362,7 +361,7 @@ export default function Dashboard() {
           <div>
             <span className="eyebrow">{t('teacherBoard')}</span>
             <h1>{t('smartRecord')}</h1>
-            <p>{t('helloTeacher', '', { name: teacher?.full_name || (locale === 'ar' ? 'معلمنا العزيز' : 'teacher') })}</p>
+            <p>{t('helloTeacher', '', { name: teacher?.full_name || t('teacherFallback') })}</p>
           </div>
           <div className="hero-note">
             <span className="hero-note__mark">✓</span>
@@ -386,7 +385,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <section className="dashboard-filters" aria-label="بحث وفلاتر الصفوف">
+        <section className="dashboard-filters" aria-label={t('classFilters')}>
           <div className="dashboard-filter-search"><Icon name="search" className="w-4 h-4" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={t('searchClassesQuick')} /></div>
           <label className="dashboard-filter-select"><span>{t('subject')}</span><select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">{t('allSubjects')}</option>{subjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
           <label className="dashboard-filter-select"><span>{t('academicYear')}</span><select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option value="all">{t('allYears')}</option>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
@@ -400,10 +399,10 @@ export default function Dashboard() {
             <form onSubmit={submit} className="surface-panel create-class-form create-class-modal" onClick={(event) => event.stopPropagation()}>
               <div className="create-class-form__heading"><div><span className="eyebrow">{t('setupNew')}</span><h3>{editingId ? t('editClass') : t('createClass')}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label={t('cancel')}>×</button></div>
               <div className="create-class-form__grid">
-                <div><label className="label">{t('className')}</label><input className="input" required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الصف الثامن - أ' : 'e.g. Grade 8 - A'} /></div>
-                <div><label className="label">{t('subject')}</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الرياضيات' : 'e.g. Mathematics'} /></div>
+                <div><label className="label">{t('className')}</label><input className="input" required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('classNamePlaceholder')} /></div>
+                <div><label className="label">{t('subject')}</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder={t('subjectPlaceholder')} /></div>
                 <div><label className="label">{t('academicYear')}</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
-                <div><label className="label">{t('accentColor')}</label><div className="color-picker">{COLORS.map((c, index) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`${locale === 'ar' ? 'اختيار اللون' : 'Choose color'} ${index + 1}`} title={`${locale === 'ar' ? 'اللون' : 'Color'} ${index + 1}`} />)}</div></div>
+                <div><label className="label">{t('accentColor')}</label><div className="color-picker">{COLORS.map((c, index) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`${t('chooseColor')} ${index + 1}`} title={`${t('colorLabel')} ${index + 1}`} />)}</div></div>
               </div>
               <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? t('saving') : editingId ? t('saveChanges') : t('createClass')}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>{t('cancel')}</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">{t('saved')}</span>}{saveState === 'queued' && <span className="save-feedback">{t('savedLocallyQueued')}</span>}</div>
             </form>
@@ -448,7 +447,7 @@ export default function Dashboard() {
                     <div className="class-card__footer">
                       <Link to={`/classes/${c.id}`} className="class-card__open"><Icon name="externalLink" className="w-4 h-4" /><span>{t('openClass')}</span><span>{locale === 'ar' ? '←' : '→'}</span></Link>
                       <div className="class-card__actions">
-                        <button className="class-card__icon-action" onClick={(e) => startEdit(e, c)} title={t('editClass')} aria-label={t('editClass')}><Icon name="edit" className="w-4 h-4" /><span>{locale === 'ar' ? 'تعديل' : 'Edit'}</span></button>
+                        <button className="class-card__icon-action" onClick={(e) => startEdit(e, c)} title={t('editClass')} aria-label={t('editClass')}><Icon name="edit" className="w-4 h-4" /><span>{t('editClass')}</span></button>
                         <button className="class-card__icon-action" onClick={(e) => archiveClass(e, c.id)} title={t('archiveClass')} aria-label={t('archiveClass')}><Icon name="archive" className="w-4 h-4" /><span>{t('archiveClass')}</span></button>
                         <button className="class-card__icon-action class-card__icon-action--danger" onClick={(e) => deleteClassPermanently(e, c.id)} title={t('deleteClass')} aria-label={t('deleteClass')}><Icon name="trash" className="w-4 h-4" /><span>{t('deleteClass')}</span></button>
                       </div>

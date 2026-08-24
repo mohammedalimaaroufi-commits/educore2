@@ -211,6 +211,12 @@ CREATE TABLE IF NOT EXISTS payment_requests (
   receipt_image TEXT, -- base64 data URI of the transfer receipt screenshot (optional)
   original_amount_omr REAL,
   offer_id TEXT,
+  student_count INTEGER,
+  included_students INTEGER,
+  extra_students INTEGER,
+  extra_student_price_omr REAL,
+  extra_amount_omr REAL,
+  base_amount_omr REAL,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected
   admin_note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -325,6 +331,16 @@ if (!hasColumn('payment_requests', 'original_amount_omr')) {
 if (!hasColumn('payment_requests', 'offer_id')) {
   db.exec('ALTER TABLE payment_requests ADD COLUMN offer_id TEXT');
 }
+[
+  ['student_count', 'INTEGER'],
+  ['included_students', 'INTEGER'],
+  ['extra_students', 'INTEGER'],
+  ['extra_student_price_omr', 'REAL'],
+  ['extra_amount_omr', 'REAL'],
+  ['base_amount_omr', 'REAL'],
+].forEach(([column, type]) => {
+  if (!hasColumn('payment_requests', column)) db.exec(`ALTER TABLE payment_requests ADD COLUMN ${column} ${type}`);
+});
 if (!hasColumn('payment_requests', 'archived')) {
   db.exec('ALTER TABLE payment_requests ADD COLUMN archived INTEGER DEFAULT 0');
 }

@@ -2,9 +2,9 @@ const db = require('../db');
 const { v4: uuid } = require('uuid');
 
 const DEFAULT_PLAN_DEFINITIONS = [
-  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, duration_days: 182, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'], highlight: false },
-  { id: 'yearly', title: 'الباقة السنوية', base_price_omr: 7, duration_days: 365, note: 'الأكثر توفيرًا للعام الدراسي', features: ['كل أدوات EduCore', 'نسخ محلية ومزامنة', 'دعم فني مباشر'], highlight: true },
-  { id: 'lifetime', title: 'مدى الحياة', base_price_omr: 18, duration_days: null, note: 'دفعة واحدة ووصول دائم', features: ['وصول دائم', 'كل التحديثات المستقبلية', 'أولوية في الدعم'], highlight: false },
+  { id: '6_months', title: 'باقة 6 أشهر', base_price_omr: 4, duration_days: 182, included_students: 120, extra_student_price_omr: 0.1, note: 'وصول كامل لمدة نصف عام', features: ['دفتر درجات كامل', 'الحضور والسلوك', 'التحليلات والتقارير'], highlight: false },
+  { id: 'yearly', title: 'الباقة السنوية', base_price_omr: 7, duration_days: 365, included_students: 120, extra_student_price_omr: 0.1, note: 'الأكثر توفيرًا للعام الدراسي', features: ['كل أدوات EduCore', 'نسخ محلية ومزامنة', 'دعم فني مباشر'], highlight: true },
+  { id: 'lifetime', title: 'مدى الحياة', base_price_omr: 18, duration_days: null, included_students: 120, extra_student_price_omr: 0.1, note: 'دفعة واحدة ووصول دائم', features: ['وصول دائم', 'كل التحديثات المستقبلية', 'أولوية في الدعم'], highlight: false },
 ];
 
 const PLAN_PRICES_OMR = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.base_price_omr]));
@@ -138,11 +138,15 @@ function normalizePlan(raw, fallback) {
   // Subscription periods are product rules, not editable display metadata.
   // Keep the canonical duration (182/365/null) even if an older app_settings row
   // contains an accidental value such as 7 days.
+  const includedStudents = Number(source.included_students);
+  const extraStudentPrice = Number(source.extra_student_price_omr);
   return {
     id: fallback.id,
     title: String(source.title || fallback.title).trim() || fallback.title,
     base_price_omr: Number.isFinite(basePrice) && basePrice > 0 ? basePrice : fallback.base_price_omr,
     duration_days: fallback.duration_days,
+    included_students: Number.isInteger(includedStudents) && includedStudents > 0 ? Math.min(includedStudents, 100000) : fallback.included_students,
+    extra_student_price_omr: Number.isFinite(extraStudentPrice) && extraStudentPrice >= 0 ? Math.min(extraStudentPrice, 1000) : fallback.extra_student_price_omr,
     note: String(source.note || '').trim(),
     features: Array.isArray(source.features)
       ? source.features.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
@@ -300,6 +304,48 @@ function getActiveOffer(plan) {
   return getActiveOffers(plan)[0] || null;
 }
 
+function getStudentCount(teacherId) {
+  if (!teacherId) return 0;
+  const row = db.prepare(`SELECT COUNT(*) AS count
+                          FROM students s
+                          JOIN classes c ON c.id = s.class_id
+                          WHERE c.teacher_id = ? AND c.archived = 0 AND s.archived = 0`).get(teacherId);
+  return Number(row?.count || 0);
+}
+
+function getStudentQuote(plan, studentCount = 0) {
+  const definition = typeof plan === 'object' ? plan : getPlanDefinition(normalizePlanId(plan));
+  const count = Math.max(0, Number(studentCount) || 0);
+  const includedStudents = Math.max(1, Number(definition?.included_students || 120));
+  const extraStudentPrice = Math.max(0, Number(definition?.extra_student_price_omr || 0));
+  const extraStudents = Math.max(0, Math.ceil(count) - includedStudents);
+  const surcharge = Number((extraStudents * extraStudentPrice).toFixed(3));
+  return { studentCount: count, includedStudents, extraStudents, extraStudentPrice, surcharge };
+}
+
+function getPlanPricingQuote(plan, studentCount = 0, offer = null) {
+  const definition = typeof plan === 'object' ? plan : getPlanDefinition(normalizePlanId(plan));
+  if (!definition) return null;
+  const studentQuote = getStudentQuote(definition, studentCount);
+  const baseAmount = offer ? Number(offer.offer_price_omr) : Number(definition.base_price_omr);
+  const originalBaseAmount = offer ? Number(offer.original_price_omr || definition.base_price_omr) : Number(definition.base_price_omr);
+  const totalAmount = Number((baseAmount + studentQuote.surcharge).toFixed(3));
+  const originalAmount = Number((originalBaseAmount + studentQuote.surcharge).toFixed(3));
+  return {
+    plan: definition.id,
+    student_count: studentQuote.studentCount,
+    included_students: studentQuote.includedStudents,
+    extra_students: studentQuote.extraStudents,
+    extra_student_price_omr: studentQuote.extraStudentPrice,
+    extra_amount_omr: studentQuote.surcharge,
+    base_amount_omr: baseAmount,
+    original_base_amount_omr: originalBaseAmount,
+    total_amount_omr: totalAmount,
+    original_amount_omr: originalAmount,
+    offer_id: offer?.id || null,
+  };
+}
+
 function getPublicPlans() {
   return getPlanDefinitions().map((definition) => {
     const offer = getActiveOffer(definition.id);
@@ -323,6 +369,8 @@ function getPublicPlans() {
         ends_at: offer.ends_at,
         enabled: true,
       } : null,
+      student_limit: definition.included_students,
+      extra_student_price_omr: definition.extra_student_price_omr,
     };
   });
 }
@@ -345,4 +393,7 @@ module.exports = {
   getActiveOffers,
   getActiveOffer,
   getPublicPlans,
+  getStudentCount,
+  getStudentQuote,
+  getPlanPricingQuote,
 };

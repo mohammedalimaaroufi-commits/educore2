@@ -4,6 +4,11 @@ import { useAuth } from './context/AuthContext.jsx';
 import { useLocale } from './context/LocaleContext.jsx';
 import LoadingOverlay from './components/LoadingOverlay.jsx';
 
+function AppErrorFallback() {
+  const { t, locale } = useLocale();
+  return <main className="min-h-screen flex items-center justify-center bg-surface px-6" dir={locale === 'ar' ? 'rtl' : 'ltr'}><section className="card max-w-md w-full p-8 text-center"><h1 className="text-xl font-bold text-ink mb-3">{t('appLoadErrorTitle')}</h1><p className="text-sm text-ink/60 mb-6">{t('appLoadErrorDescription')}</p><button type="button" className="btn-primary" onClick={() => window.location.reload()}>{t('retry')}</button></section></main>;
+}
+
 class AppErrorBoundary extends React.Component {
   state = { hasError: false };
 
@@ -13,7 +18,7 @@ class AppErrorBoundary extends React.Component {
 
   render() {
     if (!this.state.hasError) return this.props.children;
-    return <main className="min-h-screen flex items-center justify-center bg-surface px-6" dir="rtl"><section className="card max-w-md w-full p-8 text-center"><h1 className="text-xl font-bold text-ink mb-3">تعذر تحميل المنصة</h1><p className="text-sm text-ink/60 mb-6">حدث خلل مؤقت في تحميل الواجهة. بياناتك المحلية لم تُحذف.</p><button type="button" className="btn-primary" onClick={() => window.location.reload()}>إعادة المحاولة</button></section></main>;
+    return <AppErrorFallback />;
   }
 }
 

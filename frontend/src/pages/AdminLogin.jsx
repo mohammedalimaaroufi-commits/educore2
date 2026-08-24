@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import adminApi from '../api/adminClient';
+import { useLocale } from '../context/LocaleContext.jsx';
+import { localizeApiError } from '../utils/apiError.js';
 
 export default function AdminLogin() {
+  const { t, locale } = useLocale();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,7 +20,7 @@ export default function AdminLogin() {
       localStorage.setItem('educore_admin_token', data.token);
       navigate('/admin');
     } catch (err) {
-      setError(err.response?.data?.error || 'تعذر الدخول');
+      setError(localizeApiError(err, t, locale, 'adminLoginError'));
     } finally {
       setBusy(false);
     }
@@ -26,15 +29,15 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-ink">
       <div className="card w-full max-w-sm p-8">
-        <h1 className="text-xl font-bold mb-1">لوحة تحكم المسؤول</h1>
-        <p className="text-ink/60 text-sm mb-6">وصول خاص لمالك التطبيق فقط</p>
+        <h1 className="text-xl font-bold mb-1">{t('adminLoginTitle')}</h1>
+        <p className="text-ink/60 text-sm mb-6">{t('adminLoginDescription')}</p>
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="label">كلمة المرور</label>
+            <label className="label">{t('adminPassword')}</label>
             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
           </div>
           {error && <p className="text-danger text-sm">{error}</p>}
-          <button className="btn-primary w-full" disabled={busy}>{busy ? '...' : 'دخول'}</button>
+          <button className="btn-primary w-full" disabled={busy}>{busy ? '...' : t('adminLogin')}</button>
         </form>
       </div>
     </div>

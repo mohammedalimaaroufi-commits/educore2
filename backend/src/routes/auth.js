@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription, getStudentCount, getStudentQuote, getPlanPricingQuote } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
@@ -263,6 +263,7 @@ router.get('/me', requireAuth, (req, res) => {
       currentPeriodEnd: presentedSub.current_period_end || null,
       daysLeft, // null for lifetime
       expired: daysLeft !== null && daysLeft <= 0,
+      studentCount: getStudentCount(req.teacherId),
     };
   }
 
@@ -290,6 +291,27 @@ router.get('/plans', (req, res) => {
   });
 });
 
+// GET /api/auth/student-pricing -> authenticated, count-aware quotes for this teacher.
+// The public catalogue remains count-agnostic; actual student totals are never accepted from the browser.
+router.get('/student-pricing', requireAuth, (req, res) => {
+  const studentCount = getStudentCount(req.teacherId);
+  const quotes = getPlanDefinitions().map((definition) => {
+    const offer = getActiveOffers(definition.id)[0] || null;
+    const quote = getPlanPricingQuote(definition, studentCount, offer);
+    return {
+      plan_id: definition.id,
+      title: definition.title,
+      duration_days: definition.duration_days,
+      has_offer: Boolean(offer),
+      offer_id: offer?.id || null,
+      offer_title: offer?.title || null,
+      offer_description: offer?.description || null,
+      ...quote,
+    };
+  });
+  res.json({ student_count: studentCount, quotes });
+});
+
 // GET /api/auth/public-config -> public announcement and payment display data
 router.get('/public-config', (req, res) => {
   res.json(getPublicConfig());
@@ -304,16 +326,19 @@ router.post('/payment-requests', requireAuth, (req, res) => {
   if (!isPaidPlanId(canonicalPlan) || !basePrices[canonicalPlan]) return res.status(400).json({ error: 'باقة غير صالحة' });
   const activeOffers = getActiveOffers(canonicalPlan);
   const offer = activeOffers.find((item) => item.id === offer_id) || activeOffers[0] || null;
-  const originalAmount = offer ? Number(offer.original_price_omr || basePrices[canonicalPlan]) : basePrices[canonicalPlan];
-  const amount = offer ? Number(offer.offer_price_omr) : basePrices[canonicalPlan];
+  const definition = getPlanDefinitions().find((item) => item.id === canonicalPlan);
+  const studentCount = getStudentCount(req.teacherId);
+  const pricing = getPlanPricingQuote(definition, studentCount, offer);
+  const originalAmount = pricing.original_amount_omr;
+  const amount = pricing.total_amount_omr;
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'سعر الباقة غير صالح' });
   const pending = db.prepare("SELECT * FROM payment_requests WHERE teacher_id = ? AND status = 'pending' ORDER BY datetime(created_at) DESC LIMIT 1").get(req.teacherId);
   if (pending) return res.status(409).json({ error: 'لديك طلب تفعيل قيد المراجعة. انتظر قرار المسؤول قبل إرسال طلب جديد.', request: pending });
 
   const id = uuid();
-  db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, original_amount_omr, offer_id, reference_note, receipt_image, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
-    .run(id, req.teacherId, canonicalPlan, amount, originalAmount, offer?.id || null, reference_note || null, receipt_image || null);
+  db.prepare(`INSERT INTO payment_requests (id, teacher_id, plan, amount_omr, original_amount_omr, offer_id, student_count, included_students, extra_students, extra_student_price_omr, extra_amount_omr, base_amount_omr, reference_note, receipt_image, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
+    .run(id, req.teacherId, canonicalPlan, amount, originalAmount, offer?.id || null, pricing.student_count, pricing.included_students, pricing.extra_students, pricing.extra_student_price_omr, pricing.extra_amount_omr, pricing.base_amount_omr, reference_note || null, receipt_image || null);
 
   res.status(201).json({ request: db.prepare('SELECT * FROM payment_requests WHERE id = ?').get(id) });
 });

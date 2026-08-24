@@ -179,8 +179,9 @@ function formatFollowUpValue(value, suffix = '') {
   return `${value}${suffix}`;
 }
 
-export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_UP_SETTINGS) {
+export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_UP_SETTINGS, translate = null) {
   const normalized = normalizeFollowUpSettings(settings);
+  const t = typeof translate === 'function' ? translate : (_key, fallback) => fallback;
   const { students } = getClassData(snapshot, classId);
   const roster = buildClassRoster(snapshot, classId);
   return students.map((student) => {
@@ -195,23 +196,23 @@ export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_U
       weight: category.weight_percent,
       items: category.items.map((item) => ({ title: item.title, score: item.score, max: item.max_score, comment: item.comment })),
     }));
-    const behaviorDetails = negativeLogs.slice(0, 8).map((log) => ({ label: log.label || 'سلوك سلبي', points: Math.abs(Number(log.points || 0)), note: log.note_text || '', occurred_at: log.occurred_at }));
+    const behaviorDetails = negativeLogs.slice(0, 8).map((log) => ({ label: log.label || t('analyticsNegativeBehavior', 'Negative behavior'), points: Math.abs(Number(log.points || 0)), note: log.note_text || '', occurred_at: log.occurred_at }));
     const attendanceDetails = report.attendance.slice().sort((a, b) => String(b.session_date || '').localeCompare(String(a.session_date || ''))).map((record) => ({ status: record.status, session_date: record.session_date }));
 
     if (normalized.enabled.behavior && base.behaviorScore <= normalized.thresholds.behaviorScore) {
-      reasons.push({ key: 'behavior', label: 'سلوك سلبي', value: formatFollowUpValue(base.behaviorScore, ' نقطة'), details: behaviorDetails });
+      reasons.push({ key: 'behavior', label: t('analyticsNegativeBehavior', 'Negative behavior'), value: formatFollowUpValue(base.behaviorScore, ` ${t('analyticsPoints', 'points')}`), details: behaviorDetails });
     }
     if (normalized.enabled.grade && base.finalGrade !== null && base.finalGrade < normalized.thresholds.finalGrade) {
-      reasons.push({ key: 'grade', label: 'إجمالي الدرجة', value: formatFollowUpValue(base.finalGrade, '%'), details: gradeDetails });
+      reasons.push({ key: 'grade', label: t('analyticsOverallGrade', 'Overall grade'), value: formatFollowUpValue(base.finalGrade, '%'), details: gradeDetails });
     }
     if (normalized.enabled.missingGrade && base.finalGrade === null) {
-      reasons.push({ key: 'missing-grade', label: 'لا توجد درجة نهائية', value: 'غير مكتملة', details: gradeDetails });
+      reasons.push({ key: 'missing-grade', label: t('analyticsMissingFinalGrade', 'No final grade'), value: t('analyticsIncomplete', 'Incomplete'), details: gradeDetails });
     }
     if (normalized.enabled.absence && base.absentCount >= normalized.thresholds.absentDays) {
-      reasons.push({ key: 'absence', label: 'الغياب', value: formatFollowUpValue(base.absentCount, ' يوم'), details: attendanceDetails.filter((item) => item.status === 'absent').slice(0, 8) });
+      reasons.push({ key: 'absence', label: t('analyticsAbsence', 'Absence'), value: formatFollowUpValue(base.absentCount, ` ${t('analyticsDay', 'day')}`), details: attendanceDetails.filter((item) => item.status === 'absent').slice(0, 8) });
     }
     if (normalized.enabled.late && base.lateCount >= normalized.thresholds.lateDays) {
-      reasons.push({ key: 'late', label: 'التأخير', value: formatFollowUpValue(base.lateCount, ' يوم'), details: attendanceDetails.filter((item) => item.status === 'late').slice(0, 8) });
+      reasons.push({ key: 'late', label: t('analyticsLate', 'Late records'), value: formatFollowUpValue(base.lateCount, ` ${t('analyticsDay', 'day')}`), details: attendanceDetails.filter((item) => item.status === 'late').slice(0, 8) });
     }
     return {
       ...base,

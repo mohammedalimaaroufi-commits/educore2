@@ -127,7 +127,10 @@ app.use((err, req, res, next) => {
   }
 
   console.error('Unhandled request error:', err);
-  if (!res.headersSent) res.status(500).json({ error: 'حدث خطأ في الخادم' });
+  if (!res.headersSent) {
+    const acceptsEnglish = String(req.headers['accept-language'] || '').toLowerCase().startsWith('en');
+    res.status(500).json({ error: acceptsEnglish ? 'A server error occurred.' : 'حدث خطأ في الخادم' });
+  }
 });
 
 

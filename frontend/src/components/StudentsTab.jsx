@@ -7,6 +7,7 @@ import { getOrSyncSnapshot, queueMutation, scheduleBackgroundSync } from '../uti
 import { getClassData } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useLocale } from '../context/LocaleContext.jsx';
+import { localizeApiError } from '../utils/apiError.js';
 import { useConfirmDialog } from './ConfirmDialog.jsx';
 
 const EMPTY_FORM = {
@@ -22,12 +23,12 @@ const EMPTY_FORM = {
 
 const localId = () => `student-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-function apiError(error, fallback) {
-  return error?.response?.data?.error || fallback;
+function apiError(error, t, locale, fallbackKey) {
+  return localizeApiError(error, t, locale, fallbackKey);
 }
 
 export default function StudentsTab({ classId }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [snapshot, setSnapshot] = useState(null);
   const [students, setStudents] = useState([]);
@@ -145,7 +146,7 @@ export default function StudentsTab({ classId }) {
       setImportPreview((current) => ({ ...data, file: current?.file || file }));
       setImportMsg('');
     } catch (error) {
-      setImportMsg(apiError(error, t('importPreviewFailed')));
+      setImportMsg(apiError(error, t, locale, 'importPreviewFailed'));
       setImportPreview(null);
     }
   };
@@ -186,7 +187,7 @@ export default function StudentsTab({ classId }) {
       setImportPreview(null);
       scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch (error) {
-      setImportMsg(apiError(error, t('importOffline')));
+      setImportMsg(apiError(error, t, locale, 'importOffline'));
     } finally {
       setImporting(false);
     }

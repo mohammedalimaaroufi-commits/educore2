@@ -83,6 +83,39 @@ router.get('/subscription-config', (req, res) => {
   res.json({ trial_days: getTrialDays(), plans: getPublicPlans(), plan_definitions: getPlanDefinitions(), offers });
 });
 
+// GET /api/admin/student-limits -> per-plan included student caps and overage prices
+router.get('/student-limits', (req, res) => {
+  const plans = getPlanDefinitions().map((plan) => ({
+    id: plan.id,
+    title: plan.title,
+    included_students: plan.included_students,
+    extra_student_price_omr: plan.extra_student_price_omr,
+  }));
+  res.json({ plans });
+});
+
+// PATCH /api/admin/student-limits { plans: [{ id, included_students, extra_student_price_omr }] }
+router.patch('/student-limits', (req, res) => {
+  if (!Array.isArray(req.body.plans)) return res.status(400).json({ error: 'بيانات حدود الطلاب غير صالحة' });
+  const current = getPlanDefinitions();
+  const incoming = new Map(req.body.plans.map((plan) => [plan?.id, plan]));
+  for (const plan of current) {
+    const next = incoming.get(plan.id);
+    if (!next) continue;
+    const included = Number(next.included_students);
+    const extraPrice = Number(next.extra_student_price_omr);
+    if (!Number.isInteger(included) || included < 1 || included > 100000) return res.status(400).json({ error: 'حد الطلاب يجب أن يكون عددًا صحيحًا بين 1 و100000' });
+    if (!Number.isFinite(extraPrice) || extraPrice < 0 || extraPrice > 1000) return res.status(400).json({ error: 'سعر الطالب الإضافي يجب أن يكون بين 0 و1000 ريال' });
+  }
+  const nextDefinitions = current.map((plan) => {
+    const next = incoming.get(plan.id);
+    return next ? { ...plan, included_students: Number(next.included_students), extra_student_price_omr: Number(Number(next.extra_student_price_omr).toFixed(3)) } : plan;
+  });
+  savePlanDefinitions(nextDefinitions);
+  emitSubscriptionConfigUpdated(req);
+  res.json({ plans: nextDefinitions.map((plan) => ({ id: plan.id, title: plan.title, included_students: plan.included_students, extra_student_price_omr: plan.extra_student_price_omr })) });
+});
+
 // PATCH /api/admin/subscription-config { trial_days }
 router.patch('/subscription-config', (req, res) => {
   if (req.body.trial_days !== undefined) {

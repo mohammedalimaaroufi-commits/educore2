@@ -1,10 +1,13 @@
 import React, { useRef, useState } from 'react';
 import api from '../api/client';
+import { useLocale } from '../context/LocaleContext.jsx';
+import { localizeApiError } from '../utils/apiError.js';
 
 // Local backup — downloads a JSON snapshot of everything the teacher owns (classes, students,
 // grades, behavior, attendance, schemes...) to their own device, and can restore from one.
 // No cloud storage involved: the file goes straight to the browser's downloads folder.
 export default function BackupManager() {
+  const { t, locale } = useLocale();
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState('');
@@ -26,10 +29,10 @@ export default function BackupManager() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setMessage('تم تنزيل النسخة الاحتياطية ✓');
+      setMessage(t('backupDownloaded'));
       setTimeout(() => setMessage(''), 3000);
     } catch {
-      setError('تعذّر إنشاء النسخة الاحتياطية');
+      setError(t('backupExportFailed'));
     } finally {
       setExporting(false);
     }
@@ -46,9 +49,9 @@ export default function BackupManager() {
       const parsed = JSON.parse(text);
       const { data } = await api.post('/backup/import', parsed);
       const c = data.counts;
-      setMessage(`تمت الاستعادة ✓ — صفوف جديدة: ${c.classes}، طلاب: ${c.students}، درجات: ${c.grades}، سلوك: ${c.behaviorLogs}، حضور: ${c.attendanceRecords}`);
+      setMessage(t('backupRestored', '', { classes: c.classes, students: c.students, grades: c.grades, behavior: c.behaviorLogs, attendance: c.attendanceRecords }));
     } catch (err) {
-      setError(err.response?.data?.error || 'الملف غير صالح كنسخة احتياطية لهذا التطبيق');
+      setError(localizeApiError(err, t, locale, 'backupImportInvalid'));
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -57,18 +60,18 @@ export default function BackupManager() {
 
   return (
     <div className="card p-5">
-      <h3 className="font-bold text-lg mb-1">نسخة احتياطية محلية</h3>
+      <h3 className="font-bold text-lg mb-1">{t('backupTitle')}</h3>
       <p className="text-xs text-ink/60 mb-4">
-        احفظ نسخة من كل بياناتك (الصفوف، الطلاب، الدرجات، السلوك، الحضور) كملف واحد على جهازك، واستعدها لاحقًا أو على جهاز آخر. لا تُرفع أي بيانات لأي خادم خارجي — الملف ينزل مباشرة لجهازك.
+        {t('backupDescription')}
       </p>
 
       <div className="flex flex-wrap gap-3 items-center">
         <button className="btn-primary text-sm" onClick={exportBackup} disabled={exporting}>
-          {exporting ? 'جارٍ التجهيز...' : '⬇ تنزيل نسخة احتياطية'}
+          {exporting ? t('backupPreparing') : `⬇ ${t('backupDownload')}`}
         </button>
 
         <label className="btn-secondary text-sm cursor-pointer">
-          {importing ? 'جارٍ الاستعادة...' : '⬆ استعادة من ملف'}
+          {importing ? t('backupRestoring') : `⬆ ${t('backupRestore')}`}
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleFile} disabled={importing} />
         </label>
       </div>
@@ -77,7 +80,7 @@ export default function BackupManager() {
       {error && <p className="text-danger text-sm mt-3">{error}</p>}
 
       <p className="text-[11px] text-ink/40 mt-4">
-        الاستعادة تضيف فقط ما هو غير موجود حاليًا — لن تُكرّر أو تحذف أي بيانات موجودة، لذا استيراد نفس الملف أكثر من مرة آمن تمامًا.
+        {t('backupSafetyNote')}
       </p>
     </div>
   );

@@ -1,9 +1,9 @@
 {
   "name": "EduCore Manager",
   "short_name": "EduCore",
-  "description": "منصة EduCore الخفيفة لإدارة الصفوف والطلاب والدرجات والحضور والسلوك.",
-  "lang": "ar",
-  "dir": "rtl",
+  "description": "A lightweight EduCore workspace for classes, students, grades, attendance, and behavior.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

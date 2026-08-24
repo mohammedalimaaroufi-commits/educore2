@@ -1751,3 +1751,26 @@ button, input, select, textarea { font-family: inherit; }
   .create-class-modal .create-class-form__actions { flex-wrap: wrap; }
   .create-class-modal .create-class-form__actions .save-feedback { width: 100%; margin-inline-end: 0; }
 }
+
+/* Student-cap pricing: compact, responsive, and explicit before payment. */
+.admin-config-card--student-limits { border-top: 3px solid #2e7d6b; }
+.admin-config-card--student-limits .admin-config-card__heading { margin-bottom: 1rem; }
+.student-limits-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+.student-limit-card { display: grid; gap: .65rem; padding: 1rem; background: linear-gradient(180deg, rgba(46,125,107,.07), #fff 52%); border: 1px solid rgba(46,125,107,.14); border-radius: .9rem; }
+.student-limit-card__heading { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+.student-limit-card__heading strong { color: #1b2430; font-size: .86rem; }
+.student-limit-card__heading span { color: rgba(27,36,48,.38); font-size: .6rem; }
+.student-limit-card .label { display: grid; gap: .3rem; color: rgba(27,36,48,.62); font-size: .68rem; }
+.student-limit-price-input { display: flex; align-items: center; gap: .45rem; }
+.student-limit-price-input .input { min-width: 0; }
+.student-limit-price-input span { flex: 0 0 auto; color: rgba(27,36,48,.48); font-size: .62rem; white-space: nowrap; }
+.student-limit-card__hint { min-height: 2.4rem; color: rgba(27,36,48,.48) !important; font-size: .64rem !important; }
+.subscription-plan-student-pricing { display: grid; gap: .25rem; margin: .15rem 0 .55rem; padding: .55rem .6rem; color: rgba(27,36,48,.62); background: rgba(46,125,107,.06); border-radius: .65rem; font-size: .64rem; line-height: 1.55; }
+.subscription-plan-student-pricing strong { color: #2e7d6b; }
+.subscription-plan-student-pricing small { color: rgba(27,36,48,.52); font-size: .6rem; }
+.subscription-plan-pricing-note { margin: 0 0 .5rem; color: rgba(27,36,48,.4); font-size: .6rem; line-height: 1.5; }
+.subscription-activation-quote { display: flex; flex-wrap: wrap; gap: .45rem .8rem; margin: -.35rem 0 1rem; padding: .75rem; color: rgba(27,36,48,.62); background: linear-gradient(135deg, rgba(46,125,107,.08), rgba(63,111,176,.06)); border: 1px solid rgba(46,125,107,.12); border-radius: .75rem; font-size: .68rem; }
+.subscription-activation-quote strong { color: #2e7d6b; }
+@media (max-width: 900px) { .student-limits-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .subscription-activation-quote { display: grid; gap: .35rem; }.student-limit-price-input { align-items: stretch; flex-direction: column; }.student-limit-price-input span { white-space: normal; } }
+@media (prefers-reduced-motion: reduce) { .subscription-plan-card, .subscription-plan-card .btn-offer { transition: none; } }
