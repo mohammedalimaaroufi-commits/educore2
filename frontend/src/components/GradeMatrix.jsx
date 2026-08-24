@@ -201,17 +201,34 @@ export default function GradeMatrix({ classId, className }) {
     setQuickEntryOpen(true);
   };
 
-  const saveQuickGrade = async (event) => {
-    event?.preventDefault();
-    if (!quickSelection || !quickStudent) return;
+  const persistQuickScore = async () => {
+    if (!quickSelection || !quickStudent) return false;
     const max = Number(getAssessmentMaxScore(quickSelection.category, quickSelection.assessment));
-    const value = quickScore === '' ? NaN : Number(quickScore);
-    if (!Number.isFinite(value) || value < 0 || value > max) {
+    const value = quickScore === '' ? null : Number(quickScore);
+    if (value !== null && (!Number.isFinite(value) || value < 0 || value > max)) {
       setQuickError(t('quickGradeInvalid', '', { max }));
-      return;
+      return false;
+    }
+    const key = cellKey(quickSelection.assessment.id, quickStudent.id);
+    const currentValue = grades[key]?.score_numeric ?? null;
+    if (String(currentValue ?? '') !== String(value ?? '')) {
+      setCell(quickSelection.assessment.id, quickStudent.id, 'score_numeric', value ?? '');
+      await saveCell(quickSelection.assessment.id, quickStudent.id, { score_numeric: value });
     }
     setQuickError('');
-    await saveCell(quickSelection.assessment.id, quickStudent.id, { score_numeric: value });
+    return true;
+  };
+
+  const moveQuickStudent = async (delta) => {
+    const saved = await persistQuickScore();
+    if (!saved) return;
+    setQuickStudentIndex((current) => Math.min(Math.max(current + delta, 0), students.length - 1));
+  };
+
+  const saveQuickGrade = async (event) => {
+    event?.preventDefault();
+    const saved = await persistQuickScore();
+    if (!saved) return;
     if (quickStudentIndex + 1 < students.length) {
       setQuickStudentIndex((current) => current + 1);
       setQuickScore('');
@@ -456,7 +473,9 @@ export default function GradeMatrix({ classId, className }) {
               {quickOptions.map(({ category, assessment }) => <option key={assessment.id} value={assessment.id}>{category.name} — {Number(assessment.is_summary) ? t('categoryScore') : assessment.title} ({getAssessmentMaxScore(category, assessment)})</option>)}
             </select></label>
             <div className="quick-grade-progress"><div><span>{t('quickStudentLabel')}</span><strong>{quickStudentIndex + 1} / {students.length}</strong></div><div className="quick-grade-progress__track"><span style={{ width: `${((quickStudentIndex + 1) / students.length) * 100}%` }} /></div></div>
+            <button type="button" className="quick-grade-student-nav quick-grade-student-nav--previous" onClick={() => void moveQuickStudent(-1)} disabled={quickStudentIndex === 0} aria-label={t('quickPreviousStudent')} title={t('quickPreviousStudent')}><Icon name="chevronUp" className="w-4 h-4" /><span>{t('quickPreviousStudent')}</span></button>
             <div className="quick-grade-student"><span className="quick-grade-student__index">{quickStudentIndex + 1}</span><div><span>{t('student')}</span><strong>{quickStudent.full_name}</strong></div></div>
+            <button type="button" className="quick-grade-student-nav quick-grade-student-nav--next" onClick={() => void moveQuickStudent(1)} disabled={quickStudentIndex === students.length - 1} aria-label={t('quickNextStudent')} title={t('quickNextStudent')}><Icon name="chevronDown" className="w-4 h-4" /><span>{t('quickNextStudent')}</span></button>
             <form className="quick-grade-form" onSubmit={saveQuickGrade}>
               <label className="quick-grade-field"><span>{t('quickScore')}</span><div className="quick-grade-input-wrap"><input ref={quickScoreRef} className="quick-grade-input" type="number" min="0" max={getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)} step="any" inputMode="decimal" value={quickScore} onChange={(event) => { setQuickScore(event.target.value); setQuickError(''); }} aria-label={`${quickStudent.full_name} — ${quickSelection.assessment.title}`} /><b>/ {getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)}</b></div></label>
               {quickError && <p className="quick-grade-error" role="alert">{quickError}</p>}
