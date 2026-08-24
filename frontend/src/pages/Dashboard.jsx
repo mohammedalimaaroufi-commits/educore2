@@ -554,10 +554,10 @@ export default function Dashboard() {
                     </Link>
                     <div className="class-card__compact-actions">
                       <Link to={`/classes/${c.id}`} className="class-card__compact-open" aria-label={`${t('openClass')}: ${c.name}`} title={t('openClass')}>
-                        <Icon name="externalLink" className="w-4 h-4" /><span>{t('openClass')}</span>
+                        <Icon name="externalLink" className="w-4 h-4" />
                       </Link>
-                      <button type="button" className="class-card__details-toggle" onClick={() => toggleClassDetails(c.id)} aria-expanded={expanded} aria-controls={`class-details-${c.id}`}>
-                        <span>{expanded ? t('showLess') : t('details')}</span><Icon name={expanded ? 'chevronUp' : 'chevronDown'} className="w-4 h-4" />
+                      <button type="button" className="class-card__details-toggle" onClick={() => toggleClassDetails(c.id)} aria-expanded={expanded} aria-controls={`class-details-${c.id}`} aria-label={`${expanded ? t('showLess') : t('details')}: ${c.name}`} title={expanded ? t('showLess') : t('details')}>
+                        <Icon name={expanded ? 'chevronUp' : 'chevronDown'} className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
