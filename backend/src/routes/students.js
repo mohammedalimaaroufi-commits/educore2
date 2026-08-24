@@ -6,6 +6,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
+const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -113,6 +114,31 @@ function assertClassOwnership(classId, teacherId) {
   return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
 }
 
+function getStudentCapacity(teacherId) {
+  const limit = getActiveStudentLimit(teacherId);
+  if (!limit) return null;
+  const studentCount = getStudentCount(teacherId);
+  return { ...limit, studentCount, remaining: Math.max(0, limit.includedStudents - studentCount) };
+}
+
+function studentLimitError(capacity) {
+  const error = new Error('تم بلوغ حد الطلاب في الباقة النشطة');
+  error.code = 'STUDENT_LIMIT_REACHED';
+  error.capacity = capacity;
+  return error;
+}
+
+function sendStudentLimitError(res, capacity) {
+  return res.status(409).json({
+    error: 'تم بلوغ حد الطلاب في الباقة النشطة. لا يمكن إضافة طلاب آخرين.',
+    code: 'STUDENT_LIMIT_REACHED',
+    current_count: capacity?.studentCount ?? 0,
+    included_students: capacity?.includedStudents ?? 0,
+    remaining: capacity?.remaining ?? 0,
+    plan: capacity?.plan || null,
+  });
+}
+
 // GET /api/students?class_id=...
 router.get('/', (req, res) => {
   const { class_id } = req.query;
@@ -130,11 +156,21 @@ router.post('/', (req, res) => {
   const id = requestedId || uuid();
   const existing = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ student: existing, reused: true });
-  db.prepare(`INSERT INTO students (id, class_id, full_name, student_number, guardian_name, guardian_phone, guardian_email, health_notes, private_notes, photo_url)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, class_id, full_name, student_number || null, guardian_name || null, guardian_phone || null, guardian_email || null, health_notes || null, private_notes || null, photo_url || null);
-
-  res.status(201).json({ student: db.prepare('SELECT * FROM students WHERE id = ?').get(id) });
+  const insertStudent = db.transaction(() => {
+    const capacity = getStudentCapacity(req.teacherId);
+    if (capacity && capacity.remaining <= 0) throw studentLimitError(capacity);
+    db.prepare(`INSERT INTO students (id, class_id, full_name, student_number, guardian_name, guardian_phone, guardian_email, health_notes, private_notes, photo_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, class_id, full_name, student_number || null, guardian_name || null, guardian_phone || null, guardian_email || null, health_notes || null, private_notes || null, photo_url || null);
+    return db.prepare('SELECT * FROM students WHERE id = ?').get(id);
+  });
+  try {
+    const student = insertStudent();
+    res.status(201).json({ student });
+  } catch (error) {
+    if (error?.code === 'STUDENT_LIMIT_REACHED') return sendStudentLimitError(res, error.capacity);
+    throw error;
+  }
 });
 
 // POST /api/students/import  (CSV/XLSX/XLS file, field name "file", plus class_id)
@@ -152,6 +188,10 @@ router.post('/import', upload.single('file'), (req, res) => {
   }
 
   const { unique, duplicates } = uniqueStudentRecords(parsed.records, class_id);
+  const capacity = getStudentCapacity(req.teacherId);
+  const available = capacity ? capacity.remaining : unique.length;
+  const importable = unique.slice(0, Math.max(0, available));
+  const limitSkipped = capacity ? Math.max(0, unique.length - importable.length) : 0;
   if (String(req.body.preview || '') === '1') {
     return res.json({
       preview: true,
@@ -159,9 +199,14 @@ router.post('/import', upload.single('file'), (req, res) => {
       sheets: parsed.sheets,
       selected_sheet: parsed.selected_sheet,
       headers: parsed.headers,
-      rows: unique.slice(0, 12),
+      rows: importable.slice(0, 12),
       total: parsed.records.length,
-      valid: unique.length,
+      valid: importable.length,
+      valid_before_limit: unique.length,
+      limit_skipped: limitSkipped,
+      included_students: capacity?.includedStudents ?? null,
+      current_student_count: capacity?.studentCount ?? null,
+      remaining_slots: capacity?.remaining ?? null,
       skipped: parsed.skipped,
       duplicates,
     });
@@ -169,11 +214,15 @@ router.post('/import', upload.single('file'), (req, res) => {
 
   const insert = db.prepare(`INSERT INTO students (id, class_id, full_name, student_number, guardian_name, guardian_phone, guardian_email)
                               VALUES (?, ?, ?, ?, ?, ?, ?)`);
-  const imported = db.transaction((rows) => {
+  const importResult = db.transaction(() => {
+    const fresh = uniqueStudentRecords(parsed.records, class_id);
+    const currentCapacity = getStudentCapacity(req.teacherId);
+    const rows = currentCapacity ? fresh.unique.slice(0, Math.max(0, currentCapacity.remaining)) : fresh.unique;
+    const skippedByLimit = currentCapacity ? Math.max(0, fresh.unique.length - rows.length) : 0;
     rows.forEach((row) => insert.run(uuid(), class_id, row.full_name, row.student_number || null, row.guardian_name || null, row.guardian_phone || null, row.guardian_email || null));
-    return rows.length;
-  })(unique);
-  res.json({ imported, duplicates, skipped: parsed.skipped, sheet: parsed.selected_sheet, students: db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 0 ORDER BY created_at DESC LIMIT ?').all(class_id, imported) });
+    return { imported: rows.length, duplicates: fresh.duplicates, limitSkipped: skippedByLimit };
+  })();
+  res.json({ imported: importResult.imported, duplicates: importResult.duplicates, limit_skipped: importResult.limitSkipped, skipped: parsed.skipped, sheet: parsed.selected_sheet, students: db.prepare('SELECT * FROM students WHERE class_id = ? AND archived = 0 ORDER BY created_at DESC LIMIT ?').all(class_id, importResult.imported) });
 });
 
 // PATCH /api/students/:id

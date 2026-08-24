@@ -36,7 +36,7 @@ const RESTRICTION_LABELS = {
 export default function ClassDetail() {
   const { id } = useParams();
   const { t, locale, direction } = useLocale();
-  const { restrictions } = useAuth();
+  const { restrictions, subscriptionInfo } = useAuth();
   const [cls, setCls] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [tab, setTab] = useState('students');
@@ -89,7 +89,7 @@ export default function ClassDetail() {
       </div>
       <main className={`class-tab-panel class-tab-panel--${tab || 'restricted'}`}>
         {visibleTabs.length === 0 ? <div className="class-page-restricted-empty"><strong>{t('restrictedFeature')}</strong><span>{t('restrictionsNotice')}</span></div> : <Suspense fallback={<LoadingOverlay label={t('loadingSection')} />}>
-          {tab === 'students' && <StudentsTab classId={id} />}
+          {tab === 'students' && <StudentsTab classId={id} subscriptionInfo={subscriptionInfo} />}
           {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
           {tab === 'behavior' && <BehaviorTab classId={id} />}
           {tab === 'attendance' && <AttendanceTab classId={id} />}

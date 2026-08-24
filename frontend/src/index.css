@@ -111,7 +111,7 @@ h1, h2, h3, h4 {
 }
 
 .btn-secondary {
-  @apply bg-white border border-line text-ink rounded-lg px-4 py-2 font-medium hover:bg-surface transition-colors;
+  @apply bg-white border border-line text-ink rounded-lg px-4 py-2 font-medium hover:bg-surface transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white;
 }
 
 .input {
@@ -978,6 +978,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .class-card__icon-action { padding-inline: .5rem; }
 }
 
+
+.student-capacity-banner { display: flex; align-items: center; gap: .65rem; margin: -.35rem 0 1rem; padding: .7rem .85rem; color: #2e7d6b; background: rgba(46,125,107,.07); border: 1px solid rgba(46,125,107,.14); border-radius: .85rem; }
+.student-capacity-banner.is-full { color: #c1553d; background: rgba(193,85,61,.07); border-color: rgba(193,85,61,.18); }
+.student-capacity-banner__icon { width: 2rem; height: 2rem; display: grid; place-items: center; flex: 0 0 auto; color: #fff; background: #2e7d6b; border-radius: .6rem; }
+.student-capacity-banner.is-full .student-capacity-banner__icon { background: #c1553d; }
+.student-capacity-banner > div { display: grid; gap: .12rem; min-width: 0; }
+.student-capacity-banner strong { color: currentColor; font-size: .78rem; }
+.student-capacity-banner small { color: rgba(27,36,48,.58); font-size: .65rem; line-height: 1.65; }
+.student-capacity-warning { margin: -.2rem 0 .8rem; padding: .6rem .7rem; color: #a66e15; background: rgba(224,165,72,.1); border: 1px solid rgba(224,165,72,.22); border-radius: .65rem; font-size: .72rem; line-height: 1.65; }
 
 /* Notifications and announcements: separate, compact, immediate publishing. */
 .admin-public-grid--compact { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin-top: .9rem; }

@@ -264,6 +264,9 @@ router.get('/me', requireAuth, (req, res) => {
       daysLeft, // null for lifetime
       expired: daysLeft !== null && daysLeft <= 0,
       studentCount: getStudentCount(req.teacherId),
+      includedStudents: isPaidPlanId(presentedSub.plan)
+        ? getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students || null
+        : null,
     };
   }
 

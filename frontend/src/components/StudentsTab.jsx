@@ -27,7 +27,7 @@ function apiError(error, t, locale, fallbackKey) {
   return localizeApiError(error, t, locale, fallbackKey);
 }
 
-export default function StudentsTab({ classId }) {
+export default function StudentsTab({ classId, subscriptionInfo }) {
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [snapshot, setSnapshot] = useState(null);
@@ -42,6 +42,16 @@ export default function StudentsTab({ classId }) {
   const [importPreview, setImportPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const teacherId = getTeacherId();
+  const activeClassIds = new Set((snapshot?.classes || []).filter((classData) => !classData.archived).map((classData) => classData.id));
+  const localActiveStudentCount = snapshot
+    ? (snapshot.students || []).filter((student) => !student.archived && activeClassIds.has(student.class_id)).length
+    : Number(subscriptionInfo?.studentCount || 0);
+  const planLimit = subscriptionInfo?.plan && subscriptionInfo.plan !== 'trial' && !subscriptionInfo.expired
+    ? Number(subscriptionInfo.includedStudents)
+    : null;
+  const hasStudentLimit = Number.isFinite(planLimit) && planLimit > 0;
+  const remainingSlots = hasStudentLimit ? Math.max(0, planLimit - localActiveStudentCount) : null;
+  const hasReachedStudentLimit = hasStudentLimit && remainingSlots <= 0;
 
   const load = async () => {
     setLoading(true);
@@ -62,6 +72,10 @@ export default function StudentsTab({ classId }) {
   };
 
   const startAdd = () => {
+    if (hasReachedStudentLimit) {
+      setFeedback(t('studentCapacityReached'));
+      return;
+    }
     setForm(EMPTY_FORM);
     setEditingId(null);
     setShowForm(true);
@@ -91,6 +105,11 @@ export default function StudentsTab({ classId }) {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!editingId && hasReachedStudentLimit) {
+      setFeedback(t('studentCapacityReached'));
+      return;
+    }
+    const previousSnapshot = snapshot;
     const payload = editingId ? form : { id: localId(), class_id: classId, ...form };
     const nextStudent = {
       ...payload,
@@ -115,7 +134,13 @@ export default function StudentsTab({ classId }) {
       else await api.post('/students', payload);
       scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
       setFeedback(t('savedAndSynced'));
-    } catch {
+    } catch (error) {
+      if (!editingId && error?.response?.data?.code === 'STUDENT_LIMIT_REACHED') {
+        if (previousSnapshot) applySnapshot(previousSnapshot);
+        setFeedback(t('studentLimitReached'));
+        setTimeout(() => setFeedback(''), 2500);
+        return;
+      }
       await queueMutation(teacherId, { method: editingId ? 'PATCH' : 'POST', url: editingId ? `/students/${editingId}` : '/students', data: payload });
       setFeedback(t('savedLocally'));
     }
@@ -153,6 +178,11 @@ export default function StudentsTab({ classId }) {
 
   const handleImport = async (event) => {
     const file = event.target.files?.[0];
+    if (hasReachedStudentLimit) {
+      event.target.value = '';
+      setImportMsg(t('studentCapacityReached'));
+      return;
+    }
     event.target.value = '';
     if (!file) return;
     const extension = file.name.toLowerCase().split('.').pop();
@@ -173,6 +203,10 @@ export default function StudentsTab({ classId }) {
 
   const confirmImport = async () => {
     if (!importPreview?.file || importing) return;
+    if (hasReachedStudentLimit) {
+      setImportMsg(t('studentCapacityReached'));
+      return;
+    }
     setImporting(true);
     const fd = new FormData();
     fd.append('file', importPreview.file);
@@ -183,7 +217,9 @@ export default function StudentsTab({ classId }) {
       const importedStudents = Array.isArray(data.students) ? data.students : [];
       const next = { ...snapshot, students: [...(snapshot?.students || []), ...importedStudents] };
       applySnapshot(next);
-      setImportMsg(t('importCompleted', '', { imported: data.imported || 0, duplicates: data.duplicates || 0 }));
+      setImportMsg(data.limit_skipped
+        ? t('studentImportTrimmed', '', { imported: data.imported || 0, skipped: data.limit_skipped || 0, duplicates: data.duplicates || 0 })
+        : t('importCompleted', '', { imported: data.imported || 0, duplicates: data.duplicates || 0 }));
       setImportPreview(null);
       scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
     } catch (error) {
@@ -196,19 +232,24 @@ export default function StudentsTab({ classId }) {
   return (
     <div>
       {confirmDialog}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h3 className="text-lg font-bold">{t('studentsTitle')} ({students.length})</h3>
           <p className="text-xs text-ink/50 mt-1">{t('importFormatHint')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <a href="/students_import_template.csv" download className="btn-secondary text-sm">{t('downloadCsv')}</a>
-          <label className="btn-secondary text-sm cursor-pointer">
+          <button type="button" className="btn-secondary text-sm" onClick={() => fileRef.current?.click()} disabled={hasReachedStudentLimit} title={hasReachedStudentLimit ? t('studentCapacityReached') : t('importStudents')}>
             {t('importStudents')}
-            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImport} />
-          </label>
-          <button className="btn-primary text-sm" onClick={startAdd}>+ {t('addStudent')}</button>
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImport} />
+          <button type="button" className="btn-primary text-sm" onClick={startAdd} disabled={hasReachedStudentLimit} title={hasReachedStudentLimit ? t('studentCapacityReached') : t('addStudent')}>+ {t('addStudent')}</button>
         </div>
+      </div>
+
+      <div className={`student-capacity-banner ${hasReachedStudentLimit ? 'is-full' : ''}`} role="status">
+        <span className="student-capacity-banner__icon"><Icon name={hasReachedStudentLimit ? 'lock' : 'user'} className="w-4 h-4" /></span>
+        <div><strong>{hasStudentLimit ? t('studentCapacityStatus', '', { current: localActiveStudentCount, limit: planLimit }) : t('studentCapacityUnlimited')}</strong><small>{hasStudentLimit ? (hasReachedStudentLimit ? t('studentCapacityReached') : t('studentCapacityRemaining', '', { count: remainingSlots })) : t('studentCapacity')}</small></div>
       </div>
 
       {(importMsg || feedback) && <p className="text-primary text-sm mb-3">{importMsg || feedback}</p>}
@@ -240,6 +281,7 @@ export default function StudentsTab({ classId }) {
                 <div className="rounded-lg bg-white p-3"><small>{t('duplicateRows')}</small><strong className="block text-lg text-accent">{importPreview.duplicates || 0}</strong></div>
                 <div className="rounded-lg bg-white p-3"><small>{t('skippedRows')}</small><strong className="block text-lg text-ink/60">{importPreview.skipped || 0}</strong></div>
               </div>
+              {importPreview.limit_skipped > 0 && <p className="student-capacity-warning" role="status">{t('studentImportTrimmed', '', { imported: importPreview.valid || 0, skipped: importPreview.limit_skipped || 0, duplicates: importPreview.duplicates || 0 })}</p>}
               <p className="text-xs font-bold text-ink/60 mb-2">{t('previewRows')}</p>
               <div className="overflow-x-auto bg-white rounded-lg border border-line">
                 <table className="w-full text-xs">
@@ -248,7 +290,7 @@ export default function StudentsTab({ classId }) {
                 </table>
               </div>
               <div className="flex flex-wrap gap-2 mt-4">
-                <button className="btn-primary text-sm" type="button" disabled={importing || !importPreview.valid} onClick={confirmImport}>{importing ? t('importing') : t('confirmImport')}</button>
+                <button className="btn-primary text-sm" type="button" disabled={importing || hasReachedStudentLimit || !importPreview.valid} onClick={confirmImport}>{importing ? t('importing') : t('confirmImport')}</button>
                 <button className="btn-secondary text-sm" type="button" onClick={() => setImportPreview(null)}>{t('cancel')}</button>
               </div>
             </>

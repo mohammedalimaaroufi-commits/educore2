@@ -313,6 +313,26 @@ function getStudentCount(teacherId) {
   return Number(row?.count || 0);
 }
 
+function getActiveStudentLimit(teacherId) {
+  if (!teacherId) return null;
+  const subscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? AND status = 'active'
+                                    ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END,
+                                             datetime(COALESCE(updated_at, created_at)) DESC
+                                    LIMIT 1`).get(teacherId);
+  const planId = normalizePlanId(subscription?.plan);
+  const definition = planId && isPaidPlanId(planId) ? getPlanDefinition(planId) : null;
+  if (!subscription || !definition) return null;
+  if (subscription.current_period_end) {
+    const endTime = new Date(subscription.current_period_end).getTime();
+    if (Number.isFinite(endTime) && endTime <= Date.now()) return null;
+  }
+  return {
+    plan: definition.id,
+    includedStudents: definition.included_students,
+    subscriptionId: subscription.id,
+  };
+}
+
 function getStudentQuote(plan, studentCount = 0) {
   const definition = typeof plan === 'object' ? plan : getPlanDefinition(normalizePlanId(plan));
   const count = Math.max(0, Number(studentCount) || 0);
@@ -394,6 +414,7 @@ module.exports = {
   getActiveOffer,
   getPublicPlans,
   getStudentCount,
+  getActiveStudentLimit,
   getStudentQuote,
   getPlanPricingQuote,
 };
