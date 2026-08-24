@@ -256,26 +256,25 @@ export default function BehaviorTab({ classId }) {
   if (loading) return <p className="text-ink/50">{t('behaviorLoading')}</p>;
 
   return (
-    <div className="space-y-6">
+    <div className="behavior-workspace">
       {confirmDialog}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div><h3 className="font-bold">{t('behaviorOneClick')}</h3><p className="text-xs text-ink/50 mt-1">{t('behaviorSubtitle')}</p></div>
-          {feedback && <span className="text-primary text-sm">{feedback}</span>}
-        </div>
-          <div className="relative mb-3"><input className="input text-sm pr-9" placeholder={t('searchStudent')} value={query} onChange={(event) => setQuery(event.target.value)} /><Icon name="search" className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" /></div>
-          <div className="flex flex-wrap items-center gap-2 mb-3" aria-label={t('behavior')}>
-            <span className="text-xs text-ink/50">{t('behaviorFiltersLabel')}</span>
-            {BEHAVIOR_FILTERS.map((filter) => <button key={filter.id} type="button" onClick={() => setBehaviorFilter(filter.id)} className={`px-2.5 py-1 rounded-full border text-xs transition ${behaviorFilter === filter.id ? 'bg-primary text-white border-primary' : 'border-line text-ink/65 hover:border-primary/50'}`}>{t(filter.key)}</button>)}
-            <select className="input text-xs w-44" value={behaviorSort} onChange={(event) => setBehaviorSort(event.target.value)} aria-label={t('behavior')}>
+      <div className="card behavior-control-card">
+        <div className="behavior-command-bar">
+          <div className="behavior-command-title"><span className="behavior-command-icon"><Icon name="heart" className="w-4 h-4" /></span><div><h3>{t('behaviorEntryLabel')}</h3><span>{t('behaviorOneClick')}</span></div></div>
+          <div className="behavior-command-feedback">{feedback && <span className="text-primary text-sm">{feedback}</span>}</div>
+          <div className="behavior-command-controls">
+            <label className="behavior-search-control"><Icon name="search" className="w-4 h-4" /><span className="sr-only">{t('searchStudent')}</span><input className="input text-sm" placeholder={t('searchStudent')} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+            <label className="behavior-select-control"><span>{t('filterBy')}</span><select className="input text-xs" value={behaviorFilter} onChange={(event) => setBehaviorFilter(event.target.value)} aria-label={t('filterBy')}>{BEHAVIOR_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{t(filter.key)}</option>)}</select></label>
+            <label className="behavior-select-control"><span>{t('sortBy')}</span><select className="input text-xs" value={behaviorSort} onChange={(event) => setBehaviorSort(event.target.value)} aria-label={t('sortBy')}>
               <option value="score-desc">{t('highestNet')}</option>
               <option value="positive-desc">{t('mostPositive')}</option>
               <option value="negative-desc">{t('mostNegative')}</option>
               <option value="notes-desc">{t('mostNotes')}</option>
               <option value="name">{t('alphabetical')}</option>
-            </select>
+            </select></label>
           </div>
-          <p className="text-xs text-ink/45 mb-2">{t('displayCount', '', { visible: filteredStudents.length, total: students.length })} · {locale === 'ar' ? 'النقاط السلبية محسوبة بقيمتها المطلقة، والصافي يظهر بجانب اسم الطالب.' : 'Negative points use absolute values, and the net score appears beside the student name.'}</p>
+        </div>
+        <p className="behavior-results-summary">{t('displayCount', '', { visible: filteredStudents.length, total: students.length })} · {locale === 'ar' ? 'النقاط السلبية محسوبة بقيمتها المطلقة، والصافي يظهر بجانب اسم الطالب.' : 'Negative points use absolute values, and the net score appears beside the student name.'}</p>
         <div className="space-y-2">
           {filteredStudents.map((student) => {
               const row = summary.find((item) => item.student_id === student.id) || { behavior_score: 0, positive_count: 0, negative_count: 0, positive_points: 0, negative_points: 0, note_count: 0, latest_logs: [] };
