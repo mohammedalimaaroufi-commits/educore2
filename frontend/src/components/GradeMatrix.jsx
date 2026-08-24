@@ -469,13 +469,17 @@ export default function GradeMatrix({ classId, className }) {
             <button type="button" className="quick-grade-dialog__close" onClick={() => setQuickEntryOpen(false)} aria-label={t('quickClose')} title={t('quickClose')}><Icon name="x" className="w-5 h-5" /></button>
           </header>
           <div className="quick-grade-dialog__body">
-            <label className="quick-grade-field"><span>{t('quickAssessment')}</span><select className="input" value={quickAssessmentId} onChange={(event) => { setQuickAssessmentId(event.target.value); setQuickStudentIndex(0); setQuickError(''); }}>
-              {quickOptions.map(({ category, assessment }) => <option key={assessment.id} value={assessment.id}>{category.name} — {Number(assessment.is_summary) ? t('categoryScore') : assessment.title} ({getAssessmentMaxScore(category, assessment)})</option>)}
-            </select></label>
-            <div className="quick-grade-progress"><div><span>{t('quickStudentLabel')}</span><strong>{quickStudentIndex + 1} / {students.length}</strong></div><div className="quick-grade-progress__track"><span style={{ width: `${((quickStudentIndex + 1) / students.length) * 100}%` }} /></div></div>
-            <button type="button" className="quick-grade-student-nav quick-grade-student-nav--previous" onClick={() => void moveQuickStudent(-1)} disabled={quickStudentIndex === 0} aria-label={t('quickPreviousStudent')} title={t('quickPreviousStudent')}><Icon name="chevronUp" className="w-4 h-4" /><span>{t('quickPreviousStudent')}</span></button>
-            <div className="quick-grade-student"><span className="quick-grade-student__index">{quickStudentIndex + 1}</span><div><span>{t('student')}</span><strong>{quickStudent.full_name}</strong></div></div>
-            <button type="button" className="quick-grade-student-nav quick-grade-student-nav--next" onClick={() => void moveQuickStudent(1)} disabled={quickStudentIndex === students.length - 1} aria-label={t('quickNextStudent')} title={t('quickNextStudent')}><Icon name="chevronDown" className="w-4 h-4" /><span>{t('quickNextStudent')}</span></button>
+            <div className="quick-grade-top-grid">
+              <label className="quick-grade-field"><span>{t('quickAssessment')}</span><select className="input" value={quickAssessmentId} onChange={(event) => { setQuickAssessmentId(event.target.value); setQuickStudentIndex(0); setQuickError(''); }}>
+                {quickOptions.map(({ category, assessment }) => <option key={assessment.id} value={assessment.id}>{category.name} — {Number(assessment.is_summary) ? t('categoryScore') : assessment.title} ({getAssessmentMaxScore(category, assessment)})</option>)}
+              </select></label>
+              <div className="quick-grade-progress"><div><span>{t('quickStudentLabel')}</span><strong>{quickStudentIndex + 1} / {students.length}</strong></div><div className="quick-grade-progress__track"><span style={{ width: `${((quickStudentIndex + 1) / students.length) * 100}%` }} /></div></div>
+              <div className="quick-grade-student-column">
+                <button type="button" className="quick-grade-student-nav quick-grade-student-nav--previous" onClick={() => void moveQuickStudent(-1)} disabled={quickStudentIndex === 0} aria-label={t('quickPreviousStudent')} title={t('quickPreviousStudent')}><Icon name="chevronUp" className="w-4 h-4" /><span>{t('quickPreviousStudent')}</span></button>
+                <div className="quick-grade-student"><span className="quick-grade-student__index">{quickStudentIndex + 1}</span><div><span>{t('student')}</span><strong>{quickStudent.full_name}</strong></div></div>
+                <button type="button" className="quick-grade-student-nav quick-grade-student-nav--next" onClick={() => void moveQuickStudent(1)} disabled={quickStudentIndex === students.length - 1} aria-label={t('quickNextStudent')} title={t('quickNextStudent')}><Icon name="chevronDown" className="w-4 h-4" /><span>{t('quickNextStudent')}</span></button>
+              </div>
+            </div>
             <form className="quick-grade-form" onSubmit={saveQuickGrade}>
               <label className="quick-grade-field"><span>{t('quickScore')}</span><div className="quick-grade-input-wrap"><input ref={quickScoreRef} className="quick-grade-input" type="number" min="0" max={getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)} step="any" inputMode="decimal" value={quickScore} onChange={(event) => { setQuickScore(event.target.value); setQuickError(''); }} aria-label={`${quickStudent.full_name} — ${quickSelection.assessment.title}`} /><b>/ {getAssessmentMaxScore(quickSelection.category, quickSelection.assessment)}</b></div></label>
               {quickError && <p className="quick-grade-error" role="alert">{quickError}</p>}

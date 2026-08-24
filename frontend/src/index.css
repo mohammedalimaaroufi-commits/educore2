@@ -1451,3 +1451,16 @@ button, input, select, textarea { font-family: inherit; }
 @media (max-width: 430px) {
   .quick-grade-student-nav { min-height: 2.05rem; font-size: .66rem; }
 }
+
+.quick-grade-dialog { width: min(100%, 44rem); }
+.quick-grade-top-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(10rem, .78fr) minmax(13rem, 1.2fr); align-items: stretch; gap: .6rem; }
+.quick-grade-top-grid > .quick-grade-field,
+.quick-grade-top-grid > .quick-grade-progress,
+.quick-grade-student-column { min-width: 0; }
+.quick-grade-top-grid > .quick-grade-progress { align-content: center; }
+.quick-grade-student-column { display: grid; gap: .35rem; align-content: stretch; }
+.quick-grade-student-column .quick-grade-student-nav { margin-top: 0; }
+.quick-grade-student-column .quick-grade-student { min-height: 0; }
+@media (max-width: 760px) {
+  .quick-grade-top-grid { grid-template-columns: 1fr; }
+}
