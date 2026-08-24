@@ -1570,3 +1570,44 @@ button, input, select, textarea { font-family: inherit; }
   .behavior-command-title span:not(.behavior-command-icon) { font-size: .58rem; }
   .behavior-results-summary { line-height: 1.6; }
 }
+
+/* Behavior workspace: fixed command bar, independently scrolling student directory, two-column cards. */
+.behavior-control-card { display: flex; min-height: 0; flex-direction: column; }
+.behavior-command-bar, .behavior-results-summary { flex: 0 0 auto; }
+.behavior-students-scroll { min-height: 0; max-height: min(64dvh, 44rem); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-inline-end: .2rem; }
+.behavior-student-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: .65rem; }
+.behavior-student-grid > * { min-width: 0; }
+.behavior-empty-state { grid-column: 1 / -1; }
+.behavior-custom-trigger { min-height: 2.25rem; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; flex: 0 0 auto; padding: .38rem .68rem; color: #fff; background: linear-gradient(135deg, #c1553d, #a84434); border: 1px solid #c1553d; border-radius: .68rem; font-size: .69rem; font-weight: 850; white-space: nowrap; box-shadow: 0 5px 12px rgba(193,85,61,.16); transition: transform 160ms var(--ux-ease), box-shadow 160ms ease, background-color 160ms ease; }
+.behavior-custom-trigger:hover { background: #a84434; box-shadow: 0 8px 16px rgba(193,85,61,.22); transform: translateY(-1px); }
+.behavior-custom-trigger:active { transform: scale(.97); }
+.behavior-custom-modal-backdrop { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; overflow: auto; padding: 1rem; background: rgba(15,29,38,.52); backdrop-filter: blur(5px); }
+.behavior-custom-modal { width: min(100%, 32rem); overflow: hidden; color: #1b2430; background: #fff; border: 1px solid rgba(27,36,48,.1); border-radius: 1rem; box-shadow: 0 24px 70px rgba(15,29,38,.24); }
+.behavior-custom-modal__header { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; padding: .95rem 1.05rem .8rem; background: linear-gradient(135deg, rgba(193,85,61,.1), rgba(46,125,107,.06)); border-bottom: 1px solid rgba(27,36,48,.08); }
+.behavior-custom-modal__header > div > span { display: block; margin-bottom: .16rem; color: #c1553d; font-size: .65rem; font-weight: 850; }
+.behavior-custom-modal__header h3 { margin: 0; font-size: 1rem; font-weight: 850; }
+.behavior-custom-modal__close { width: 2rem; height: 2rem; display: grid; place-items: center; color: rgba(27,36,48,.58); background: rgba(255,255,255,.8); border: 1px solid rgba(27,36,48,.1); border-radius: .58rem; font-size: 1.2rem; line-height: 1; }
+.behavior-custom-modal__close:hover { color: #c1553d; border-color: rgba(193,85,61,.25); }
+.behavior-custom-modal__body { display: grid; gap: .75rem; padding: 1rem 1.05rem 1.05rem; }
+.behavior-modal-field { display: grid; gap: .3rem; min-width: 0; }
+.behavior-modal-field > span, .behavior-modal-icons > span { color: rgba(27,36,48,.56); font-size: .68rem; font-weight: 800; }
+.behavior-modal-field .input { min-height: 2.45rem; }
+.behavior-modal-row { display: grid; grid-template-columns: minmax(0, 1fr) 7rem; gap: .55rem; }
+.behavior-modal-icons { display: grid; gap: .35rem; }
+.behavior-modal-icons > div { display: flex; flex-wrap: wrap; gap: .35rem; }
+.behavior-modal-icon { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; color: rgba(27,36,48,.6); background: #fff; border: 1px solid rgba(27,36,48,.12); border-radius: .58rem; }
+.behavior-modal-icon:hover, .behavior-modal-icon.is-selected { color: #c1553d; background: rgba(193,85,61,.1); border-color: rgba(193,85,61,.42); }
+.behavior-modal-actions { display: flex; justify-content: flex-end; gap: .45rem; padding-top: .25rem; border-top: 1px solid rgba(27,36,48,.08); }
+.behavior-modal-actions button { min-height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; }
+@media (max-width: 760px) {
+  .behavior-students-scroll { max-height: min(58dvh, 32rem); }
+  .behavior-command-controls { align-items: stretch; }
+  .behavior-custom-trigger { order: -1; }
+}
+@media (max-width: 580px) {
+  .behavior-student-grid { grid-template-columns: 1fr; }
+  .behavior-custom-trigger { width: 100%; }
+  .behavior-command-controls { grid-template-columns: 1fr; }
+  .behavior-search-control, .behavior-select-control { grid-column: auto; }
+  .behavior-modal-row { grid-template-columns: 1fr 6.5rem; }
+}
