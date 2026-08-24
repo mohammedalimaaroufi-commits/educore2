@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { invalidateApiCache } from '../api/client';
 import { getTeacherId } from '../utils/localCache.js';
-import { getOrSyncSnapshot, getLastSync, queueMutation, scheduleBackgroundSync, flushOutbox, syncSnapshot } from '../utils/snapshotSync.js';
+import { getOrSyncSnapshot, getLastSync, queueMutation, scheduleBackgroundSync, syncTeacherData } from '../utils/snapshotSync.js';
 import { buildGradeMap, calculateAssessmentCoverage, getCategoryAssessments, getClassData, buildClassRoster } from '../utils/analyticsSelectors.js';
 import { saveSnapshot } from '../utils/localDb.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -188,6 +188,7 @@ export default function Dashboard() {
   const [expandedClasses, setExpandedClasses] = useState({});
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(0);
+  const [rejectedSyncCount, setRejectedSyncCount] = useState(0);
   const [draggedClassId, setDraggedClassId] = useState(null);
   const [dragOverClassId, setDragOverClassId] = useState(null);
   const classOrderSaveRef = useRef(Promise.resolve());
@@ -236,14 +237,15 @@ export default function Dashboard() {
     setSyncing(true);
     setSaveState('saving');
     try {
-      await flushOutbox(teacherId);
-      const result = await syncSnapshot(teacherId, { force: true });
-      const data = result?.snapshot;
+      const result = await syncTeacherData(teacherId);
+      const data = result?.snapshot?.snapshot;
       if (data) setClasses(orderClasses((data.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData)));
       const syncedAt = await getLastSync(teacherId);
       setLastSyncAt(syncedAt);
-      setSaveState(result?.skipped ? 'queued' : 'saved');
+      setRejectedSyncCount(Number(result?.rejected || 0));
+      setSaveState(result?.successful ? (result?.rejected ? 'limit' : 'saved') : 'queued');
     } catch {
+      setRejectedSyncCount(0);
       setSaveState('queued');
     } finally {
       setSyncing(false);
@@ -459,7 +461,7 @@ export default function Dashboard() {
         <section className="dashboard-overview-strip" aria-label={t('dashboardQuickStats')}>
           <article className="dashboard-stat-card dashboard-stat-card--classes"><span className="dashboard-stat-card__icon"><Icon name="reports" className="w-5 h-5" /></span><div><small>{t('classesTotal')}</small><strong>{classes.length}</strong></div></article>
           <article className="dashboard-stat-card dashboard-stat-card--students"><span className="dashboard-stat-card__icon"><Icon name="user" className="w-5 h-5" /></span><div><small>{t('studentsTotal')}</small><strong>{classes.reduce((total, item) => total + Number(item.student_count || 0), 0)}</strong></div></article>
-          <article className="dashboard-sync-card"><div><small>{lastSyncAt ? `${t('lastSync')}: ${new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt))}` : t('syncBackground')}</small><span>{saveState === 'saved' ? t('syncCompleted') : saveState === 'queued' ? t('syncFailed') : isOnline ? t('syncBackground') : t('continueOffline')}</span></div><button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={syncing}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? t('syncing') : t('syncNow')}</button></article>
+          <article className="dashboard-sync-card"><div><small>{lastSyncAt ? `${t('lastSync')}: ${new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt))}` : t('syncBackground')}</small><span>{saveState === 'saved' ? t('syncCompleted') : saveState === 'limit' ? t('syncCompletedWithRejected', '', { count: rejectedSyncCount }) : saveState === 'queued' ? t('syncFailed') : isOnline ? t('syncBackground') : t('continueOffline')}</span></div><button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={syncing}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? t('syncing') : t('syncNow')}</button></article>
         </section>
 
         <div className="dashboard-section-head">

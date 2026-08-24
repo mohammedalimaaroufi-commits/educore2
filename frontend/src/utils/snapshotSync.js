@@ -185,6 +185,16 @@ export function flushOutbox(teacherId) {
   return promise;
 }
 
+export async function syncTeacherData(teacherId) {
+  const outbox = await flushOutbox(teacherId);
+  const snapshot = await syncSnapshot(teacherId, { force: true });
+  return {
+    ...outbox,
+    snapshot,
+    successful: outbox.failed === 0 && !snapshot?.skipped && !snapshot?.fromLocal,
+  };
+}
+
 export function getSyncIntervalLabel(frequency, locale = 'ar', translate = null) {
   const key = { manual: 'onDemandOnly', daily: 'daily', weekly: 'weekly', monthly: 'monthly' }[frequency] || 'daily';
   if (typeof translate === 'function') return translate(key);

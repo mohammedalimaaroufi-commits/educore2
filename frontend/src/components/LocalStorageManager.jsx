@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatBytes, getTeacherLocalStats } from '../utils/localCache.js';
 import { clearTeacherDatabase, getLocalStats } from '../utils/localDb.js';
-import { getLastSync, getSyncIntervalLabel, getSyncSettings, saveSyncSettings, syncSnapshot } from '../utils/snapshotSync.js';
+import { getLastSync, getSyncIntervalLabel, getSyncSettings, saveSyncSettings, syncTeacherData } from '../utils/snapshotSync.js';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { useConfirmDialog } from './ConfirmDialog.jsx';
 
@@ -41,11 +41,18 @@ export default function LocalStorageManager() {
   const syncNow = async () => {
     if (!teacher?.id) return;
     setSyncing(true);
-    await syncSnapshot(teacher.id, { force: true });
-    await refreshStats();
-    setSyncing(false);
-    setMessage(t('teacherDataSynced'));
-    setTimeout(() => setMessage(''), 2500);
+    try {
+      const result = await syncTeacherData(teacher.id);
+      await refreshStats();
+      if (!result.successful) setMessage(t('syncFailed'));
+      else if (result.rejected > 0) setMessage(t('syncCompletedWithRejected', '', { count: result.rejected }));
+      else setMessage(t('teacherDataSynced'));
+    } catch {
+      setMessage(t('syncFailed'));
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setMessage(''), 2500);
+    }
   };
 
   const clearCache = async () => {
