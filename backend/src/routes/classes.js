@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -120,6 +121,22 @@ router.get('/archived', (req, res) => {
 router.post('/:id/restore', (req, res) => {
   const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
   if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
+
+  const limit = getActiveStudentLimit(req.teacherId);
+  const currentCount = getStudentCount(req.teacherId);
+  const classStudentCount = Number(db.prepare('SELECT COUNT(*) AS count FROM students WHERE class_id = ? AND archived = 0').get(cls.id)?.count || 0);
+  if (Number(cls.archived) === 1 && limit && currentCount + classStudentCount > limit.includedStudents) {
+    return res.status(409).json({
+      error: 'استعادة الصف ستتجاوز حد الطلاب في الباقة النشطة. أرشف أو احذف طلابًا أو رقِّ الباقة أولًا.',
+      code: 'STUDENT_LIMIT_REACHED',
+      current_count: currentCount,
+      included_students: limit.includedStudents,
+      requested_students: classStudentCount,
+      remaining: Math.max(0, limit.includedStudents - currentCount),
+      plan: limit.plan,
+    });
+  }
+
   db.prepare("UPDATE classes SET archived = 0, updated_at = datetime('now') WHERE id = ?").run(cls.id);
   res.json({ class: db.prepare('SELECT * FROM classes WHERE id = ?').get(cls.id) });
 });
@@ -249,19 +266,40 @@ router.delete('/:id', (req, res) => {
 // POST /api/classes/:id/transfer-student  { student_id, target_class_id, mode: 'move' | 'archive' }
 router.post('/:id/transfer-student', (req, res) => {
   const { student_id, target_class_id, mode } = req.body;
-  const student = db.prepare('SELECT * FROM students WHERE id = ? AND class_id = ?').get(student_id, req.params.id);
+  const student = db.prepare(`SELECT s.*, c.teacher_id, c.archived AS source_class_archived
+                             FROM students s JOIN classes c ON c.id = s.class_id
+                             WHERE s.id = ? AND s.class_id = ? AND c.teacher_id = ?`)
+    .get(student_id, req.params.id, req.teacherId);
   if (!student) return res.status(404).json({ error: 'الطالب غير موجود في هذا الصف' });
 
   if (mode === 'archive') {
-    db.prepare('UPDATE students SET archived = 1 WHERE id = ?').run(student_id);
+    db.prepare("UPDATE students SET archived = 1, updated_at = datetime('now') WHERE id = ?").run(student_id);
     return res.json({ success: true, mode: 'archived' });
   }
 
   const targetClass = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(target_class_id, req.teacherId);
   if (!targetClass) return res.status(404).json({ error: 'الصف الهدف غير موجود' });
 
+  // Moving from an archived class into an active class makes this student count toward the plan.
+  const movesIntoCountedPool = Number(student.archived) === 0 && Number(targetClass.archived) === 0;
+  const alreadyCounted = Number(student.archived) === 0 && Number(student.source_class_archived) === 0;
+  if (movesIntoCountedPool && !alreadyCounted) {
+    const limit = getActiveStudentLimit(req.teacherId);
+    const currentCount = getStudentCount(req.teacherId);
+    if (limit && currentCount >= limit.includedStudents) {
+      return res.status(409).json({
+        error: 'نقل الطالب سيتجاوز حد الطلاب في الباقة النشطة. أرشف أو احذف طالبًا أو رقِّ الباقة أولًا.',
+        code: 'STUDENT_LIMIT_REACHED',
+        current_count: currentCount,
+        included_students: limit.includedStudents,
+        remaining: 0,
+        plan: limit.plan,
+      });
+    }
+  }
+
   // Move student; behavior_logs & attendance stay linked to student_id (history preserved automatically)
-  db.prepare('UPDATE students SET class_id = ? WHERE id = ?').run(target_class_id, student_id);
+  db.prepare('UPDATE students SET class_id = ?, updated_at = datetime(\'now\') WHERE id = ?').run(target_class_id, student_id);
   res.json({ success: true, mode: 'moved' });
 });
 

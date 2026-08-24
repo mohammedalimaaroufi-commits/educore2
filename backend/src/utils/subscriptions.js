@@ -75,6 +75,26 @@ function isPaidPlanId(value) {
   return ['6_months', 'yearly', 'lifetime'].includes(normalizePlanId(value));
 }
 
+function subscriptionPeriodIsCurrent(subscription) {
+  if (!subscription || subscription.status !== 'active') return false;
+  // A malformed/missing end date must fail closed for student-cap enforcement:
+  // an active paid row still receives its plan limit until an administrator repairs it.
+  if (!subscription.current_period_end) return true;
+  const endTime = new Date(subscription.current_period_end).getTime();
+  return !Number.isFinite(endTime) || endTime > Date.now();
+}
+
+function getCurrentSubscription(teacherId, { paidOnly = false } = {}) {
+  if (!teacherId) return null;
+  const rows = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ?
+                           ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                                    datetime(COALESCE(updated_at, created_at)) DESC, id DESC`).all(teacherId);
+  const activeRows = rows.filter((row) => row.status === 'active');
+  const activePaid = activeRows.find((row) => isPaidPlanId(row.plan));
+  if (paidOnly) return activePaid || null;
+  return activePaid || activeRows[0] || rows[0] || null;
+}
+
 // Requests created by older frontends sometimes stored the visible plan title or
 // an offer id instead of the canonical plan id. Resolve those values at the
 // server boundary so approval remains safe and deterministic.
@@ -314,18 +334,10 @@ function getStudentCount(teacherId) {
 }
 
 function getActiveStudentLimit(teacherId) {
-  if (!teacherId) return null;
-  const subscription = db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ? AND status = 'active'
-                                    ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END,
-                                             datetime(COALESCE(updated_at, created_at)) DESC
-                                    LIMIT 1`).get(teacherId);
+  const subscription = getCurrentSubscription(teacherId, { paidOnly: true });
   const planId = normalizePlanId(subscription?.plan);
   const definition = planId && isPaidPlanId(planId) ? getPlanDefinition(planId) : null;
-  if (!subscription || !definition) return null;
-  if (subscription.current_period_end) {
-    const endTime = new Date(subscription.current_period_end).getTime();
-    if (Number.isFinite(endTime) && endTime <= Date.now()) return null;
-  }
+  if (!subscription || !definition || !subscriptionPeriodIsCurrent(subscription)) return null;
   return {
     plan: definition.id,
     includedStudents: definition.included_students,
@@ -415,6 +427,7 @@ module.exports = {
   getPublicPlans,
   getStudentCount,
   getActiveStudentLimit,
+  getCurrentSubscription,
   getStudentQuote,
   getPlanPricingQuote,
 };

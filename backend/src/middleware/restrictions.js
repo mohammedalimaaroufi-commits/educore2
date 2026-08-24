@@ -1,12 +1,9 @@
 const db = require('../db');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
+const { getCurrentSubscription: getSubscriptionForTeacher } = require('../utils/subscriptions');
 
 function getCurrentSubscription(teacherId) {
-  return db.prepare(`SELECT * FROM subscriptions WHERE teacher_id = ?
-    ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END,
-             CASE WHEN status = 'active' THEN 0 ELSE 1 END,
-             datetime(COALESCE(updated_at, created_at)) DESC
-    LIMIT 1`).get(teacherId);
+  return getSubscriptionForTeacher(teacherId);
 }
 
 function requireFeature(feature) {

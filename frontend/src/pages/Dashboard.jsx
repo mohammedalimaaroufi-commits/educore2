@@ -93,6 +93,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
   const { t } = useLocale();
   const [archived, setArchived] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -114,6 +115,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
   useEffect(() => { load(); }, []);
 
   const restore = async (id) => {
+    setFeedback('');
     const teacherId = getTeacherId();
     const snapshot = await getOrSyncSnapshot(teacherId);
     const nextSnapshot = {
@@ -124,12 +126,23 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
     await invalidateApiCache('/classes');
     await invalidateApiCache(`/classes/${id}`);
     await load();
-    onRestored?.();
     try {
       await api.post(`/classes/${id}/restore`);
       scheduleBackgroundSync(teacherId, { force: true, delayMs: 700 });
-    } catch {
+      onRestored?.();
+    } catch (error) {
+      if (error?.response?.data?.code === 'STUDENT_LIMIT_REACHED') {
+        // The server is authoritative: undo only this optimistic class change.
+        if (snapshot) await saveSnapshot(teacherId, snapshot);
+        await invalidateApiCache('/classes');
+        await invalidateApiCache(`/classes/${id}`);
+        setFeedback(t('studentCapacityReached'));
+        await load();
+        return;
+      }
+      // Preserve the local-first experience for an actual network outage.
       await queueMutation(teacherId, { method: 'POST', url: `/classes/${id}/restore` });
+      onRestored?.();
     }
   };
 
@@ -141,6 +154,7 @@ function ArchivedClassesPanel({ onClose, onRestored }) {
           <button className="text-ink/50 text-xl" onClick={onClose}>×</button>
         </div>
         <div className="p-5">
+          {feedback && <p className="student-capacity-warning mb-3" role="alert">{feedback}</p>}
           {loading ? (
             <p className="text-ink/50 text-sm">{t('appLoading')}</p>
           ) : archived.length === 0 ? (

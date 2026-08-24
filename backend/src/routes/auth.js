@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 require('dotenv').config();
 const { signToken, requireAuth } = require('../middleware/auth');
-const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription, getStudentCount, getStudentQuote, getPlanPricingQuote } = require('../utils/subscriptions');
+const { getTrialDays, getPublicPlans, getActiveOffers, getBasePrices, getPlanDefinitions, normalizePlanId, resolvePlanId, isPaidPlanId, repairPaidSubscriptionPeriod, reconcileApprovedSubscription, getStudentCount, getStudentQuote, getPlanPricingQuote, getCurrentSubscription } = require('../utils/subscriptions');
 const { getPublicConfig } = require('../utils/publicConfig');
 const { getEffectiveRestrictions } = require('../utils/restrictions');
 const { getAccountStatus, isAccountBlocked, accountStatusMessage } = require('../utils/accountStatus');
@@ -210,7 +210,7 @@ function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
-  const rawSub = db.prepare("SELECT * FROM subscriptions WHERE teacher_id = ? ORDER BY CASE WHEN plan IN ('6_months', 'yearly', 'lifetime') THEN 0 ELSE 1 END, CASE WHEN status = 'active' THEN 0 ELSE 1 END, datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1").get(req.teacherId);
+  const rawSub = getCurrentSubscription(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
   const periodReadySub = repairPaidSubscriptionPeriod(repairedSub);
   // Always return a concrete subscription, but only fall back to trial when there is no
