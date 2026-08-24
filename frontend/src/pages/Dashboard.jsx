@@ -14,7 +14,7 @@ import NotificationBell from '../components/NotificationBell.jsx';
 import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
 import { APP_NAME } from '../constants.js';
 
-const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86'];
+const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86', '#2C8D9A', '#B05C78', '#6B7280', '#D27A2E'];
 const EMPTY_FORM = { name: '', subject: '', academic_year: '', color: COLORS[0] };
 
 const VISUAL_LABELS = ['كتب وتعلّم', 'متابعة وتقدّم', 'نشاط وتطبيق'];
@@ -213,7 +213,7 @@ export default function Dashboard() {
     return matchesSearch && matchesSubject && matchesYear && matchesCompletion;
   });
 
-  const startAdd = () => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); };
+  const startAdd = () => { setForm({ ...EMPTY_FORM, subject: teacher?.subject || '' }); setEditingId(null); setShowForm(true); };
   const startEdit = (e, c) => {
     e.preventDefault(); e.stopPropagation();
     setForm({ name: c.name, subject: c.subject || '', academic_year: c.academic_year || '', color: c.color });
@@ -396,16 +396,18 @@ export default function Dashboard() {
         </section>
 
         {showForm && (
-          <form onSubmit={submit} className="surface-panel create-class-form">
-            <div className="create-class-form__heading"><div><span className="eyebrow">{t('setupNew')}</span><h3>{editingId ? t('editClass') : t('createClass')}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label={t('cancel')}>×</button></div>
-            <div className="create-class-form__grid">
-              <div><label className="label">{t('className')}</label><input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الصف الثامن - أ' : 'e.g. Grade 8 - A'} /></div>
-              <div><label className="label">{t('subject')}</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الرياضيات' : 'e.g. Mathematics'} /></div>
-              <div><label className="label">{t('academicYear')}</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
-              <div><label className="label">{t('accentColor')}</label><div className="color-picker">{COLORS.map((c) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`اختيار اللون ${c}`} />)}</div></div>
-            </div>
-            <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? t('saving') : editingId ? t('saveChanges') : t('createClass')}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>{t('cancel')}</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">{t('saved')}</span>}{saveState === 'queued' && <span className="save-feedback">{t('savedLocallyQueued')}</span>}</div>
-          </form>
+          <div className="create-class-modal-backdrop" role="presentation" onClick={() => { setShowForm(false); setEditingId(null); }}>
+            <form onSubmit={submit} className="surface-panel create-class-form create-class-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="create-class-form__heading"><div><span className="eyebrow">{t('setupNew')}</span><h3>{editingId ? t('editClass') : t('createClass')}</h3></div><button type="button" className="utility-icon" onClick={() => { setShowForm(false); setEditingId(null); }} aria-label={t('cancel')}>×</button></div>
+              <div className="create-class-form__grid">
+                <div><label className="label">{t('className')}</label><input className="input" required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الصف الثامن - أ' : 'e.g. Grade 8 - A'} /></div>
+                <div><label className="label">{t('subject')}</label><input className="input" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder={locale === 'ar' ? 'مثال: الرياضيات' : 'e.g. Mathematics'} /></div>
+                <div><label className="label">{t('academicYear')}</label><input className="input" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} placeholder="2025-2026" /></div>
+                <div><label className="label">{t('accentColor')}</label><div className="color-picker">{COLORS.map((c, index) => <button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className={`color-swatch ${form.color === c ? 'is-selected' : ''}`} style={{ background: c }} aria-label={`${locale === 'ar' ? 'اختيار اللون' : 'Choose color'} ${index + 1}`} title={`${locale === 'ar' ? 'اللون' : 'Color'} ${index + 1}`} />)}</div></div>
+              </div>
+              <div className="create-class-form__actions"><button className="btn-primary action-button" type="submit" disabled={saveState === 'saving'}>{saveState === 'saving' ? t('saving') : editingId ? t('saveChanges') : t('createClass')}</button><button className="btn-secondary action-button" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>{t('cancel')}</button>{saveState === 'saved' && <span className="save-feedback save-feedback--success">{t('saved')}</span>}{saveState === 'queued' && <span className="save-feedback">{t('savedLocallyQueued')}</span>}</div>
+            </form>
+          </div>
         )}
 
         {loading ? (

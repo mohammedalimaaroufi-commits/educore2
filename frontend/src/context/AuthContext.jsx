@@ -260,8 +260,11 @@ export function AuthProvider({ children }) {
     }
     resetSubscriptionState();
     setTeacher(data.teacher);
+    setLoading(false);
     writeStoredTeacher(data.teacher, rememberMe);
-    await refreshMe({ force: true });
+    // Do not block the first paint on the second auth/me request. The dashboard is
+    // local-first; refresh subscription/account details in the background.
+    void refreshMe({ force: true });
   };
 
   const register = async (payload) => {
@@ -270,6 +273,7 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem('educore_token');
     resetSubscriptionState();
     setTeacher(data.teacher);
+    setLoading(false);
     writeStoredTeacher(data.teacher, true);
     await refreshMe({ force: true });
   };
