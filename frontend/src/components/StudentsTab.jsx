@@ -66,6 +66,21 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
     load().catch(() => setLoading(false));
   }, [classId]);
 
+  useEffect(() => {
+    const handleSnapshotUpdated = (event) => {
+      const detail = event.detail;
+      if (!detail || detail.teacherId !== teacherId || !detail.snapshot) return;
+      setSnapshot(detail.snapshot);
+      setStudents(getClassData(detail.snapshot, classId).students);
+      if (detail.reason === 'student_limit') {
+        setFeedback(t('studentLimitReached'));
+        window.setTimeout(() => setFeedback(''), 2500);
+      }
+    };
+    window.addEventListener('educore:snapshot-updated', handleSnapshotUpdated);
+    return () => window.removeEventListener('educore:snapshot-updated', handleSnapshotUpdated);
+  }, [classId, teacherId, t]);
+
   const applySnapshot = (next) => {
     setSnapshot(next);
     setStudents(getClassData(next, classId).students);

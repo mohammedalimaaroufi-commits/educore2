@@ -136,24 +136,44 @@ export async function queueMutation(teacherId, operation) {
   return enqueueOutbox(teacherId, operation);
 }
 
+async function removeRejectedStudentFromSnapshot(teacherId, item) {
+  if (item?.method !== 'POST' || item?.url !== '/students' || !item?.data?.id) return;
+  const snapshot = await getSnapshot(teacherId);
+  if (!snapshot?.students || !Array.isArray(snapshot.students)) return;
+  const students = snapshot.students.filter((student) => student.id !== item.data.id);
+  if (students.length === snapshot.students.length) return;
+  const next = { ...snapshot, students };
+  await saveSnapshot(teacherId, next);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('educore:snapshot-updated', { detail: { teacherId, snapshot: next, reason: 'student_limit' } }));
+  }
+}
+
 async function performFlushOutbox(teacherId) {
-  if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0, failed: 0 };
+  if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0, failed: 0, rejected: 0 };
   const items = await listOutbox(teacherId);
   let sent = 0;
   let failed = 0;
+  let rejected = 0;
   for (const item of items) {
     try {
       await api.request({ method: item.method, url: item.url, data: item.data, params: item.params, timeout: 15_000 });
       await removeOutbox(item.id);
       sent += 1;
-    } catch {
+    } catch (error) {
+      if (error?.response?.data?.code === 'STUDENT_LIMIT_REACHED') {
+        await removeOutbox(item.id);
+        await removeRejectedStudentFromSnapshot(teacherId, item);
+        rejected += 1;
+        continue;
+      }
       failed += 1;
       await updateOutbox({ ...item, attempts: Number(item.attempts || 0) + 1, lastAttemptAt: Date.now() });
       break;
     }
   }
-  if (sent > 0) scheduleBackgroundSync(teacherId, { force: true, delayMs: 350 });
-  return { sent, failed };
+  if (sent > 0 || rejected > 0) scheduleBackgroundSync(teacherId, { force: true, delayMs: 350 });
+  return { sent, failed, rejected };
 }
 
 export function flushOutbox(teacherId) {
