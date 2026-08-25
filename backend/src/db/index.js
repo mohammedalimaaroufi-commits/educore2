@@ -444,9 +444,6 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_client ON teacher_space_posts(teacher_id, client_post_id);
-  CREATE INDEX IF NOT EXISTS idx_teacher_space_feed ON teacher_space_posts(status, language, resource_type, created_at);
-  CREATE INDEX IF NOT EXISTS idx_teacher_space_subject_feed ON teacher_space_posts(subject_key, status, resource_type, created_at);
 `);
 
 if (!hasColumn('teacher_space_posts', 'subject')) db.exec("ALTER TABLE teacher_space_posts ADD COLUMN subject TEXT NOT NULL DEFAULT ''");
@@ -463,6 +460,14 @@ if (legacySpacePosts.length) {
   const updateSpacePostSubject = db.prepare('UPDATE teacher_space_posts SET subject = ?, subject_key = ? WHERE id = ?');
   legacySpacePosts.forEach((row) => updateSpacePostSubject.run(String(row.subject || '').trim(), normalizeStoredSubject(row.subject), row.id));
 }
+
+// Create these only after additive columns exist. Existing Turso databases may
+// already have teacher_space_posts from the previous release without subject_key.
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_client ON teacher_space_posts(teacher_id, client_post_id);
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_feed ON teacher_space_posts(status, language, resource_type, created_at);
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_subject_feed ON teacher_space_posts(subject_key, status, resource_type, created_at);
+`);
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 
