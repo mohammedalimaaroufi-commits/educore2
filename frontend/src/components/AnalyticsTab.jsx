@@ -138,22 +138,22 @@ export default function AnalyticsTab({ classId }) {
   if (error && !snapshot) return <div className="card p-6 text-center text-danger">{error}<button className="btn-secondary text-sm mr-3" onClick={() => window.location.reload()}>{t('analyticsRetry')}</button></div>;
 
   return (
-    <div className="space-y-5">
+    <div className="analytics-workspace">
       <div className="analytics-kpi-grid">
         <div className="analytics-kpi"><span>{t('analyticsTotalStudents')}</span><strong>{analyticsKpis.students}</strong><small>{t('analyticsCurrentClass')}</small></div>
         <div className="analytics-kpi analytics-kpi--primary"><span>{t('analyticsAverageGrades')}</span><strong>{analyticsKpis.average === null ? '—' : `${analyticsKpis.average}%`}</strong><small>{t('analyticsGradedStudents')}</small></div>
         <div className="analytics-kpi analytics-kpi--accent"><span>{t('analyticsAverageAttendance')}</span><strong>{analyticsKpis.attendance === null ? '—' : `${analyticsKpis.attendance}%`}</strong><small>{t('analyticsAvailableRecords')}</small></div>
         <button type="button" className={`analytics-kpi analytics-kpi--danger text-right ${followUpOpen ? 'ring-2 ring-danger/20' : ''}`} onClick={() => setFollowUpOpen((open) => !open)}><span>{t('analyticsNeedsFollowUp')}</span><strong>{analyticsKpis.needsAttention}</strong><small>{t('analyticsFollowUpHint')}</small></button>
       </div>
-      {followUpOpen && <div className="card p-4 border-t-3 border-danger/70">
-        <div className="flex items-start justify-between gap-3 mb-3"><div><h3 className="font-bold">{t('analyticsFollowUpTitle')}</h3><p className="text-xs text-ink/50 mt-1">{t('analyticsFollowUpDescription')}</p></div><button type="button" className="btn-secondary text-xs" onClick={() => setFollowUpOpen(false)}>{t('close')}</button></div>
+      {followUpOpen && <div className="analytics-follow-up-card card p-4 border-t-3 border-danger/70">
+        <div className="analytics-panel-head flex items-start justify-between gap-3 mb-3"><div><h3 className="font-bold">{t('analyticsFollowUpTitle')}</h3><p className="text-xs text-ink/50 mt-1">{t('analyticsFollowUpDescription')}</p></div><button type="button" className="btn-secondary text-xs" onClick={() => setFollowUpOpen(false)}>{t('close')}</button></div>
         <FollowUpList rows={followUpRows} onOpenStudent={setDetailStudentId} locale={locale} settings={followUpSettings} t={t} />
       </div>}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="card p-4">
-        <h3 className="font-bold mb-1">{t('analyticsGradeDistribution')}</h3>
-        <p className="text-xs text-ink/50 mb-3">{t('analyticsGradeDistributionDescription')}</p>
-        <ResponsiveContainer width="100%" height={280}>
+      <div className="analytics-visual-grid">
+      <section className="analytics-panel analytics-panel--distribution card p-4">
+        <div className="analytics-panel-head"><h3 className="font-bold mb-1">{t('analyticsGradeDistribution')}</h3>
+        <p className="text-xs text-ink/50 mb-3">{t('analyticsGradeDistributionDescription')}</p></div>
+        <div className="analytics-chart-frame"><ResponsiveContainer width="100%" height={280}>
           <BarChart data={distribution} margin={{ top: 22, right: 14, left: 4, bottom: 12 }} barCategoryGap="22%">
             <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
             <XAxis dataKey="range" tick={{ fontSize: 12 }} />
@@ -161,12 +161,12 @@ export default function AnalyticsTab({ classId }) {
             <Tooltip />
             <Bar dataKey="count" fill="#2E7D6B" radius={[6, 6, 0, 0]} name={t('analyticsStudentCount')}><LabelList dataKey="count" position="top" formatter={(value) => `${value}`} fill="#1B2430" fontSize={12} fontWeight={700} /></Bar>
           </BarChart>
-        </ResponsiveContainer>
-      </div>
+        </ResponsiveContainer></div>
+      </section>
 
-      <div className="card p-4">
-        <h3 className="font-bold mb-1">{t('analyticsAverageByCategory')}</h3>
-        <p className="text-xs text-ink/50 mb-3">{t('analyticsAverageByCategoryDescription')}</p>
+      <section className="analytics-panel analytics-panel--category card p-4">
+        <div className="analytics-panel-head"><h3 className="font-bold mb-1">{t('analyticsAverageByCategory')}</h3>
+        <p className="text-xs text-ink/50 mb-3">{t('analyticsAverageByCategoryDescription')}</p></div>
         <div className="analytics-category-chart-shell" dir="ltr">
           <div className="analytics-category-labels" dir={locale === 'ar' ? 'rtl' : 'ltr'} aria-label={t('analyticsCategoryNames')}>
             {categoryAverages.map((category, index) => (
@@ -192,10 +192,10 @@ export default function AnalyticsTab({ classId }) {
             </ResponsiveContainer>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3">
+      <section className="analytics-panel analytics-panel--growth card p-4">
+        <div className="analytics-panel-head flex items-center justify-between mb-3">
           <h3 className="font-bold">{t('analyticsStudentGrowth')}</h3>
           <select className="input text-sm w-48" value={selectedStudent} onChange={(event) => loadGrowth(event.target.value)}>
             <option value="">{t('analyticsChooseStudent')}</option>
@@ -206,7 +206,7 @@ export default function AnalyticsTab({ classId }) {
           <p className="text-ink/50 text-sm">{t('analyticsChooseStudentHint')}</p>
         ) : (
           <>
-          <ResponsiveContainer width="100%" height={280}>
+          <div className="analytics-chart-frame"><ResponsiveContainer width="100%" height={280}>
             <LineChart data={growth} margin={{ top: 22, right: 22, left: 8, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" />
               <XAxis dataKey="index" tick={{ fontSize: 12 }} label={{ value: t('analyticsAssessments'), position: 'insideBottom', offset: -2, fontSize: 11 }} />
@@ -215,13 +215,13 @@ export default function AnalyticsTab({ classId }) {
               <Legend />
               <Line type="monotone" dataKey="percent" stroke="#E0A548" strokeWidth={3} dot={{ r: 4 }} name={t('analyticsPercentage')}><LabelList dataKey="percent" position="top" formatter={(value) => `${value}%`} fill="#1B2430" fontSize={10} fontWeight={700} /></Line>
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div>
           </>
         )}
-      </div>
+      </section>
 
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <section className="analytics-panel analytics-panel--summary card p-4">
+        <div className="analytics-panel-head flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold">{t('analyticsTermSummary')}</h3>
           <div className="flex flex-wrap gap-2">
             <div className="analytics-search"><span>⌕</span><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder={t('analyticsSearchStudent')} /></div>
@@ -235,7 +235,7 @@ export default function AnalyticsTab({ classId }) {
           </div>
         </div>
         <div className="mb-2 text-xs text-ink/50">{t('analyticsShowing', '', { visible: sortedRoster.length, total: roster.length })}</div>
-        <div className="table-scroll-sticky max-h-72">
+        <div className="analytics-table-scroll table-scroll-sticky max-h-72">
           <table className="table-head-sticky w-full text-sm">
             <thead><tr>
               <th className="text-right px-3 py-2">{t('analyticsStudent')}</th>
@@ -255,11 +255,11 @@ export default function AnalyticsTab({ classId }) {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="card p-4 lg:col-span-2">
-        <h3 className="font-bold mb-3">{t('analyticsAllStudentDetails')}</h3>
-        <p className="text-xs text-ink/50 mb-3">{t('analyticsAllStudentDetailsDescription')}</p>
+      <section className="analytics-panel analytics-panel--students card p-4">
+        <div className="analytics-panel-head"><h3 className="font-bold mb-3">{t('analyticsAllStudentDetails')}</h3>
+        <p className="text-xs text-ink/50 mb-3">{t('analyticsAllStudentDetailsDescription')}</p></div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
           {filteredRoster.map((row) => {
             const student = students.find((item) => item.id === row.student_id);
@@ -271,7 +271,7 @@ export default function AnalyticsTab({ classId }) {
             ) : null;
           })}
         </div>
-      </div>
+      </section>
 
       <StudentDetailModal studentId={detailStudentId} onClose={() => setDetailStudentId(null)} />
       </div>
