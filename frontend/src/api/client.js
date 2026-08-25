@@ -23,6 +23,7 @@ function canUseLocalCache(config = {}) {
   return method === 'get'
     && !url.startsWith('/admin')
     && !url.startsWith('/backup')
+    && !url.startsWith('/sync/snapshot')
     && !url.includes('/auth/public-config')
     && !url.includes('/payment-requests');
 }

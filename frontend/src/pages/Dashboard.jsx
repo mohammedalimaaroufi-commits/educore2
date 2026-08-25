@@ -212,10 +212,17 @@ export default function Dashboard() {
 
   const load = async () => {
     setLoading(true);
-    const data = await getOrSyncSnapshot(getTeacherId());
-    const indexes = buildSnapshotIndexes(data);
-    setClasses(orderClasses((data?.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(data, classData, indexes)));
-    setLoading(false);
+    try {
+      const data = await getOrSyncSnapshot(getTeacherId());
+      const safeData = data || { classes: [] };
+      const indexes = buildSnapshotIndexes(safeData);
+      setClasses(orderClasses((safeData.classes || []).filter((classData) => !classData.archived)).map((classData) => cardForClass(safeData, classData, indexes)));
+    } catch {
+      // Keep any already-rendered local classes visible if a storage read is interrupted.
+      setSaveState('queued');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

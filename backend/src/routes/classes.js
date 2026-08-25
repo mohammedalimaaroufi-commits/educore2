@@ -209,12 +209,15 @@ router.get('/', (req, res) => {
 
 // GET /api/classes/archived  -> list archived classes so the teacher can restore them
 router.get('/archived', (req, res) => {
-  const classes = db.prepare('SELECT * FROM classes WHERE teacher_id = ? AND archived = 1 ORDER BY updated_at DESC').all(req.teacherId);
-  const withCounts = classes.map((c) => {
-    const { count } = db.prepare('SELECT COUNT(*) as count FROM students WHERE class_id = ?').get(c.id);
-    return { ...c, student_count: count };
-  });
-  res.json({ classes: withCounts });
+  const classes = db.prepare(`
+    SELECT c.*, COUNT(s.id) AS student_count
+    FROM classes c
+    LEFT JOIN students s ON s.class_id = c.id
+    WHERE c.teacher_id = ? AND c.archived = 1
+    GROUP BY c.id
+    ORDER BY c.updated_at DESC
+  `).all(req.teacherId);
+  res.json({ classes });
 });
 
 // POST /api/classes/:id/restore  -> un-archive a class

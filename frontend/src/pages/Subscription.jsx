@@ -186,7 +186,18 @@ export default function Subscription() {
   const activationRef = useRef(null);
 
   useEffect(() => {
+    void refreshMe().catch(() => undefined);
+  }, [refreshMe]);
+
+  useEffect(() => {
     let active = true;
+    const lastNetworkRefreshRef = { current: 0 };
+    const canRefreshNetwork = () => {
+      const now = Date.now();
+      if (now - lastNetworkRefreshRef.current < 10_000) return false;
+      lastNetworkRefreshRef.current = now;
+      return true;
+    };
     const applyPlansResponse = (data) => {
       if (!active || !data) return;
       setPlans((data.plans || []).map((plan) => localizeDefaultPlan({ ...(FALLBACK_PLANS.find((item) => item.id === plan.id) || {}), ...plan }, t)));
@@ -224,17 +235,15 @@ export default function Subscription() {
     };
     void loadPlans();
     void loadPricing();
-    const timer = window.setInterval(() => { void loadPlans(); void loadPricing(); }, 30 * 1000);
-    const refreshPricing = () => { void loadPricing(); };
-    const onFocus = () => { void loadPlans({ force: true }); refreshPricing(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') { void loadPlans({ force: true }); refreshPricing(); } };
-    const onSubscriptionConfigUpdated = () => { void loadPlans({ force: true }); refreshPricing(); };
-    const onReconnect = () => { void loadPlans({ force: true }); refreshPricing(); };
+    const timer = window.setInterval(() => { void loadPlans(); void loadPricing(); }, 5 * 60 * 1000);
+    const onFocus = () => { if (!canRefreshNetwork()) return; void loadPlans({ force: true }); void loadPricing(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible' && canRefreshNetwork()) { void loadPlans({ force: true }); void loadPricing(); } };
+    const onSubscriptionConfigUpdated = () => { if (!canRefreshNetwork()) return; void loadPlans({ force: true }); void loadPricing(); };
+    const onReconnect = () => { if (!canRefreshNetwork()) return; void loadPlans({ force: true }); void loadPricing(); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
     const socket = connectSocket(readAuthToken(), { onReconnect });
     socket.on('subscription_config_updated', onSubscriptionConfigUpdated);
-    refreshMe({ force: true }).catch(() => undefined);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -243,7 +252,7 @@ export default function Subscription() {
       socket.off('subscription_config_updated', onSubscriptionConfigUpdated);
       releaseSocket(socket, { onReconnect });
     };
-  }, [refreshMe, t, locale]);
+  }, [t, locale]);
 
   const visiblePlans = useMemo(() => (plans.length ? plans : FALLBACK_PLANS).map((plan) => localizeDefaultPlan(plan, t)), [plans, t]);
   const selected = useMemo(() => visiblePlans.find((plan) => plan.id === selectedPlan), [visiblePlans, selectedPlan]);

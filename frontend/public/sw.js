@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const SHELL_CACHE = `educore-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `educore-runtime-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
@@ -38,16 +38,20 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
 
+  // Always let the browser receive the newest worker script. Runtime caches only
+  // contain web assets; teacher data stays in IndexedDB/localStorage and is never touched here.
+  if (url.pathname === '/sw.js') {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       const cached = await caches.match(request) || await caches.match('/');
-      const networkPromise = cacheNetworkResponse(request, RUNTIME_CACHE, cached);
-      if (cached) {
-        // Return the cached shell immediately; update it without delaying navigation.
-        event.waitUntil(networkPromise.then(() => undefined));
-        return cached;
-      }
-      return (await networkPromise) || Response.error();
+      // Prefer the current HTML when online so new hashed chunks are referenced
+      // immediately; use the cached shell only when the network is unavailable.
+      const networkResponse = await cacheNetworkResponse(request, RUNTIME_CACHE);
+      return networkResponse || cached || Response.error();
     })());
     return;
   }

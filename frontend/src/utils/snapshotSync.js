@@ -81,14 +81,16 @@ async function performSyncSnapshot(teacherId, { force = false } = {}) {
   if (!teacherId || typeof navigator !== 'undefined' && !navigator.onLine) {
     return { snapshot: local, fromLocal: true, skipped: true };
   }
+  const settings = await getSyncSettings();
+  // Do not scan the outbox when this scheduled check is not due. This is a
+  // frequent path when several tabs mount against the same local snapshot.
+  if (!force && !(await shouldSync(teacherId, settings))) {
+    return { snapshot: local, fromLocal: true, skipped: true };
+  }
   // Never let a server snapshot overwrite local mutations that are still waiting
   // in the outbox. The flush path schedules a fresh sync after the queue is sent.
   if ((await listOutbox(teacherId)).length > 0) {
     return { snapshot: local, fromLocal: true, skipped: true, pending: true };
-  }
-  const settings = await getSyncSettings();
-  if (!force && !(await shouldSync(teacherId, settings))) {
-    return { snapshot: local, fromLocal: true, skipped: true };
   }
   try {
     const { data } = await api.get('/sync/snapshot', { timeout: force ? 20_000 : 15_000 });

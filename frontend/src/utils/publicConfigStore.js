@@ -3,6 +3,8 @@ import { connectSocket, releaseSocket } from '../api/socket';
 import { readAuthToken } from './localCache.js';
 
 const PUBLIC_CONFIG_CACHE_KEY = 'educore:public-config:v1';
+const PUBLIC_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const PUBLIC_REFRESH_THROTTLE_MS = 10 * 1000;
 const EMPTY_STATE = { announcement: null, notifications: [], loaded: false, revision: 0, lastEvent: null };
 
 function readCachedConfig() {
@@ -26,6 +28,7 @@ let state = { ...EMPTY_STATE, ...cachedConfig, loaded: Boolean(cachedConfig), re
 let started = false;
 let refreshPromise = null;
 let refreshTimer = null;
+let lastRefreshAt = 0;
 let socket = null;
 const listeners = new Set();
 
@@ -34,8 +37,10 @@ function notify(next) {
   listeners.forEach((listener) => listener(state));
 }
 
-async function refresh() {
+async function refresh({ force = false } = {}) {
   if (refreshPromise) return refreshPromise;
+  if (!force && lastRefreshAt && Date.now() - lastRefreshAt < PUBLIC_REFRESH_THROTTLE_MS) return state;
+  lastRefreshAt = Date.now();
   refreshPromise = api.get('/auth/public-config')
     .then(({ data }) => {
       const next = { ...state, announcement: data?.announcement || null, notifications: Array.isArray(data?.notifications) ? data.notifications : [], loaded: true };
@@ -50,26 +55,27 @@ async function refresh() {
 
 function handlePublicConfigUpdated(payload = {}) {
   notify({ ...state, revision: state.revision + 1, lastEvent: { ...payload, received_at: Date.now() } });
-  void refresh();
+  void refresh({ force: true });
 }
 
 function start() {
   if (started) return;
   started = true;
-  void refresh();
-  refreshTimer = window.setInterval(() => { void refresh(); }, 30 * 1000);
+  void refresh({ force: true });
+  refreshTimer = window.setInterval(() => { void refresh(); }, PUBLIC_REFRESH_INTERVAL_MS);
   const onFocus = () => { void refresh(); };
   const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
   window.addEventListener('focus', onFocus);
   document.addEventListener('visibilitychange', onVisibility);
-  socket = connectSocket(readAuthToken(), { onReconnect: refresh });
+  const onReconnect = () => refresh({ force: true });
+  socket = connectSocket(readAuthToken(), { onReconnect });
   socket?.on('public_config_updated', handlePublicConfigUpdated);
   socketCleanup = () => {
     window.clearInterval(refreshTimer);
     window.removeEventListener('focus', onFocus);
     document.removeEventListener('visibilitychange', onVisibility);
     socket?.off('public_config_updated', handlePublicConfigUpdated);
-    releaseSocket(socket, { onReconnect: refresh });
+    releaseSocket(socket, { onReconnect });
     socket = null;
     socketCleanup = null;
     state = { ...state, lastEvent: null };
@@ -98,6 +104,6 @@ export function subscribePublicConfig(listener) {
   };
 }
 
-export function refreshPublicConfig() {
-  return refresh();
+export function refreshPublicConfig(options = {}) {
+  return refresh(options);
 }

@@ -53,11 +53,13 @@ export default function ClassDetail() {
         setCls(local?.classes?.find((item) => item.id === id) || null);
         setLoading(false);
       }
-      try {
-        const { data } = await api.get(`/classes/${id}`);
-        if (active && data.class) setCls(data.class);
-      } catch {
-        // The local snapshot remains the source for offline navigation.
+      if (!local?.classes?.some((item) => item.id === id)) {
+        try {
+          const { data } = await api.get(`/classes/${id}`);
+          if (active && data.class) setCls(data.class);
+        } catch {
+          // The local snapshot remains the source for offline navigation.
+        }
       }
     };
     load();

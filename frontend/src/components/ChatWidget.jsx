@@ -59,7 +59,7 @@ export default function ChatWidget() {
         historyRequestRef.current = api.get('/messages')
           .then(({ data }) => {
             historyFetchedAtRef.current = Date.now();
-            setMessages(freshMessages(data.messages));
+            setMessages((current) => freshMessages(data.messages).reduce(mergeMessageList, freshMessages(current)));
           })
           .catch(() => undefined)
           .finally(() => { historyRequestRef.current = null; });
