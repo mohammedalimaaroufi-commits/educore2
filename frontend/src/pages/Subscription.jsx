@@ -134,6 +134,9 @@ function SubscriptionDetailsCard() {
   const currentStatusLabel = expired ? t('statusExpired') : statusLabel(subscriptionInfo.status, t);
   const planTitle = currentPlanTitle(plan, subscriptionInfo.planTitle, t);
   const offerTitle = subscriptionInfo.offerTitle || subscriptionInfo.offer_title || null;
+  const studentLimit = Number(subscriptionInfo.studentLimit ?? subscriptionInfo.includedStudents ?? subscriptionInfo.student_limit ?? subscriptionInfo.included_students);
+  const hasStudentLimit = Number.isFinite(studentLimit) && studentLimit > 0;
+  const studentCount = Math.max(0, Number(subscriptionInfo.studentCount ?? 0));
 
   return (
     <section className="subscription-current-card">
@@ -146,6 +149,7 @@ function SubscriptionDetailsCard() {
           <div><span>{t('plan')}</span><strong>{planTitle}</strong></div>
           {offerTitle && <div><span>{t('offerLabel')}</span><strong>{offerTitle}</strong></div>}
           {subscriptionInfo.amount !== null && subscriptionInfo.amount !== undefined && <div><span>{t('paidAmount')}</span><strong>{omrWithEquivalent(subscriptionInfo.amount, locale)}</strong></div>}
+          <div><span>{t('studentCapacity')}</span><strong>{hasStudentLimit ? t('studentCapacityStatus', '', { current: studentCount, limit: studentLimit }) : t('studentCapacityUnavailable')}</strong></div>
         </div>
         <div className="subscription-details-grid">
           <div><p>{t('activatedAt')}</p><strong>{formatDate(startDate, locale)}</strong></div>
@@ -376,7 +380,18 @@ export default function Subscription() {
           <div className="subscription-current-summary">
             <span>{t('currentStatus')}</span>
             <strong>{currentPlanTitle(subscriptionInfo?.plan || subscription?.plan, subscriptionInfo?.planTitle, t)}</strong>
-            <small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small>
+            <small>{(() => {
+              const currentPlan = canonicalPlanForUi(subscriptionInfo?.plan || subscription?.plan);
+              if (currentPlan === 'trial') return t('defaultTrial', '', { days: trialDays });
+              if (currentPlan === 'lifetime') return t('unlimitedAccess');
+              const start = validDateValue(subscriptionInfo?.currentPeriodStart || subscriptionInfo?.startDate);
+              const end = validDateValue(subscriptionInfo?.currentPeriodEnd || subscriptionInfo?.endDate);
+              if (start && end) {
+                const durationDays = Math.max(1, Math.round((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)));
+                return t('planValidity', '', { days: durationDays });
+              }
+              return statusLabel(subscriptionInfo?.status || subscription?.status, t);
+            })()}</small>
           </div>
         </CompactPageHeader>
       </div>

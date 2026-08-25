@@ -252,14 +252,17 @@ router.get('/me', requireAuth, (req, res) => {
         .run(presentationPlan, paidStart, paidEnd, new Date().toISOString(), sub.id);
       presentedSub = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(sub.id) || { ...sub, plan: presentationPlan, status: 'active', trial_start_date: null, trial_end_date: null, current_period_start: paidStart, current_period_end: paidEnd };
     }
+    const effectivePlan = resolvePlanId(presentedSub.plan, { definitions: getPlanDefinitions() }) || presentationPlan || 'trial';
     const activeStudentLimit = getActiveStudentLimit(req.teacherId);
-    const startDate = presentedSub.plan === 'trial' ? presentedSub.trial_start_date : presentedSub.current_period_start;
-    const endDate = presentedSub.plan === 'trial' ? presentedSub.trial_end_date : presentedSub.current_period_end;
+    const startDate = effectivePlan === 'trial' ? presentedSub.trial_start_date : presentedSub.current_period_start;
+    const endDate = effectivePlan === 'trial' ? presentedSub.trial_end_date : presentedSub.current_period_end;
     const daysLeft = endDate ? Math.ceil((new Date(endDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+    const effectivePresentation = getSubscriptionPresentation(req.teacherId, presentedSub);
     subscriptionInfo = {
-      ...getSubscriptionPresentation(req.teacherId, presentedSub),
+      ...effectivePresentation,
       subscriptionId: presentedSub.id,
-      plan: presentedSub.plan,
+      plan: effectivePlan,
+      planTitle: effectivePresentation.plan === effectivePlan ? effectivePresentation.planTitle : getPlanDefinitions().find((definition) => definition.id === effectivePlan)?.title || effectivePlan,
       status: presentedSub.status,
       startDate,
       endDate, // null for lifetime -> no expiry
@@ -273,8 +276,8 @@ router.get('/me', requireAuth, (req, res) => {
       // The trial is a real capped plan too: it carries the fixed 80-student
       // limit from getActiveStudentLimit, while paid plans use their definition.
       includedStudents: activeStudentLimit?.includedStudents
-        || (isPaidPlanId(presentedSub.plan)
-          ? getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students
+        || (isPaidPlanId(effectivePlan)
+          ? getPlanDefinitions().find((definition) => definition.id === normalizePlanId(effectivePlan))?.included_students
           : null)
         || null,
       // Explicitly expose the limit computed from the active subscription. The
@@ -286,7 +289,7 @@ router.get('/me', requireAuth, (req, res) => {
 
   const restrictions = getEffectiveRestrictions(req.teacherId, presentedSub);
   if (subscriptionInfo) subscriptionInfo.restrictions = restrictions;
-  res.json({ teacher, subscription: presentedSub, trialInfo: presentedSub?.plan === 'trial' ? trialInfo : null, subscriptionInfo, restrictions });
+  res.json({ teacher, subscription: presentedSub, trialInfo: subscriptionInfo?.plan === 'trial' ? trialInfo : null, subscriptionInfo, restrictions });
 });
 
 // Package prices in OMR (Omani Rial). Activation is manual: the teacher transfers the amount

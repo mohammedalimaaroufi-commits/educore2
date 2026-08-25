@@ -29,6 +29,7 @@ function readInitialSession() {
 }
 
 const VALID_SUBSCRIPTION_PLANS = new Set(['trial', '6_months', 'yearly', 'lifetime']);
+const TRIAL_STUDENT_LIMIT = 80;
 const PAID_PLAN_DURATIONS = { '6_months': 182, yearly: 365, lifetime: null };
 const PLAN_ALIASES = {
   annual: 'yearly', year: 'yearly', '12_months': 'yearly', '12-months': 'yearly',
@@ -84,6 +85,19 @@ function normalizeSubscriptionSession(data) {
   const effectiveEndDate = effectivePlan !== 'trial' && effectiveDuration !== undefined && effectiveDuration !== null && startDate
     ? addDays(startDate, effectiveDuration)
     : effectivePlan === 'lifetime' ? null : endDate;
+  const suppliedLimit = suppliedInfo.studentLimit
+    ?? suppliedInfo.student_limit
+    ?? suppliedInfo.includedStudents
+    ?? suppliedInfo.included_students;
+  const numericSuppliedLimit = Number(suppliedLimit);
+  // Trial capacity is a product rule, not cached/admin-editable metadata.
+  // Paid plans keep the server-provided/admin-configured value and fail closed
+  // when it is absent rather than borrowing the trial limit.
+  const normalizedStudentLimit = effectivePlan === 'trial'
+    ? TRIAL_STUDENT_LIMIT
+    : Number.isFinite(numericSuppliedLimit) && numericSuppliedLimit > 0 ? numericSuppliedLimit : null;
+  const suppliedTitlePlan = canonicalPlan(suppliedInfo.planTitle);
+  const normalizedPlanTitle = suppliedTitlePlan && suppliedTitlePlan !== effectivePlan ? null : suppliedInfo.planTitle;
   const subscription = {
     ...(rawSubscription || {}),
     plan: effectivePlan,
@@ -93,11 +107,16 @@ function normalizeSubscriptionSession(data) {
   const subscriptionInfo = {
     ...suppliedInfo,
     plan: effectivePlan,
+    planTitle: normalizedPlanTitle,
     status: suppliedInfo.status || subscription.status || 'active',
     startDate,
     endDate: effectiveEndDate,
     currentPeriodStart: effectivePlan !== 'trial' ? startDate : suppliedInfo.currentPeriodStart,
     currentPeriodEnd: effectivePlan !== 'trial' ? effectiveEndDate : suppliedInfo.currentPeriodEnd,
+    includedStudents: normalizedStudentLimit,
+    included_students: normalizedStudentLimit,
+    studentLimit: normalizedStudentLimit,
+    student_limit: normalizedStudentLimit,
     daysLeft: effectiveEndDate ? Math.ceil((new Date(effectiveEndDate) - new Date()) / (1000 * 60 * 60 * 24)) : null,
     expired: effectiveEndDate ? Math.ceil((new Date(effectiveEndDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 0 : false,
   };
