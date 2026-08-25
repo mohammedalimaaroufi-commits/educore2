@@ -270,13 +270,15 @@ router.get('/me', requireAuth, (req, res) => {
       daysLeft, // null for lifetime
       expired: daysLeft !== null && daysLeft <= 0,
       studentCount: getStudentCount(req.teacherId),
-      includedStudents: isPaidPlanId(presentedSub.plan)
-        ? activeStudentLimit?.includedStudents
-          || getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students
-          || null
-        : null,
-      // Explicitly expose the limit computed from the active paid row. The separate
-      // field lets clients fail closed when an older cached auth payload lacks it.
+      // The trial is a real capped plan too: it carries the fixed 80-student
+      // limit from getActiveStudentLimit, while paid plans use their definition.
+      includedStudents: activeStudentLimit?.includedStudents
+        || (isPaidPlanId(presentedSub.plan)
+          ? getPlanDefinitions().find((definition) => definition.id === normalizePlanId(presentedSub.plan))?.included_students
+          : null)
+        || null,
+      // Explicitly expose the limit computed from the active subscription. The
+      // separate field lets clients fail closed when an older cached auth payload lacks it.
       studentLimit: activeStudentLimit?.includedStudents || null,
       studentLimitPlan: activeStudentLimit?.plan || null,
     };

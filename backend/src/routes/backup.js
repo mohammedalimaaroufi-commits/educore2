@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -80,6 +81,27 @@ router.post('/import', (req, res) => {
 
   const teacherId = req.teacherId;
   const counts = { classes: 0, students: 0, grades: 0, behaviorLogs: 0, attendanceRecords: 0 };
+  const activeLimit = getActiveStudentLimit(teacherId);
+  if (activeLimit) {
+    const existingIds = new Set(db.prepare(`SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?`).all(teacherId).map((row) => row.id));
+    const backupClassIds = new Set((backup.classes || []).filter((cls) => Number(cls.archived) !== 1).map((cls) => cls.id));
+    const incomingActiveStudents = (backup.classes || []).reduce((total, cls) => {
+      if (!backupClassIds.has(cls.id)) return total;
+      return total + (cls.students || []).filter((student) => Number(student.archived) !== 1 && !existingIds.has(student.id)).length;
+    }, 0);
+    const currentStudentCount = getStudentCount(teacherId);
+    if (currentStudentCount + incomingActiveStudents > activeLimit.includedStudents) {
+      return res.status(409).json({
+        error: 'استيراد النسخة الاحتياطية سيتجاوز حد الطلاب في الباقة النشطة.',
+        code: 'STUDENT_LIMIT_REACHED',
+        current_count: currentStudentCount,
+        included_students: activeLimit.includedStudents,
+        requested_students: incomingActiveStudents,
+        remaining: Math.max(0, activeLimit.includedStudents - currentStudentCount),
+        plan: activeLimit.plan,
+      });
+    }
+  }
 
   const restore = db.transaction(() => {
     (backup.classes || []).forEach((cls) => {

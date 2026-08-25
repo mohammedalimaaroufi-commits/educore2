@@ -23,6 +23,7 @@ const EMPTY_FORM = {
 };
 
 const localId = () => `student-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const TRIAL_STUDENT_LIMIT = 80;
 
 function apiError(error, t, locale, fallbackKey) {
   return localizeApiError(error, t, locale, fallbackKey);
@@ -48,18 +49,22 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
   const localActiveStudentCount = snapshot
     ? (snapshot.students || []).filter((student) => !student.archived && activeClassIds.has(student.class_id)).length
     : Number(subscriptionInfo?.studentCount || 0);
-  const isPaidPlan = Boolean(subscriptionInfo?.plan && subscriptionInfo.plan !== 'trial');
-  const limitValue = subscriptionInfo?.studentLimit
-    ?? subscriptionInfo?.student_limit
-    ?? subscriptionInfo?.includedStudents
-    ?? subscriptionInfo?.included_students;
+  const isTrialPlan = subscriptionInfo?.plan === 'trial';
+  const isPaidPlan = Boolean(subscriptionInfo?.plan && !isTrialPlan);
+  const isCappedPlan = isTrialPlan || isPaidPlan;
+  const limitValue = isTrialPlan
+    ? (subscriptionInfo?.studentLimit ?? subscriptionInfo?.student_limit ?? subscriptionInfo?.includedStudents ?? subscriptionInfo?.included_students ?? TRIAL_STUDENT_LIMIT)
+    : (subscriptionInfo?.studentLimit
+      ?? subscriptionInfo?.student_limit
+      ?? subscriptionInfo?.includedStudents
+      ?? subscriptionInfo?.included_students);
   const numericPlanLimit = Number(limitValue);
-  const planLimit = isPaidPlan && Number.isFinite(numericPlanLimit) && numericPlanLimit > 0 ? numericPlanLimit : null;
+  const planLimit = isCappedPlan && Number.isFinite(numericPlanLimit) && numericPlanLimit > 0 ? numericPlanLimit : null;
   const hasStudentLimit = planLimit !== null;
   const remainingSlots = hasStudentLimit ? Math.max(0, planLimit - localActiveStudentCount) : null;
-  // Never interpret a paid plan with a missing limit as unlimited. Disable all
+  // Never interpret a capped plan with a missing limit as unlimited. Disable all
   // creation/import/restore paths until the server sends a valid capacity.
-  const hasReachedStudentLimit = isPaidPlan && (!hasStudentLimit || remainingSlots <= 0);
+  const hasReachedStudentLimit = isCappedPlan && (!hasStudentLimit || remainingSlots <= 0);
   const archivedStudents = snapshot
     ? (snapshot.students || []).filter((student) => Number(student.archived) === 1 && student.class_id === classId)
     : [];
@@ -327,7 +332,7 @@ export default function StudentsTab({ classId, subscriptionInfo }) {
 
       <div className={`student-capacity-banner ${hasReachedStudentLimit ? 'is-full' : ''}`} role="status">
         <span className="student-capacity-banner__icon"><Icon name={hasReachedStudentLimit ? 'lock' : 'user'} className="w-4 h-4" /></span>
-        <div><strong>{hasStudentLimit ? t('studentCapacityStatus', '', { current: localActiveStudentCount, limit: planLimit }) : isPaidPlan ? t('studentCapacityUnavailable') : t('studentCapacityUnlimited')}</strong><small>{hasStudentLimit ? (hasReachedStudentLimit ? t('studentCapacityReached') : t('studentCapacityRemaining', '', { count: remainingSlots })) : isPaidPlan ? t('studentCapacityUnavailableHint') : t('studentCapacity')}</small></div>
+        <div><strong>{hasStudentLimit ? t('studentCapacityStatus', '', { current: localActiveStudentCount, limit: planLimit }) : isCappedPlan ? t('studentCapacityUnavailable') : t('studentCapacityUnlimited')}</strong><small>{hasStudentLimit ? (hasReachedStudentLimit ? t('studentCapacityReached') : t('studentCapacityRemaining', '', { count: remainingSlots })) : isCappedPlan ? t('studentCapacityUnavailableHint') : t('studentCapacity')}</small></div>
       </div>
 
       {showArchivedStudents && <section className="students-archive-panel card mb-4" aria-labelledby="archived-students-title">

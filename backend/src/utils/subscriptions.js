@@ -10,6 +10,7 @@ const DEFAULT_PLAN_DEFINITIONS = [
 const PLAN_PRICES_OMR = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.base_price_omr]));
 const PLAN_DURATIONS_DAYS = Object.fromEntries(DEFAULT_PLAN_DEFINITIONS.map((plan) => [plan.id, plan.duration_days]));
 const PLAN_SETTINGS_KEY = 'subscription_plans';
+const TRIAL_INCLUDED_STUDENTS = 80;
 
 // Historical clients and imported rows used several aliases for the same plans.
 // Keep one canonical ID in storage and normalize at every request boundary.
@@ -80,11 +81,13 @@ function isPaidPlanId(value) {
 
 function subscriptionPeriodIsCurrent(subscription) {
   if (!subscription || subscription.status !== 'active') return false;
-  // A malformed/missing end date must fail closed for student-cap enforcement:
-  // an active paid row still receives its plan limit until an administrator repairs it.
-  if (!subscription.current_period_end) return true;
-  const endTime = new Date(subscription.current_period_end).getTime();
-  return !Number.isFinite(endTime) || endTime > Date.now();
+  const planId = normalizePlanId(subscription.plan);
+  const endDate = planId === 'trial' ? subscription.trial_end_date : subscription.current_period_end;
+  // A malformed/missing end date fails closed for trial enforcement. For legacy
+  // paid rows, preserve the existing safe behavior until an administrator repairs it.
+  if (!endDate) return planId !== 'trial';
+  const endTime = new Date(endDate).getTime();
+  return Number.isFinite(endTime) && endTime > Date.now();
 }
 
 function getCurrentSubscription(teacherId, { paidOnly = false } = {}) {
@@ -344,10 +347,26 @@ function getStudentCount(teacherId) {
 }
 
 function getActiveStudentLimit(teacherId) {
-  const subscription = getCurrentSubscription(teacherId, { paidOnly: true });
+  let subscription = getCurrentSubscription(teacherId);
   const planId = normalizePlanId(subscription?.plan);
+  if (!subscription) return null;
+  if (planId === 'trial' && subscription.status === 'active' && (!subscription.trial_start_date || !subscription.trial_end_date)) {
+    const startDate = subscription.trial_start_date || subscription.created_at || subscription.updated_at || new Date().toISOString();
+    const endDate = subscription.trial_end_date || addDays(startDate, getTrialDays());
+    db.prepare(`UPDATE subscriptions SET trial_start_date = ?, trial_end_date = ?, updated_at = ? WHERE id = ?`)
+      .run(startDate, endDate, new Date().toISOString(), subscription.id);
+    subscription = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscription.id);
+  }
+  if (!subscriptionPeriodIsCurrent(subscription)) return null;
+  if (planId === 'trial') {
+    return {
+      plan: 'trial',
+      includedStudents: TRIAL_INCLUDED_STUDENTS,
+      subscriptionId: subscription.id,
+    };
+  }
   const definition = planId && isPaidPlanId(planId) ? getPlanDefinition(planId) : null;
-  if (!subscription || !definition || !subscriptionPeriodIsCurrent(subscription)) return null;
+  if (!definition) return null;
   return {
     plan: definition.id,
     includedStudents: definition.included_students,
@@ -419,6 +438,7 @@ function getPublicPlans() {
 
 module.exports = {
   DEFAULT_PLAN_DEFINITIONS,
+  TRIAL_INCLUDED_STUDENTS,
   PLAN_PRICES_OMR,
   PLAN_DURATIONS_DAYS,
   getSetting,
