@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import api from '../api/client';
 import TrialBanner from '../components/TrialBanner.jsx';
 import LoadingOverlay from '../components/LoadingOverlay.jsx';
@@ -13,6 +13,7 @@ import { getTeacherId } from '../utils/localCache.js';
 import { getOrSyncSnapshot } from '../utils/snapshotSync.js';
 import { buildSnapshotIndexes, getClassData } from '../utils/analyticsSelectors.js';
 import Icon from '../components/Icon.jsx';
+import CompactPageHeader from '../components/CompactPageHeader.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -80,12 +81,24 @@ export default function ClassDetail() {
   return (
     <div className="class-page-shell" dir={direction}>
       <div className="class-page-fixed-header">
-        <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {t('backToClasses')}</Link></div>
         {loading && !cls && <LoadingOverlay label={t('openingClassLocally')} />}
-        {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>
-          <div className="class-page-header__visual"><div className="class-page-header__context"><span className="class-page-header__eyebrow">{t('classWorkspace')}</span><span className="class-page-header__context-dot" aria-hidden="true" /></div><h1>{cls.name}</h1><p>{cls.subject || t('subjectNotSpecified')} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
-          <div className="class-page-header__side"><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{t('studentUnit')}</small></span><span><strong>{categoriesCount}</strong><small>{t('categoryUnit')}</small></span><span><strong>{assessmentsCount}</strong><small>{t('assessmentUnit')}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{t('attendanceSessionUnit')}</small></span></div></div>
-        </header>}
+        {cls && <CompactPageHeader
+          backTo="/"
+          backLabel={t('backToClasses')}
+          backIcon={isArabic ? 'arrowRight' : 'arrowLeft'}
+          eyebrow={t('classWorkspace')}
+          title={cls.name}
+          subtitle={`${cls.subject || t('subjectNotSpecified')}${cls.academic_year ? ` • ${cls.academic_year}` : ''}`}
+          className="compact-page-header--class"
+          style={{ '--class-accent': cls.color || '#2E7D6B' }}
+        >
+          <div className="compact-page-header__stats" aria-label={t('classSections')}>
+            <span><strong>{studentsCount}</strong><small>{t('studentUnit')}</small></span>
+            <span><strong>{categoriesCount}</strong><small>{t('categoryUnit')}</small></span>
+            <span><strong>{assessmentsCount}</strong><small>{t('assessmentUnit')}</small></span>
+            <span><strong>{attendanceSessionsCount}</strong><small>{t('attendanceSessionUnit')}</small></span>
+          </div>
+        </CompactPageHeader>}
         <TrialBanner />
         {blockedFeatures.size > 0 && <div className="class-page-restriction-banner" role="status"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{[...blockedFeatures].map((feature) => t(RESTRICTION_LABELS[feature] || feature)).join(' · ')}</small></div>}
         <nav className="class-tabs" aria-label={t('classSections')}>{visibleTabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-selected={tab === item.id} className={`class-tab ${tab === item.id ? 'is-active' : ''}`}><Icon name={item.icon} className="w-4 h-4" /><span>{t(item.key)}</span></button>)}</nav>

@@ -4,6 +4,8 @@ import adminApi from '../api/adminClient';
 import { connectSocket, releaseSocket } from '../api/socket';
 import { useLocale } from '../context/LocaleContext.jsx';
 import AdminPublicConfig from '../components/AdminPublicConfig.jsx';
+import CompactPageHeader from '../components/CompactPageHeader.jsx';
+import Icon from '../components/Icon.jsx';
 import { useConfirmDialog, useTextDialog } from '../components/ConfirmDialog.jsx';
 import { omrWithEquivalent } from '../constants.js';
 import { localizeApiError } from '../utils/apiError.js';
@@ -749,7 +751,22 @@ export default function AdminDashboard() {
   return (
     <div className="admin-page-shell">
       <div className="admin-page-fixed-header">
-        <header className="admin-page-hero"><div className="admin-page-hero__brand"><div className="brand-mark brand-mark--image"><img src="/educore-logo.webp" alt="EduCore" /></div><div><span className="admin-eyebrow">{t('adminCenter')}</span><h1>{t('adminDashboard')}</h1><p>{t('adminDescription')}</p></div></div><div className="admin-hero-stamp"><span>ADMIN</span><small>EduCore control room</small></div><button className="btn-secondary text-sm admin-logout" onClick={logout}>{t('accountLogout')}</button></header>
+        <CompactPageHeader
+          eyebrow={t('adminCenter')}
+          title={t('adminDashboard')}
+          subtitle={t('adminDescription')}
+          className="compact-page-header--admin"
+        >
+          <button
+            type="button"
+            className="compact-icon-action admin-logout"
+            onClick={logout}
+            aria-label={t('accountLogout')}
+            title={t('accountLogout')}
+          >
+            <Icon name="logout" className="w-[1.1rem] h-[1.1rem]" aria-hidden="true" />
+          </button>
+        </CompactPageHeader>
         <nav className="admin-tabs" aria-label={t('adminSections')}>
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>{t('activationRequests')}</button>
           <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>{t('allTeachers')}</button>

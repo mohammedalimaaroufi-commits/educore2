@@ -2,7 +2,7 @@ import {
   Star, Heart, Check, Trophy, ThumbsUp, Flag,
   Clock, AlertTriangle, X, ThumbsDown, VolumeX, Frown,
   FileCheck, Camera, User, MessageCircle, Send, Archive, RotateCcw, Image as ImageIcon,
-  Search, ChevronUp, ChevronDown, Settings, LogOut, CreditCard, Bell, Filter, RefreshCw, BarChart3, FileText, LockKeyhole, Smartphone, Globe2, ShieldCheck, Pencil, Trash2, ExternalLink, GripVertical,
+  Search, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Settings, LogOut, CreditCard, Bell, Filter, RefreshCw, BarChart3, FileText, LockKeyhole, Smartphone, Globe2, ShieldCheck, Pencil, Trash2, ExternalLink, GripVertical,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -10,7 +10,7 @@ const ICON_MAP = {
   clock: Clock, alert: AlertTriangle, x: X, thumbsDown: ThumbsDown, volumeX: VolumeX, frown: Frown,
   fileCheck: FileCheck, camera: Camera, user: User, messageCircle: MessageCircle, send: Send,
   archive: Archive, restore: RotateCcw, image: ImageIcon,
-  search: Search, chevronUp: ChevronUp, chevronDown: ChevronDown,
+  search: Search, chevronUp: ChevronUp, chevronDown: ChevronDown, arrowLeft: ArrowLeft, arrowRight: ArrowRight,
   settings: Settings, logout: LogOut, subscription: CreditCard, bell: Bell, filter: Filter, refresh: RefreshCw, analytics: BarChart3, reports: FileText,
   lock: LockKeyhole, android: Smartphone, web: Globe2, secure: ShieldCheck, edit: Pencil, trash: Trash2, externalLink: ExternalLink, grip: GripVertical,
 };

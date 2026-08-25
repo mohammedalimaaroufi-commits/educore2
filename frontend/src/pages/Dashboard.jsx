@@ -10,6 +10,7 @@ import { useLocale } from '../context/LocaleContext.jsx';
 import TrialBanner from '../components/TrialBanner.jsx';
 import LoadingOverlay from '../components/LoadingOverlay.jsx';
 import Icon from '../components/Icon.jsx';
+import CompactPageHeader from '../components/CompactPageHeader.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
 import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
 
@@ -466,17 +467,17 @@ export default function Dashboard() {
       </div>
 
       <main className="dashboard-content">
-        <section className="dashboard-hero">
-          <div>
-            <span className="eyebrow">{t('teacherBoard')}</span>
-            <h1>{t('smartRecord')}</h1>
-            <p>{t('helloTeacher', '', { name: teacher?.full_name || t('teacherFallback') })}</p>
+        <CompactPageHeader
+          eyebrow={t('teacherBoard')}
+          title={t('smartRecord')}
+          subtitle={t('helloTeacher', '', { name: teacher?.full_name || t('teacherFallback') })}
+          className="compact-page-header--dashboard"
+        >
+          <div className="compact-page-header__sync" role="status">
+            <span className="compact-page-header__sync-mark" aria-hidden="true">✓</span>
+            <span><strong>{t('localDataSaved')}</strong><small>{isOnline ? t('syncBackground') : t('continueOffline')}</small></span>
           </div>
-          <div className="hero-note">
-            <span className="hero-note__mark">✓</span>
-            <div><strong>{t('localDataSaved')}</strong><span>{isOnline ? t('syncBackground') : t('continueOffline')}</span></div>
-          </div>
-        </section>
+        </CompactPageHeader>
 
         <TrialBanner />
 

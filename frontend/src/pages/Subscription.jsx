@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api, { getLocalFirst } from '../api/client';
+import CompactPageHeader from '../components/CompactPageHeader.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { omrWithEquivalent } from '../constants.js';
 import { resizeImageFile } from '../utils/image.js';
@@ -354,9 +354,22 @@ export default function Subscription() {
   return (
     <div className="subscription-page-shell">
       <div className="subscription-page-fixed-header">
-        <div className="subscription-page-topline"><Link to="/" className="subscription-back">← {t('backToDashboard')}</Link><span className="subscription-local-note">{t('secureLocalNote')}</span></div>
-        <header className="subscription-page-hero"><div><span className="subscription-eyebrow">{t('subscriptionJourney')}</span><h1>{t('subscription')}</h1><p>{t('subscriptionDescription')}</p></div><div className="subscription-hero-orbit"><span>Edu<br />Core</span></div></header>
-        <div className="subscription-current-summary"><span>{t('currentStatus')}</span><strong>{currentPlanTitle(subscriptionInfo?.plan || subscription?.plan, subscriptionInfo?.planTitle, t)}</strong><small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small></div>
+        <CompactPageHeader
+          backTo="/"
+          backLabel={t('backToDashboard')}
+          backIcon={locale === 'ar' ? 'arrowRight' : 'arrowLeft'}
+          eyebrow={t('subscriptionJourney')}
+          title={t('subscription')}
+          subtitle={t('subscriptionDescription')}
+          className="compact-page-header--subscription"
+        >
+          <span className="compact-page-header__badge">{t('secureLocalNote')}</span>
+          <div className="subscription-current-summary">
+            <span>{t('currentStatus')}</span>
+            <strong>{currentPlanTitle(subscriptionInfo?.plan || subscription?.plan, subscriptionInfo?.planTitle, t)}</strong>
+            <small>{subscriptionInfo?.plan === 'trial' ? t('defaultTrial', '', { days: trialDays }) : statusLabel(subscriptionInfo?.status || subscription?.status, t)}</small>
+          </div>
+        </CompactPageHeader>
       </div>
       <main className="subscription-page-content">
         <SubscriptionDetailsCard />

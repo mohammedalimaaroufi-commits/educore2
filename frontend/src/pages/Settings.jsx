@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api, { getLocalFirst, invalidateApiCache } from '../api/client';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
@@ -7,6 +6,7 @@ import { getTeacherId, readProfileDraft, removeProfileDraft, savePendingProfile,
 import { queueMutation } from '../utils/snapshotSync.js';
 import { readSettingsCache, writeSettingsCache } from '../utils/settingsCache.js';
 import SchemesManager from '../components/SchemesManager.jsx';
+import CompactPageHeader from '../components/CompactPageHeader.jsx';
 import BehaviorTemplateManager from '../components/BehaviorTemplateManager.jsx';
 import BackupManager from '../components/BackupManager.jsx';
 import LocalStorageManager from '../components/LocalStorageManager.jsx';
@@ -323,8 +323,22 @@ export default function Settings() {
   return (
     <div className="settings-page-shell">
       <div className="settings-page-fixed-header">
-        <div className="settings-page-topline"><Link to="/" className="settings-back">← {t('backToDashboard')}</Link><span className="settings-local-badge">{t('localAutoSync')}</span></div>
-        <header className="settings-page-hero"><div><span className="settings-eyebrow">{t('settingsCustomization')}</span><h1>{t('generalSettings')}</h1><p>{t('settingsDescription')}</p></div><div className="settings-hero-grid"><span>01<small>{t('profile')}</small></span><span>02<small>{t('gradeTemplates')}</small></span><span>03<small>{t('backup')}</small></span></div></header>
+        <CompactPageHeader
+          backTo="/"
+          backLabel={t('backToDashboard')}
+          backIcon={locale === 'ar' ? 'arrowRight' : 'arrowLeft'}
+          eyebrow={t('settingsCustomization')}
+          title={t('generalSettings')}
+          subtitle={t('settingsDescription')}
+          className="compact-page-header--settings"
+        >
+          <span className="compact-page-header__badge">{t('localAutoSync')}</span>
+          <div className="compact-page-header__markers" aria-label={t('settings')}>
+            <span><strong>01</strong><small>{t('profile')}</small></span>
+            <span><strong>02</strong><small>{t('gradeTemplates')}</small></span>
+            <span><strong>03</strong><small>{t('backup')}</small></span>
+          </div>
+        </CompactPageHeader>
         <nav className="settings-tabs" aria-label={t('settings')}>
           {TABS.map((tabItem) => (
             <button key={tabItem.id} type="button" onClick={() => setTab(tabItem.id)}
