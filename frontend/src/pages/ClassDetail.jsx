@@ -80,11 +80,11 @@ export default function ClassDetail() {
   return (
     <div className="class-page-shell" dir={direction}>
       <div className="class-page-fixed-header">
-        <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {t('backToClasses')}</Link><span className="class-page-status"><span className="class-page-status__dot" /> {t('localDataSaved')}</span></div>
+        <div className="class-page-topline"><Link to="/" className="class-page-back"><span>{isArabic ? '→' : '←'}</span> {t('backToClasses')}</Link></div>
         {loading && !cls && <LoadingOverlay label={t('openingClassLocally')} />}
         {cls && <header className="class-page-header" style={{ '--class-accent': cls.color || '#2E7D6B' }}>
           <div className="class-page-header__visual"><div className="class-page-header__context"><span className="class-page-header__eyebrow">{t('classWorkspace')}</span><span className="class-page-header__context-dot" aria-hidden="true" /></div><h1>{cls.name}</h1><p>{cls.subject || t('subjectNotSpecified')} {cls.academic_year ? `• ${cls.academic_year}` : ''}</p></div>
-          <div className="class-page-header__side"><span className="class-page-header__tag">{t('dailyManagement')}</span><p>{t('classDescription')}</p><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{t('studentUnit')}</small></span><span><strong>{categoriesCount}</strong><small>{t('categoryUnit')}</small></span><span><strong>{assessmentsCount}</strong><small>{t('assessmentUnit')}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{t('attendanceSessionUnit')}</small></span></div></div>
+          <div className="class-page-header__side"><div className="class-page-mini-stats"><span><strong>{studentsCount}</strong><small>{t('studentUnit')}</small></span><span><strong>{categoriesCount}</strong><small>{t('categoryUnit')}</small></span><span><strong>{assessmentsCount}</strong><small>{t('assessmentUnit')}</small></span><span><strong>{attendanceSessionsCount}</strong><small>{t('attendanceSessionUnit')}</small></span></div></div>
         </header>}
         <TrialBanner />
         {blockedFeatures.size > 0 && <div className="class-page-restriction-banner" role="status"><strong>{t('restrictionsTitle')}</strong><span>{t('restrictionsNotice')}</span><small>{[...blockedFeatures].map((feature) => t(RESTRICTION_LABELS[feature] || feature)).join(' · ')}</small></div>}

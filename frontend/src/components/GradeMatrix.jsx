@@ -500,7 +500,6 @@ export default function GradeMatrix({ classId, className, viewOptions = {}, onAc
   return (
     <div>
       {confirmDialog}
-      <div className="gradebook-local-strip print:hidden"><span>{savedKey ? `${t('savedLocally')} ✓` : t('localDataSaved')}</span><span>{t('horizontalHint')}</span></div>
       {quickEntryOpen && quickSelection && quickStudent && <div className="quick-grade-backdrop" role="presentation">
         <section className="quick-grade-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-grade-title" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
           <header className="quick-grade-dialog__header">

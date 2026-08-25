@@ -40,7 +40,12 @@ function ensureTrialSubscription(teacherId, rawSub = null) {
       .run(now, teacherId, purchased.id);
     return repairPaidSubscriptionPeriod(purchased);
   }
-  const trialStart = rawSub?.trial_start_date || now;
+  // Never restart an existing trial from the current request time. For legacy rows
+  // missing only the start, derive it from the first durable timestamp before using now.
+  const trialStart = rawSub?.trial_start_date
+    || rawSub?.created_at
+    || rawSub?.updated_at
+    || now;
   const trialEnd = rawSub?.trial_end_date || addDays(trialStart, getTrialDays());
   const hasLegacyTrialShape = rawSub?.trial_end_date && !rawSub.current_period_start && !rawSub.current_period_end;
 
@@ -52,7 +57,7 @@ function ensureTrialSubscription(teacherId, rawSub = null) {
 
   const shouldRepair = !rawSub
     || !VALID_PLANS.has(canonicalPlan)
-    || (canonicalPlan === 'trial' && !rawSub.trial_end_date)
+    || (canonicalPlan === 'trial' && (!rawSub.trial_start_date || !rawSub.trial_end_date))
     || (canonicalPlan === 'lifetime' && hasLegacyTrialShape);
 
   if (!shouldRepair) return rawSub;
