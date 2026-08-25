@@ -13,6 +13,7 @@ import Icon from '../components/Icon.jsx';
 import CompactPageHeader from '../components/CompactPageHeader.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
 import { useConfirmDialog } from '../components/ConfirmDialog.jsx';
+import TeacherSpace from '../components/TeacherSpace.jsx';
 
 const COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86', '#2C8D9A', '#B05C78', '#6B7280', '#D27A2E'];
 const EMPTY_FORM = { name: '', subject: '', academic_year: '', color: COLORS[0] };
@@ -614,6 +615,8 @@ export default function Dashboard() {
             })}
           </div>
         )}
+
+        <TeacherSpace />
       </main>
 
       {showArchived && <ArchivedClassesPanel onClose={() => setShowArchived(false)} onRestored={load} />}

@@ -423,6 +423,29 @@ db.exec(`UPDATE assessments SET max_score = (
     .run(GRADE_DATA_MIGRATION_KEY, '1');
 }
 
+// Shared teacher resources are intentionally separate from the private teacher snapshot.
+// Only metadata and an external URL are stored here; file bytes must not bloat Turso/SQLite.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS teacher_space_posts (
+    id TEXT PRIMARY KEY,
+    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    client_post_id TEXT,
+    resource_type TEXT NOT NULL DEFAULT 'link',
+    language TEXT NOT NULL DEFAULT 'ar',
+    title TEXT NOT NULL,
+    description TEXT,
+    resource_url TEXT NOT NULL,
+    file_name TEXT,
+    mime_type TEXT,
+    file_size INTEGER,
+    status TEXT NOT NULL DEFAULT 'published',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_client ON teacher_space_posts(teacher_id, client_post_id);
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_feed ON teacher_space_posts(status, language, resource_type, created_at);
+`);
+
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 
 // ------------------------------------------------------------------

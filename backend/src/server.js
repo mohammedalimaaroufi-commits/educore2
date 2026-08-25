@@ -41,6 +41,7 @@ const messagesRoutes = require('./routes/messages');
 
 const backupRoutes = require('./routes/backup');
 const syncRoutes = require('./routes/sync');
+const teacherSpaceRoutes = require('./routes/teacherSpace');
 
 
 
@@ -89,6 +90,7 @@ app.use('/api/messages', messagesRoutes);
 
 app.use('/api/backup', backupRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/teacher-space', teacherSpaceRoutes);
 
 
 
@@ -224,6 +226,7 @@ io.on('connection', (socket) => {
 
   if (socket.user.id) {
     socket.join(`chat:${socket.user.id}`);
+    socket.join('teacher-space');
     if (addTeacherPresence(socket.user.id, socket.id)) {
       io.to('admin').emit('teacher_presence', { teacher_id: socket.user.id, online: true, updated_at: new Date().toISOString() });
     }

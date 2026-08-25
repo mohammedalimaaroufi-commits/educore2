@@ -299,7 +299,7 @@ router.delete('/teachers/:teacherId', (req, res) => {
     db.prepare('DELETE FROM classes WHERE teacher_id = ?').run(teacherId);
     db.prepare('DELETE FROM grading_scheme_categories WHERE scheme_id IN (SELECT id FROM grading_schemes WHERE teacher_id = ?)').run(teacherId);
     db.prepare('DELETE FROM grading_schemes WHERE teacher_id = ?').run(teacherId);
-    for (const table of ['subscriptions', 'comment_templates', 'payment_requests', 'grade_recommendation_rules', 'messages', 'password_resets', 'password_reset_requests', 'behavior_type_templates']) {
+    for (const table of ['subscriptions', 'comment_templates', 'payment_requests', 'grade_recommendation_rules', 'messages', 'password_resets', 'password_reset_requests', 'behavior_type_templates', 'teacher_space_posts']) {
       db.prepare(`DELETE FROM ${table} WHERE teacher_id = ?`).run(teacherId);
     }
     db.prepare('DELETE FROM app_settings WHERE key IN (?, ?)').run(`teacher_restrictions:${teacherId}`, `teacher_account_status:${teacherId}`);
