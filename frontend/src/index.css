@@ -2044,3 +2044,17 @@ button, input, select, textarea { font-family: inherit; }
   .reports-filter-count { width: 100%; margin-inline-start: 0; }
   .reports-student-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Admin refresh control: compact, explicit, and safe for active-tab refreshes. */
+.admin-header-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: .45rem; flex-wrap: wrap; }
+.admin-sync-action { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 2.15rem; padding: .42rem .65rem; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.24); border-radius: .65rem; font-size: .68rem; font-weight: 800; white-space: nowrap; transition: background 160ms ease-out, transform 160ms ease-out, border-color 160ms ease-out; }
+.admin-sync-action:hover:not(:disabled) { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.4); transform: translateY(-1px); }
+.admin-sync-action:active:not(:disabled) { transform: scale(.97); }
+.admin-sync-action:focus-visible { outline: 2px solid #e0a548; outline-offset: 2px; }
+.admin-sync-action:disabled { cursor: wait; opacity: .72; }
+.admin-page-fixed-header .compact-page-header__aside { min-width: 0; }
+@media (max-width: 760px) {
+  .admin-header-actions { width: 100%; justify-content: space-between; }
+  .admin-sync-action { flex: 1 1 auto; }
+  .admin-page-fixed-header .compact-page-header__aside { width: 100%; }
+}

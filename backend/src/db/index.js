@@ -447,6 +447,7 @@ CREATE INDEX IF NOT EXISTS idx_attendance_records_student ON attendance_records(
 CREATE INDEX IF NOT EXISTS idx_grading_scheme_categories_scheme ON grading_scheme_categories(scheme_id);
 CREATE INDEX IF NOT EXISTS idx_comment_templates_teacher ON comment_templates(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_payment_requests_teacher ON payment_requests(teacher_id, status);
+CREATE INDEX IF NOT EXISTS idx_payment_requests_approved_latest ON payment_requests(status, teacher_id, reviewed_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_grade_recommendation_rules_teacher ON grade_recommendation_rules(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_messages_teacher ON messages(teacher_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(teacher_id, sender, read_by_admin, created_at);
@@ -454,6 +455,7 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_status ON password_reset_requests(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_app_settings_key ON app_settings(key);
 CREATE INDEX IF NOT EXISTS idx_subscription_offers_plan ON subscription_offers(plan, enabled, starts_at, ends_at);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_teacher_current ON subscriptions(teacher_id, status, updated_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_behavior_type_templates_teacher ON behavior_type_templates(teacher_id);
 `);
 

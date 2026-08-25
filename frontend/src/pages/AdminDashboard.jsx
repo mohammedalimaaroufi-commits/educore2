@@ -106,7 +106,7 @@ function mergeChatMessage(current, incoming) {
   return next;
 }
 
-function PaymentRequests() {
+function PaymentRequests({ refreshKey = 0 }) {
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const { askText, textDialog } = useTextDialog();
@@ -124,7 +124,7 @@ function PaymentRequests() {
     });
     setRequests(data.requests);
   };
-  useEffect(() => { load(); }, [statusFilter, showArchived]);
+  useEffect(() => { load(); }, [statusFilter, showArchived, refreshKey]);
   const filteredRequests = requests.filter((request) => {
     const term = search.trim().toLowerCase();
     if (!term) return true;
@@ -391,12 +391,12 @@ function StudentLimitsConfig() {
   </section>;
 }
 
-function PasswordResetRequests() {
+function PasswordResetRequests({ refreshKey = 0 }) {
   const { t, locale } = useLocale();
   const [requests, setRequests] = useState([]);
   const [generated, setGenerated] = useState(null);
   const load = async () => { const { data } = await adminApi.get('/admin/password-reset-requests', { params: { status: 'pending' } }); setRequests(data.requests || []); };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [refreshKey]);
   const generate = async (id) => {
     const { data } = await adminApi.post(`/admin/password-reset-requests/${id}/generate-link`, {});
     setGenerated(data);
@@ -411,7 +411,7 @@ function PasswordResetRequests() {
   </div>;
 }
 
-function TeachersList({ onMessage }) {
+function TeachersList({ onMessage, refreshKey = 0 }) {
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [teachers, setTeachers] = useState([]);
@@ -431,7 +431,7 @@ function TeachersList({ onMessage }) {
         setLoadError(localizeApiError(error, t, locale, 'loadTeachersFailed'));
       });
     return () => { mounted = false; };
-  }, [locale, reloadKey]);
+  }, [locale, reloadKey, refreshKey]);
   const updateAccountStatus = async (teacher, status) => {
     const key = teacher.id + ':' + status;
     setActionBusy(key);
@@ -608,7 +608,7 @@ function BroadcastComposer({ onSent }) {
   );
 }
 
-function ChatPanel({ initialTeacher }) {
+function ChatPanel({ initialTeacher, refreshKey = 0 }) {
   const { t, locale } = useLocale();
   const [conversations, setConversations] = useState([]);
   const [presence, setPresence] = useState({});
@@ -667,6 +667,9 @@ function ChatPanel({ initialTeacher }) {
   useEffect(() => {
     if (initialTeacher) setActive(initialTeacher);
   }, [initialTeacher]);
+  useEffect(() => {
+    if (refreshKey > 0) void loadConversations();
+  }, [refreshKey]);
   useEffect(() => {
     if (!active) return;
     adminApi.get(`/admin/messages/${active.teacher_id}`).then(({ data }) => setMessages(freshChatMessages(data.messages)));
@@ -735,6 +738,8 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('requests');
   const [chatTarget, setChatTarget] = useState(null);
+  const [syncRevision, setSyncRevision] = useState(0);
+  const [syncing, setSyncing] = useState(false);
   const { t, locale } = useLocale();
 
   useEffect(() => {
@@ -748,6 +753,13 @@ export default function AdminDashboard() {
     setTab('chat');
   };
 
+  const syncCurrentSection = () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncRevision((value) => value + 1);
+    window.setTimeout(() => setSyncing(false), 900);
+  };
+
   return (
     <div className="admin-page-shell">
       <div className="admin-page-fixed-header">
@@ -757,6 +769,18 @@ export default function AdminDashboard() {
           subtitle={t('adminDescription')}
           className="compact-page-header--admin"
         >
+          <div className="admin-header-actions">
+            <button
+              type="button"
+              className="admin-sync-action"
+              onClick={syncCurrentSection}
+              disabled={syncing}
+              aria-label={t('syncNow')}
+              title={t('syncNow')}
+            >
+              <Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span>{syncing ? t('syncing') : t('syncNow')}</span>
+            </button>
           <button
             type="button"
             className="compact-icon-action admin-logout"
@@ -766,6 +790,7 @@ export default function AdminDashboard() {
           >
             <Icon name="logout" className="w-[1.1rem] h-[1.1rem]" aria-hidden="true" />
           </button>
+          </div>
         </CompactPageHeader>
         <nav className="admin-tabs" aria-label={t('adminSections')}>
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>{t('activationRequests')}</button>
@@ -781,16 +806,16 @@ export default function AdminDashboard() {
         </nav>
       </div>
       <main className="admin-page-content">
-        {tab === 'requests' && <PaymentRequests />}
-        {tab === 'teachers' && <TeachersList onMessage={goToChat} />}
+        {tab === 'requests' && <PaymentRequests refreshKey={syncRevision} />}
+        {tab === 'teachers' && <TeachersList onMessage={goToChat} refreshKey={syncRevision} />}
         {tab === 'restrictions' && <RestrictionsTab />}
         {tab === 'subscriptions' && <SubscriptionConfig />}
         {tab === 'studentLimits' && <StudentLimitsConfig />}
         {tab === 'payment' && <AdminPublicConfig section="payment" />}
         {tab === 'announcement' && <AdminPublicConfig section="announcement" />}
         {tab === 'notifications' && <AdminPublicConfig section="notifications" />}
-        {tab === 'passwords' && <PasswordResetRequests />}
-        {tab === 'chat' && <ChatPanel initialTeacher={chatTarget} />}
+        {tab === 'passwords' && <PasswordResetRequests refreshKey={syncRevision} />}
+        {tab === 'chat' && <ChatPanel initialTeacher={chatTarget} refreshKey={syncRevision} />}
       </main>
     </div>
   );
