@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api, { getLocalFirst } from '../api/client';
 import Icon from './Icon.jsx';
 import { useConfirmDialog } from './ConfirmDialog.jsx';
@@ -15,6 +16,10 @@ const EMPTY_FORM = { resource_type: 'link', title: '', description: '', resource
 
 function makeClientPostId() {
   return `space-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeSubject(value) {
+  return String(value || '').normalize('NFKC').replace(/[\u064B-\u065F\u0670]/g, '').trim().toLocaleLowerCase('en-US').replace(/^ال/u, '').replace(/\s+/g, ' ');
 }
 
 function pendingPostsFor(teacherId) {
@@ -44,7 +49,8 @@ export default function TeacherSpace() {
   const { t, locale, direction } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
   const teacherId = getTeacherId();
-  const [posts, setPosts] = useState(() => pendingPostsFor(teacherId));
+  const currentSubjectKey = normalizeSubject(teacher?.subject);
+  const [posts, setPosts] = useState(() => pendingPostsFor(teacherId).filter((post) => normalizeSubject(post.subject || post.subject_key) === currentSubjectKey));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -54,14 +60,21 @@ export default function TeacherSpace() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [subjectRequired, setSubjectRequired] = useState(false);
   const requestIdRef = useRef(0);
 
   const applyPosts = (remotePosts) => {
     const remote = Array.isArray(remotePosts) ? remotePosts : [];
     const remoteKeys = new Set(remote.flatMap((post) => [post.id, post.client_post_id].filter(Boolean)));
-    const pending = pendingPostsFor(teacherId).filter((post) => !remoteKeys.has(post.id) && !remoteKeys.has(post.client_post_id));
-    persistPendingPosts(teacherId, pending);
+    const allPending = pendingPostsFor(teacherId).filter((post) => !remoteKeys.has(post.id) && !remoteKeys.has(post.client_post_id));
+    const pending = allPending.filter((post) => normalizeSubject(post.subject || post.subject_key) === currentSubjectKey);
+    persistPendingPosts(teacherId, allPending);
     setPosts(mergePosts(remote, pending));
+  };
+
+  const applyResponse = (data) => {
+    setSubjectRequired(Boolean(data?.subject_required));
+    applyPosts(data?.posts || []);
   };
 
   const load = async ({ force = false } = {}) => {
@@ -70,13 +83,13 @@ export default function TeacherSpace() {
     setRefreshing(true);
     try {
       const response = force
-        ? await api.get('/teacher-space', { params: { search, type: typeFilter === 'all' ? undefined : typeFilter, language: 'all' } })
-        : await getLocalFirst('/teacher-space', { params: { search, type: typeFilter === 'all' ? undefined : typeFilter, language: 'all' } });
+        ? await api.get('/teacher-space', { params: { search, type: typeFilter === 'all' ? undefined : typeFilter, language: 'all', subject_key: currentSubjectKey } })
+        : await getLocalFirst('/teacher-space', { params: { search, type: typeFilter === 'all' ? undefined : typeFilter, language: 'all', subject_key: currentSubjectKey } });
       if (requestId !== requestIdRef.current) return;
-      applyPosts(response.data?.posts || []);
+      applyResponse(response.data);
       if (response.fromLocalCache) {
         void response.revalidatePromise?.then((freshResponse) => {
-          if (requestId === requestIdRef.current) applyPosts(freshResponse?.data?.posts || []);
+          if (requestId === requestIdRef.current) applyResponse(freshResponse?.data || {});
         });
       }
       setError('');
@@ -93,7 +106,7 @@ export default function TeacherSpace() {
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, search.trim() ? 250 : 0);
     return () => window.clearTimeout(timer);
-  }, [search, typeFilter, locale]);
+  }, [search, typeFilter, locale, teacher?.subject]);
 
   useEffect(() => {
     const token = readAuthToken();
@@ -126,9 +139,15 @@ export default function TeacherSpace() {
       return;
     }
     const clientPostId = makeClientPostId();
+    if (!currentSubjectKey) {
+      setFeedback(t('teacherSpaceSubjectRequired'));
+      return;
+    }
     const payload = {
       resource_type: form.resource_type,
       language: locale,
+      subject: teacher?.subject || '',
+      subject_key: currentSubjectKey,
       title,
       description: form.description.trim(),
       resource_url: resourceUrl,
@@ -197,9 +216,9 @@ export default function TeacherSpace() {
       <div className="teacher-space__header">
         <div className="teacher-space__identity">
           <span className="teacher-space__mark"><Icon name="users" className="w-5 h-5" /></span>
-          <div><span className="eyebrow">{t('teacherSpaceEyebrow')}</span><h2 id="teacher-space-title">{t('teacherSpaceTitle')}</h2><p>{t('teacherSpaceDescription')}</p></div>
+          <div><span className="eyebrow">{t('teacherSpaceEyebrow')}</span><h2 id="teacher-space-title">{t('teacherSpaceTitle')}</h2><p>{t('teacherSpaceDescription')}</p>{teacher?.subject && <span className="teacher-space__subject"><Icon name="fileCheck" className="w-3.5 h-3.5" />{teacher.subject}</span>}</div>
         </div>
-        <button type="button" className="btn-primary teacher-space__share" onClick={() => setComposerOpen((open) => !open)}><Icon name="plus" className="w-4 h-4" />{composerOpen ? t('close') : t('teacherSpaceShare')}</button>
+        <button type="button" className="btn-primary teacher-space__share" onClick={() => setComposerOpen((open) => !open)} disabled={!currentSubjectKey} title={!currentSubjectKey ? t('teacherSpaceSubjectRequired') : undefined}><Icon name="plus" className="w-4 h-4" />{composerOpen ? t('close') : t('teacherSpaceShare')}</button>
       </div>
 
       {composerOpen && <form className="teacher-space__composer" onSubmit={submitPost}>
@@ -224,6 +243,7 @@ export default function TeacherSpace() {
 
       {feedback && !composerOpen && <p className="teacher-space__feedback" role="status">{feedback}</p>}
       {error && <div className="teacher-space__error" role="alert">{error}<button type="button" onClick={() => load({ force: true })}>{t('retry')}</button></div>}
+      {subjectRequired && <div className="teacher-space__subject-required" role="status"><strong>{t('teacherSpaceSubjectRequired')}</strong><span>{t('teacherSpaceNoSubjectHint')}</span><Link to="/settings">{t('teacherSpaceOpenSettings')}</Link></div>}
       {loading && visiblePosts.length === 0 ? <div className="teacher-space__empty teacher-space__empty--loading">{t('teacherSpaceLoading')}</div> : visiblePosts.length === 0 ? <div className="teacher-space__empty"><Icon name="users" className="w-7 h-7" /><strong>{t('teacherSpaceEmpty')}</strong><span>{t('teacherSpaceEmptyHint')}</span></div> : <div className="teacher-space__grid">{visiblePosts.map((post) => <article key={post.id} className={`teacher-space__card ${post.pending ? 'is-pending' : ''}`}>
         <div className="teacher-space__card-top"><span className={`teacher-space__type teacher-space__type--${post.resource_type}`}><Icon name={post.resource_type === 'link' || post.resource_type === 'game' ? 'externalLink' : post.resource_type === 'file' || post.resource_type === 'test' ? 'fileCheck' : 'reports'} className="w-3.5 h-3.5" />{t(`teacherSpaceType_${post.resource_type}`)}</span><time>{displayDate(post.created_at, locale)}</time></div>
         <h3>{post.title}</h3>

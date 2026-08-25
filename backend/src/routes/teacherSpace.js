@@ -13,6 +13,10 @@ const MAX_DESCRIPTION_LENGTH = 800;
 const MAX_URL_LENGTH = 2048;
 const MAX_FILE_NAME_LENGTH = 180;
 
+function normalizeSubject(value) {
+  return String(value || '').normalize('NFKC').replace(/[\u064B-\u065F\u0670]/g, '').trim().toLocaleLowerCase('en-US').replace(/^ال/u, '').replace(/\s+/g, ' ');
+}
+
 function text(value, maxLength) {
   return String(value || '').trim().slice(0, maxLength);
 }
@@ -29,9 +33,10 @@ function safeUrl(value) {
   }
 }
 
-function teacherLocale(teacherId) {
-  return db.prepare('SELECT locale FROM teachers WHERE id = ?').get(teacherId)?.locale === 'en' ? 'en' : 'ar';
+function teacherProfile(teacherId) {
+  return db.prepare('SELECT locale, subject FROM teachers WHERE id = ?').get(teacherId) || { locale: 'ar', subject: '' };
 }
+
 
 function publicPost(row) {
   return {
@@ -39,6 +44,7 @@ function publicPost(row) {
     client_post_id: row.client_post_id || null,
     author_name: row.author_name || '',
     language: row.language === 'en' ? 'en' : 'ar',
+    subject: row.subject || '',
     resource_type: row.resource_type,
     title: row.title,
     description: row.description || '',
@@ -65,6 +71,10 @@ router.get('/', (req, res) => {
   const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
   const conditions = ["p.status = 'published'"];
   const params = [];
+  const viewerSubjectKey = normalizeSubject(teacherProfile(req.teacherId).subject);
+  if (!viewerSubjectKey) return res.json({ posts: [], limit, offset, subject_required: true });
+  conditions.push('p.subject_key = ?');
+  params.push(viewerSubjectKey);
   if (RESOURCE_TYPES.has(requestedType)) {
     conditions.push('p.resource_type = ?');
     params.push(requestedType);
@@ -98,9 +108,13 @@ router.post('/', (req, res) => {
   const mimeType = text(req.body?.mime_type, 120);
   const fileSize = Number.isFinite(Number(req.body?.file_size)) && Number(req.body.file_size) >= 0 ? Math.floor(Number(req.body.file_size)) : null;
   const clientPostId = text(req.body?.client_post_id, 80) || null;
-  const language = LANGUAGES.has(req.body?.language) ? req.body.language : teacherLocale(req.teacherId);
+  const profile = teacherProfile(req.teacherId);
+  const subject = text(profile.subject, 160);
+  const subjectKey = normalizeSubject(subject);
+  const language = LANGUAGES.has(req.body?.language) ? req.body.language : profile.locale === 'en' ? 'en' : 'ar';
   if (!RESOURCE_TYPES.has(resourceType)) return res.status(400).json({ error: 'نوع المشاركة غير صالح', code: 'INVALID_RESOURCE_TYPE' });
   if (title.length < 3) return res.status(400).json({ error: 'اكتب عنوانًا واضحًا للمشاركة', code: 'INVALID_TITLE' });
+  if (!subjectKey) return res.status(400).json({ error: 'أكمل مادة المعلم من الإعدادات قبل المشاركة', code: 'TEACHER_SUBJECT_REQUIRED' });
   if (!resourceUrl) return res.status(400).json({ error: 'أضف رابطًا صالحًا يبدأ بـ http أو https', code: 'INVALID_RESOURCE_URL' });
 
   if (clientPostId) {
@@ -115,9 +129,9 @@ router.post('/', (req, res) => {
   const id = uuid();
   db.prepare(`
     INSERT INTO teacher_space_posts
-      (id, teacher_id, client_post_id, resource_type, language, title, description, resource_url, file_name, mime_type, file_size, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', datetime('now'), datetime('now'))
-  `).run(id, req.teacherId, clientPostId, resourceType, language, title, description || null, resourceUrl, fileName || null, mimeType || null, fileSize);
+      (id, teacher_id, client_post_id, subject, subject_key, resource_type, language, title, description, resource_url, file_name, mime_type, file_size, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', datetime('now'), datetime('now'))
+  `).run(id, req.teacherId, clientPostId, subject, subjectKey, resourceType, language, title, description || null, resourceUrl, fileName || null, mimeType || null, fileSize);
   const post = db.prepare(`SELECT p.*, t.full_name AS author_name FROM teacher_space_posts p JOIN teachers t ON t.id = p.teacher_id WHERE p.id = ?`).get(id);
   emitSpaceUpdate(req, 'created', post);
   res.status(201).json({ post: publicPost(post) });

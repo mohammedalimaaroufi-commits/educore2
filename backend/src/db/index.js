@@ -430,6 +430,8 @@ db.exec(`
     id TEXT PRIMARY KEY,
     teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
     client_post_id TEXT,
+    subject TEXT NOT NULL DEFAULT '',
+    subject_key TEXT NOT NULL DEFAULT '',
     resource_type TEXT NOT NULL DEFAULT 'link',
     language TEXT NOT NULL DEFAULT 'ar',
     title TEXT NOT NULL,
@@ -444,7 +446,23 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_client ON teacher_space_posts(teacher_id, client_post_id);
   CREATE INDEX IF NOT EXISTS idx_teacher_space_feed ON teacher_space_posts(status, language, resource_type, created_at);
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_subject_feed ON teacher_space_posts(subject_key, status, resource_type, created_at);
 `);
+
+if (!hasColumn('teacher_space_posts', 'subject')) db.exec("ALTER TABLE teacher_space_posts ADD COLUMN subject TEXT NOT NULL DEFAULT ''");
+if (!hasColumn('teacher_space_posts', 'subject_key')) db.exec("ALTER TABLE teacher_space_posts ADD COLUMN subject_key TEXT NOT NULL DEFAULT ''");
+function normalizeStoredSubject(value) {
+  return String(value || '').normalize('NFKC').replace(/[\u064B-\u065F\u0670]/g, '').trim().toLocaleLowerCase('en-US').replace(/^ال/u, '').replace(/\s+/g, ' ');
+}
+const legacySpacePosts = db.prepare(`
+  SELECT p.id, t.subject
+  FROM teacher_space_posts p JOIN teachers t ON t.id = p.teacher_id
+  WHERE p.subject_key = '' OR p.subject IS NULL OR p.subject = ''
+`).all();
+if (legacySpacePosts.length) {
+  const updateSpacePostSubject = db.prepare('UPDATE teacher_space_posts SET subject = ?, subject_key = ? WHERE id = ?');
+  legacySpacePosts.forEach((row) => updateSpacePostSubject.run(String(row.subject || '').trim(), normalizeStoredSubject(row.subject), row.id));
+}
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 

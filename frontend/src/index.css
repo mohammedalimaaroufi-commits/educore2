@@ -2156,3 +2156,32 @@ button, input, select, textarea { font-family: inherit; }
   .teacher-space__count { margin-inline-start: auto; }
   .teacher-space__grid { grid-template-columns: 1fr; max-height: 30rem; }
 }
+
+.teacher-space__subject {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(46, 125, 107, 0.1);
+  color: #2e7d6b;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+.teacher-space__subject-required {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.65rem;
+  margin: 0 0 0.8rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(224, 165, 72, 0.3);
+  border-radius: 0.7rem;
+  background: rgba(224, 165, 72, 0.1);
+  color: rgba(92, 64, 20, 0.78);
+  font-size: 0.72rem;
+}
+.teacher-space__subject-required span { color: rgba(92, 64, 20, 0.62); }
+.teacher-space__subject-required a { margin-inline-start: auto; color: #2e7d6b; font-weight: 800; text-decoration: underline; }
+@media (max-width: 640px) { .teacher-space__subject-required a { margin-inline-start: 0; } }
