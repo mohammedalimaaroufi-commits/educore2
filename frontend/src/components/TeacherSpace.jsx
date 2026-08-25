@@ -31,11 +31,19 @@ function persistPendingPosts(teacherId, posts) {
   writeSettingsCache(teacherId, PENDING_CACHE_SECTION, posts.slice(0, 20));
 }
 
+function sortPosts(items) {
+  return [...items].sort((a, b) => {
+    const likesDifference = Number(b.like_count || 0) - Number(a.like_count || 0);
+    if (likesDifference) return likesDifference;
+    return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  });
+}
+
 function mergePosts(remotePosts, pendingPosts) {
   const remote = Array.isArray(remotePosts) ? remotePosts : [];
   const remoteKeys = new Set(remote.flatMap((post) => [post.id, post.client_post_id].filter(Boolean)));
   const pending = pendingPosts.filter((post) => !remoteKeys.has(post.id) && !remoteKeys.has(post.client_post_id));
-  return [...pending, ...remote].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return sortPosts([...pending, ...remote]);
 }
 
 function displayDate(value, locale) {
@@ -61,6 +69,12 @@ export default function TeacherSpace() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [subjectRequired, setSubjectRequired] = useState(false);
+  const [commentsByPost, setCommentsByPost] = useState({});
+  const [commentsOpen, setCommentsOpen] = useState({});
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [commentLoading, setCommentLoading] = useState({});
+  const [commentSubmitting, setCommentSubmitting] = useState({});
+  const [interactionBusy, setInteractionBusy] = useState({});
   const requestIdRef = useRef(0);
 
   const applyPosts = (remotePosts) => {
@@ -111,13 +125,15 @@ export default function TeacherSpace() {
   useEffect(() => {
     const token = readAuthToken();
     if (!token) return undefined;
-    const onSpaceUpdate = ({ action, post } = {}) => {
+    const onSpaceUpdate = ({ action, post, comment, comment_id: commentId } = {}) => {
       if (action === 'deleted' && post?.id) {
         setPosts((current) => current.filter((item) => item.id !== post.id));
         return;
       }
-      if (action === 'created' && post?.id) {
-        setPosts((current) => mergePosts([post, ...current.filter((item) => item.id !== post.id && item.client_post_id !== post.client_post_id)], pendingPostsFor(teacherId)));
+      if (['created', 'liked', 'unliked', 'commented', 'comment_deleted'].includes(action) && post?.id) {
+        setPosts((current) => sortPosts(current.some((item) => item.id === post.id) ? current.map((item) => item.id === post.id ? { ...item, ...post } : item) : [post, ...current]));
+        if (action === 'commented' && post?.id && comment?.id) setCommentsByPost((current) => ({ ...current, [post.id]: [...(current[post.id] || []).filter((item) => item.id !== comment.id), comment] }));
+        if (action === 'comment_deleted' && post?.id && commentId) setCommentsByPost((current) => ({ ...current, [post.id]: (current[post.id] || []).filter((item) => item.id !== commentId) }));
       }
     };
     const socket = connectSocket(token);
@@ -128,7 +144,98 @@ export default function TeacherSpace() {
     };
   }, [teacherId]);
 
-  const visiblePosts = posts;
+  const visiblePosts = sortPosts(posts);
+
+  const updatePostFromInteraction = (updatedPost) => {
+    if (!updatedPost?.id) return;
+    setPosts((current) => sortPosts(current.map((item) => item.id === updatedPost.id ? { ...item, ...updatedPost } : item)));
+  };
+
+  const toggleLike = async (post) => {
+    if (post.pending || interactionBusy[post.id]) return;
+    const nextLiked = !post.liked_by_me;
+    setInteractionBusy((current) => ({ ...current, [post.id]: true }));
+    setPosts((current) => sortPosts(current.map((item) => item.id === post.id ? { ...item, liked_by_me: nextLiked, like_count: Math.max(0, Number(item.like_count || 0) + (nextLiked ? 1 : -1)) } : item)));
+    try {
+      const response = nextLiked ? await api.put(`/teacher-space/${post.id}/like`) : await api.delete(`/teacher-space/${post.id}/like`);
+      updatePostFromInteraction({ ...post, ...response.data, id: post.id });
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status >= 400 && status < 500) {
+        setPosts((current) => sortPosts(current.map((item) => item.id === post.id ? { ...item, liked_by_me: post.liked_by_me, like_count: post.like_count || 0 } : item)));
+        setFeedback(t('teacherSpaceLikeError'));
+      } else {
+        await queueMutation(teacherId, { method: nextLiked ? 'PUT' : 'DELETE', url: `/teacher-space/${post.id}/like` });
+        setFeedback(t('teacherSpaceLikeSavedLocally'));
+      }
+    } finally {
+      setInteractionBusy((current) => ({ ...current, [post.id]: false }));
+    }
+  };
+
+  const loadComments = async (postId) => {
+    setCommentsOpen((current) => ({ ...current, [postId]: !current[postId] }));
+    if (commentsByPost[postId]) return;
+    setCommentLoading((current) => ({ ...current, [postId]: true }));
+    try {
+      const { data } = await getLocalFirst(`/teacher-space/${postId}/comments`);
+      setCommentsByPost((current) => ({ ...current, [postId]: Array.isArray(data?.comments) ? data.comments : [] }));
+    } catch {
+      setFeedback(t('teacherSpaceCommentsLoadError'));
+    } finally {
+      setCommentLoading((current) => ({ ...current, [postId]: false }));
+    }
+  };
+
+  const submitComment = async (event, post) => {
+    event.preventDefault();
+    const body = String(commentDrafts[post.id] || '').trim();
+    if (!body || post.pending || commentSubmitting[post.id]) return;
+    const clientCommentId = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic = { id: `local-${clientCommentId}`, client_comment_id: clientCommentId, teacher_id: teacherId, author_name: teacher?.full_name || t('teacherFallback'), body, created_at: new Date().toISOString(), can_delete: true, pending: true };
+    setCommentsOpen((current) => ({ ...current, [post.id]: true }));
+    setCommentsByPost((current) => ({ ...current, [post.id]: [...(current[post.id] || []), optimistic] }));
+    setCommentDrafts((current) => ({ ...current, [post.id]: '' }));
+    setCommentSubmitting((current) => ({ ...current, [post.id]: true }));
+    try {
+      const { data } = await api.post(`/teacher-space/${post.id}/comments`, { body, client_comment_id: clientCommentId });
+      if (data?.comment) setCommentsByPost((current) => ({ ...current, [post.id]: (current[post.id] || []).map((item) => item.client_comment_id === clientCommentId ? data.comment : item) }));
+      updatePostFromInteraction(data?.post);
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status >= 400 && status < 500) {
+        setCommentsByPost((current) => ({ ...current, [post.id]: (current[post.id] || []).filter((item) => item.client_comment_id !== clientCommentId) }));
+        setFeedback(t('teacherSpaceCommentError'));
+      } else {
+        await queueMutation(teacherId, { method: 'POST', url: `/teacher-space/${post.id}/comments`, data: { body, client_comment_id: clientCommentId } });
+        setFeedback(t('teacherSpaceCommentSavedLocally'));
+      }
+    } finally {
+      setCommentSubmitting((current) => ({ ...current, [post.id]: false }));
+    }
+  };
+
+  const deleteComment = async (post, comment) => {
+    if (!comment.can_delete || comment.pending) return;
+    const accepted = await confirm({ title: t('teacherSpaceDeleteCommentTitle'), message: t('teacherSpaceDeleteCommentMessage'), confirmLabel: t('delete'), cancelLabel: t('cancel'), danger: true });
+    if (!accepted) return;
+    setCommentsByPost((current) => ({ ...current, [post.id]: (current[post.id] || []).filter((item) => item.id !== comment.id) }));
+    updatePostFromInteraction({ ...post, comment_count: Math.max(0, Number(post.comment_count || 0) - 1) });
+    try {
+      const { data } = await api.delete(`/teacher-space/${post.id}/comments/${comment.id}`);
+      updatePostFromInteraction(data?.post);
+    } catch (error) {
+      const status = Number(error?.response?.status || 0);
+      if (status >= 400 && status < 500) {
+        setCommentsByPost((current) => ({ ...current, [post.id]: [...(current[post.id] || []), comment] }));
+        updatePostFromInteraction(post);
+        setFeedback(t('teacherSpaceCommentDeleteError'));
+      } else {
+        await queueMutation(teacherId, { method: 'DELETE', url: `/teacher-space/${post.id}/comments/${comment.id}` });
+        setFeedback(t('teacherSpaceCommentDeleteQueued'));
+      }
+    }
+  };
 
   const submitPost = async (event) => {
     event.preventDefault();
@@ -249,7 +356,13 @@ export default function TeacherSpace() {
         <h3>{post.title}</h3>
         {post.description && <p className="teacher-space__card-description">{post.description}</p>}
         <div className="teacher-space__card-meta"><span>{post.file_name || post.author_name}</span>{post.pending && <em>{t('teacherSpacePending')}</em>}</div>
-        <div className="teacher-space__card-actions"><a href={post.resource_url} target="_blank" rel="noreferrer noopener" className="teacher-space__open"><Icon name="externalLink" className="w-4 h-4" />{t('teacherSpaceOpen')}</a>{post.teacher_id === teacherId && !post.pending && <button type="button" className="teacher-space__delete" onClick={() => deletePost(post)} aria-label={t('teacherSpaceDelete')} title={t('teacherSpaceDelete')}><Icon name="trash" className="w-4 h-4" /></button>}</div>
+        <div className="teacher-space__card-social" aria-label={t('teacherSpaceInteractions')}>
+          <button type="button" className={`teacher-space__reaction ${post.liked_by_me ? 'is-liked' : ''}`} onClick={() => toggleLike(post)} disabled={post.pending || Boolean(interactionBusy[post.id])} aria-pressed={Boolean(post.liked_by_me)}><Icon name="heart" className="w-4 h-4" /><span>{post.like_count || 0}</span><small>{t('teacherSpaceLike')}</small></button>
+          <button type="button" className={`teacher-space__reaction ${commentsOpen[post.id] ? 'is-open' : ''}`} onClick={() => loadComments(post.id)} disabled={post.pending}><Icon name="messageCircle" className="w-4 h-4" /><span>{post.comment_count || 0}</span><small>{t('teacherSpaceComment')}</small></button>
+          <span className="teacher-space__sort-note">{Number(post.like_count || 0) > 0 ? t('teacherSpaceSortedByLikes') : ''}</span>
+        </div>
+        <div className="teacher-space__card-actions"><a href={post.resource_url} target="_blank" rel="noreferrer noopener" className="teacher-space__open"><Icon name="externalLink" className="w-4 h-4" />{t('teacherSpaceOpen')}</a>{post.teacher_id === teacherId && !post.pending && <button type="button" className="teacher-space__delete" onClick={() => deletePost(post)} aria-label={t('teacherSpaceDelete')} title={t('teacherSpaceDelete')}><Icon name="trash" className="w-4 h-4" /> </button>}</div>
+        {commentsOpen[post.id] && <div className="teacher-space__comments"><div className="teacher-space__comments-heading"><strong>{t('teacherSpaceComments')}</strong>{commentLoading[post.id] && <span>{t('loading')}</span>}</div>{(commentsByPost[post.id] || []).map((comment) => <div key={comment.id} className={`teacher-space__comment ${comment.pending ? 'is-pending' : ''}`}><div><strong>{comment.author_name}</strong><time>{displayDate(comment.created_at, locale)}</time></div><p>{comment.body}</p>{comment.can_delete && !comment.pending && <button type="button" className="teacher-space__comment-delete" onClick={() => deleteComment(post, comment)} aria-label={t('teacherSpaceDeleteComment')} title={t('teacherSpaceDeleteComment')}>×</button>}</div>)}<form className="teacher-space__comment-form" onSubmit={(event) => submitComment(event, post)}><input maxLength={500} value={commentDrafts[post.id] || ''} onChange={(event) => setCommentDrafts((current) => ({ ...current, [post.id]: event.target.value }))} placeholder={t('teacherSpaceCommentPlaceholder')} /><button type="submit" disabled={commentSubmitting[post.id] || !String(commentDrafts[post.id] || '').trim()} aria-label={t('teacherSpacePostComment')} title={t('teacherSpacePostComment')}><Icon name="send" className="w-4 h-4" /></button></form></div>}
       </article>)}</div>}
     </section>
   );

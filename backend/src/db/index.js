@@ -467,6 +467,25 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_client ON teacher_space_posts(teacher_id, client_post_id);
   CREATE INDEX IF NOT EXISTS idx_teacher_space_feed ON teacher_space_posts(status, language, resource_type, created_at);
   CREATE INDEX IF NOT EXISTS idx_teacher_space_subject_feed ON teacher_space_posts(subject_key, status, resource_type, created_at);
+  CREATE TABLE IF NOT EXISTS teacher_space_post_likes (
+    post_id TEXT NOT NULL REFERENCES teacher_space_posts(id) ON DELETE CASCADE,
+    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (post_id, teacher_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_likes_post ON teacher_space_post_likes(post_id, created_at);
+  CREATE TABLE IF NOT EXISTS teacher_space_comments (
+    id TEXT PRIMARY KEY,
+    post_id TEXT NOT NULL REFERENCES teacher_space_posts(id) ON DELETE CASCADE,
+    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    client_comment_id TEXT,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_space_comment_client ON teacher_space_comments(teacher_id, client_comment_id);
+  CREATE INDEX IF NOT EXISTS idx_teacher_space_comments_post ON teacher_space_comments(post_id, status, created_at);
 `);
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();

@@ -2185,3 +2185,37 @@ button, input, select, textarea { font-family: inherit; }
 .teacher-space__subject-required span { color: rgba(92, 64, 20, 0.62); }
 .teacher-space__subject-required a { margin-inline-start: auto; color: #2e7d6b; font-weight: 800; text-decoration: underline; }
 @media (max-width: 640px) { .teacher-space__subject-required a { margin-inline-start: 0; } }
+
+/* Teacher Space interactions */
+.teacher-space__card-social { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px solid rgba(25, 52, 46, 0.08); }
+.teacher-space__reaction { min-height: 2rem; display: inline-flex; align-items: center; gap: 0.28rem; padding: 0.25rem 0.45rem; border: 1px solid transparent; border-radius: 0.55rem; background: transparent; color: rgba(25, 52, 46, 0.58); font: inherit; cursor: pointer; transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease; }
+.teacher-space__reaction:hover { color: #2e7d6b; background: rgba(46, 125, 107, 0.08); }
+.teacher-space__reaction:active { transform: scale(0.97); }
+.teacher-space__reaction:disabled { cursor: wait; opacity: 0.55; }
+.teacher-space__reaction span { min-width: 1rem; font-size: 0.72rem; font-weight: 800; text-align: center; }
+.teacher-space__reaction small { font-size: 0.65rem; }
+.teacher-space__reaction.is-liked { color: #c1553d; background: rgba(193, 85, 61, 0.08); border-color: rgba(193, 85, 61, 0.14); }
+.teacher-space__reaction.is-open { color: #2e7d6b; background: rgba(46, 125, 107, 0.08); border-color: rgba(46, 125, 107, 0.14); }
+.teacher-space__sort-note { min-width: 0; margin-inline-start: auto; color: rgba(25, 52, 46, 0.4); font-size: 0.62rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.teacher-space__comments { display: grid; gap: 0.55rem; margin-top: 0.65rem; padding: 0.65rem; border: 1px solid rgba(46, 125, 107, 0.13); border-radius: 0.7rem; background: rgba(246, 251, 249, 0.78); }
+.teacher-space__comments-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; color: #19342e; font-size: 0.72rem; }
+.teacher-space__comments-heading span { color: rgba(25, 52, 46, 0.45); font-size: 0.64rem; }
+.teacher-space__comment { position: relative; display: grid; gap: 0.18rem; padding: 0.45rem 0.5rem; border-radius: 0.5rem; background: rgba(255, 255, 255, 0.82); }
+.teacher-space__comment.is-pending { border: 1px dashed rgba(184, 117, 32, 0.3); }
+.teacher-space__comment > div { display: flex; align-items: center; gap: 0.45rem; padding-inline-end: 1rem; }
+.teacher-space__comment strong { color: #19342e; font-size: 0.68rem; }
+.teacher-space__comment time { color: rgba(25, 52, 46, 0.4); font-size: 0.6rem; }
+.teacher-space__comment p { margin: 0; color: rgba(25, 52, 46, 0.72); font-size: 0.7rem; line-height: 1.45; overflow-wrap: anywhere; }
+.teacher-space__comment-delete { position: absolute; inset-inline-end: 0.35rem; inset-block-start: 0.35rem; width: 1.25rem; height: 1.25rem; border: 0; border-radius: 0.35rem; background: transparent; color: rgba(193, 85, 61, 0.68); font-size: 0.9rem; line-height: 1; cursor: pointer; }
+.teacher-space__comment-form { display: flex; align-items: center; gap: 0.35rem; }
+.teacher-space__comment-form input { min-width: 0; flex: 1; min-height: 2rem; padding: 0.4rem 0.55rem; border: 1px solid rgba(25, 52, 46, 0.13); border-radius: 0.5rem; background: #fff; color: #19342e; font: inherit; font-size: 0.7rem; outline: none; }
+.teacher-space__comment-form input:focus { border-color: rgba(46, 125, 107, 0.65); box-shadow: 0 0 0 3px rgba(46, 125, 107, 0.1); }
+.teacher-space__comment-form button { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 0; border-radius: 0.5rem; background: #2e7d6b; color: #fff; cursor: pointer; }
+.teacher-space__comment-form button:disabled { cursor: not-allowed; opacity: 0.45; }
+@media (max-width: 640px) {
+  .teacher-space__reaction small { display: none; }
+  .teacher-space__sort-note { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teacher-space__reaction { transition: none; }
+}
