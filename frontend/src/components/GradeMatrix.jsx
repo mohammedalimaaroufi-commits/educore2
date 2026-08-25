@@ -65,9 +65,12 @@ function snapshotWithoutAssessment(snapshot, assessmentId) {
   return { ...snapshot, grades: filtered };
 }
 
-export default function GradeMatrix({ classId, className, onActionsChange }) {
+export default function GradeMatrix({ classId, className, viewOptions = {}, onActionsChange }) {
   const { t, locale } = useLocale();
   const { confirm, confirmDialog } = useConfirmDialog();
+  const showNotes = viewOptions.showNotes !== false;
+  const showSubDetails = viewOptions.showSubDetails !== false;
+  const categoryUnit = viewOptions.categoryUnit === 'points' ? 'points' : 'percentage';
   const [students, setStudents] = useState([]);
   const [categories, setCategories] = useState([]);
   const [grades, setGrades] = useState({});
@@ -119,8 +122,16 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
     if (details.length > 0) return details;
     return summary ? [summary] : getCategoryAssessments(category);
   };
+  const visibleItemsFor = (category) => {
+    if (showSubDetails) return itemsFor(category);
+    const summary = (category?.assessments || []).find((assessment) => Number(assessment.is_summary));
+    return summary ? [summary] : itemsFor(category).slice(0, 1);
+  };
+  const categoryLimitLabel = (category) => categoryUnit === 'points'
+    ? String(Number(category?.weight_percent || 0)).replace(/\.00$/, '')
+    : `${category?.weight_percent || 0}%`;
   const categoryHasDetails = (category) => (category?.assessments || []).some((assessment) => !Number(assessment.is_summary));
-  const isCategoryCollapsed = (category) => categoryHasDetails(category) && collapsedCategories.has(String(category.id));
+  const isCategoryCollapsed = (category) => categoryHasDetails(category) && (!showSubDetails || collapsedCategories.has(String(category.id)));
   const toggleCategory = (categoryId) => setCollapsedCategories((current) => {
     const next = new Set(current);
     const key = String(categoryId);
@@ -129,9 +140,13 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
   });
   const coverageFor = (category, assessment) => calculateAssessmentCoverage(category, assessment, students, gradeMap);
   const coverageLabel = (coverage) => coverage.percent === null ? t('noGrading') : t('gradingCoverage', '', { percent: coverage.percent, entered: coverage.entered_count, total: coverage.total_students });
-  const quickOptions = useMemo(() => categories.flatMap((category) => itemsFor(category).map((assessment) => ({ category, assessment }))), [categories]);
+  const quickOptions = useMemo(() => categories.flatMap((category) => visibleItemsFor(category).map((assessment) => ({ category, assessment }))), [categories, showSubDetails]);
   const quickSelection = quickOptions.find((option) => String(option.assessment.id) === String(quickAssessmentId)) || null;
   const quickStudent = students[quickStudentIndex] || null;
+
+  useEffect(() => {
+    if (!showNotes) setOpenComment(null);
+  }, [showNotes]);
 
   useEffect(() => {
     if (!quickEntryOpen || quickOptions.length === 0) return;
@@ -521,9 +536,9 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
               <th className="grade-matrix-sticky grade-matrix-sticky--header text-right px-3 py-2 border-b-2 border-line min-w-[132px] z-20">{t('students')}</th>
               {categories.map((category, index) => {
                 const collapsed = isCategoryCollapsed(category);
-                const hasDetails = categoryHasDetails(category);
-                return <th key={category.id} colSpan={collapsed ? 1 : itemsFor(category).length + 1} className="grade-category-header text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>
-                  <div className="grade-category-header__content"><span>{category.name} <span className="opacity-80 font-normal">({category.weight_percent}%)</span></span>{hasDetails && <button type="button" className="grade-category-toggle" onClick={() => toggleCategory(category.id)} aria-expanded={!collapsed} aria-label={collapsed ? t('expandDetails') : t('collapseDetails')} title={collapsed ? t('expandDetails') : t('collapseDetails')}><Icon name={collapsed ? 'chevronDown' : 'chevronUp'} className="w-4 h-4" /></button>}</div>
+                const hasDetails = showSubDetails && categoryHasDetails(category);
+                return <th key={category.id} colSpan={collapsed ? 1 : visibleItemsFor(category).length + 1} className="grade-category-header text-center px-2 py-2 border-b-2 text-white font-bold" style={{ background: categoryColor(index), borderColor: categoryColor(index) }}>
+                  <div className="grade-category-header__content"><span>{category.name} <span className="opacity-80 font-normal">({categoryLimitLabel(category)})</span></span>{hasDetails && <button type="button" className="grade-category-toggle" onClick={() => toggleCategory(category.id)} aria-expanded={!collapsed} aria-label={collapsed ? t('expandDetails') : t('collapseDetails')} title={collapsed ? t('expandDetails') : t('collapseDetails')}><Icon name={collapsed ? 'chevronDown' : 'chevronUp'} className="w-4 h-4" /></button>}</div>
                 </th>;
               })}
               <th className="text-center px-2 py-1.5 border-b-2 border-ink min-w-[72px] bg-ink text-white">{t('finalGrade')} %</th>
@@ -532,12 +547,12 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
               <th className="grade-matrix-sticky grade-matrix-sticky--subheader text-right px-3 py-2 text-[11px] text-ink/50 font-medium z-20">{t('subCategoryDetails')}</th>
               {categories.map((category, index) => (
                 <React.Fragment key={category.id}>
-                  {isCategoryCollapsed(category) ? <th className="grade-category-summary-head px-2 py-1.5 border-b border-line" style={{ background: `${categoryColor(index)}14` }}><span>{t('categoryScore')}</span><small>({category.weight_percent}%)</small></th> : <>{itemsFor(category).map((assessment) => (
+                  {isCategoryCollapsed(category) ? <th className="grade-category-summary-head px-2 py-1.5 border-b border-line" style={{ background: `${categoryColor(index)}14` }}><span>{t('categoryScore')}</span><small>({categoryLimitLabel(category)})</small></th> : <>{visibleItemsFor(category).map((assessment) => (
                     <th key={assessment.id} className="grade-subassessment-head px-1 py-1 border-b border-line font-normal min-w-[64px]" style={{ background: `${categoryColor(index)}14` }}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {Number(assessment.is_summary) ? (
                           <>
-                            <span className="font-medium">{t('categoryScore')} <span className="text-ink/40">({getAssessmentMaxScore(category, assessment)})</span></span>
+                            <span className="font-medium">{t('categoryScore')} <span className="text-ink/40">({categoryLimitLabel(category)})</span></span>
                             <span className="text-[10px] text-primary">{coverageLabel(coverageFor(category, assessment))}</span>
                           </>
                         ) : editingAssessmentId === assessment.id ? (
@@ -585,7 +600,7 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
                 <td className="grade-matrix-sticky grade-matrix-sticky--body px-3 py-2 font-medium z-10">{student.full_name}</td>
                 {categories.map((category, categoryIndex) => (
                   <React.Fragment key={category.id}>
-                    {isCategoryCollapsed(category) ? <td className="grade-category-summary-cell px-2 py-2 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}><strong className={gradeColor(categoryScore(student.id, category))}>{categoryScore(student.id, category) ?? '—'}</strong><small>{t('categoryScore')}</small></td> : <>{itemsFor(category).map((assessment) => {
+                    {isCategoryCollapsed(category) ? <td className="grade-category-summary-cell px-2 py-2 border-r border-line" style={{ background: `${categoryColor(categoryIndex)}08` }}><strong className={gradeColor(categoryScore(student.id, category))}>{categoryScore(student.id, category) ?? '—'}</strong><small>{t('categoryScore')}</small></td> : <>{visibleItemsFor(category).map((assessment) => {
                       const key = cellKey(assessment.id, student.id);
                       const cell = grades[key] || {};
                       return (
@@ -596,8 +611,10 @@ export default function GradeMatrix({ classId, className, onActionsChange }) {
                               {savingKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-ink/30">⋯</span>}
                               {savedKey === key && <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[10px] text-primary">✓</span>}
                             </div>
-                            <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>{cell.comment ? `📝 ${t('note')}` : `+ ${t('addNote')}`}</button>
-                            {openComment === key && <div className="w-40"><CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" /><button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>{t('saveNote')}</button></div>}
+                            {showNotes && <>
+                              <button className="text-[10px] text-ink/40 print:hidden" onClick={() => setOpenComment(openComment === key ? null : key)}>{cell.comment ? `📝 ${t('note')}` : `+ ${t('addNote')}`}</button>
+                              {openComment === key && <div className="w-40"><CommentPicker value={cell.comment} onChange={(value) => setCell(assessment.id, student.id, 'comment', value)} category="grade" /><button className="text-[10px] text-primary mt-0.5" onClick={() => { saveCell(assessment.id, student.id); setOpenComment(null); }}>{t('saveNote')}</button></div>}
+                            </>}
                           </div>
                         </td>
                       );
