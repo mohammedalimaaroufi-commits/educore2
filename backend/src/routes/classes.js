@@ -94,16 +94,116 @@ function computeQuickStats(classId, studentCount) {
   return { grading, behavior, attendance_marked_today: attendanceMarkedToday };
 }
 
+function buildQuickStatsBatch(classIds, studentCountByClass) {
+  if (!classIds.length) return new Map();
+  const placeholders = classIds.map(() => '?').join(',');
+  const today = new Date().toISOString().slice(0, 10);
+  const gradingRows = db.prepare(`
+    SELECT gc.class_id,
+           gc.id as category_id,
+           gc.name as category_name,
+           a.id as assessment_id,
+           CASE WHEN a.is_summary = 1 THEN gc.name ELSE a.title END as title,
+           a.max_score,
+           a.is_summary,
+           COUNT(g.id) as entered_count
+    FROM grade_categories gc
+    JOIN assessments a ON a.category_id = gc.id
+    LEFT JOIN grades g ON g.assessment_id = a.id
+      AND (g.score_numeric IS NOT NULL OR g.score_letter IS NOT NULL)
+      AND EXISTS (
+        SELECT 1 FROM students s
+        WHERE s.id = g.student_id AND s.class_id = gc.class_id AND s.archived = 0
+      )
+    WHERE gc.class_id IN (${placeholders})
+      AND (
+        (a.is_summary = 0 AND EXISTS (
+          SELECT 1 FROM assessments detailed
+          WHERE detailed.category_id = gc.id AND detailed.is_summary = 0
+        ))
+        OR (a.is_summary = 1 AND NOT EXISTS (
+          SELECT 1 FROM assessments detailed
+          WHERE detailed.category_id = gc.id AND detailed.is_summary = 0
+        ))
+      )
+    GROUP BY gc.class_id, gc.id, a.id
+    ORDER BY gc.class_id, gc.sort_order, a.is_summary DESC, a.created_at
+  `).all(...classIds);
+  const gradingByClass = new Map();
+  gradingRows.forEach((row) => {
+    const studentCount = Number(studentCountByClass.get(row.class_id) || 0);
+    const rows = gradingByClass.get(row.class_id) || [];
+    rows.push({
+      category_id: row.category_id,
+      category_name: row.category_name,
+      assessment_id: row.assessment_id,
+      title: row.title,
+      max_score: Number(row.max_score || 0),
+      is_summary: Number(row.is_summary) === 1,
+      entered_count: Number(row.entered_count || 0),
+      total_students: studentCount,
+      percent: studentCount > 0 ? Math.round((Number(row.entered_count || 0) / studentCount) * 100) : null,
+    });
+    gradingByClass.set(row.class_id, rows);
+  });
+
+  const behaviorRows = db.prepare(`
+    SELECT s.class_id, s.id as student_id, s.full_name, SUM(bt.points) as total_points
+    FROM behavior_logs bl
+    JOIN behavior_types bt ON bl.behavior_type_id = bt.id
+    JOIN students s ON bl.student_id = s.id
+    WHERE s.class_id IN (${placeholders}) AND s.archived = 0
+    GROUP BY s.class_id, s.id
+    ORDER BY s.class_id, total_points DESC
+  `).all(...classIds);
+  const behaviorByClass = new Map();
+  behaviorRows.forEach((row) => {
+    const rows = behaviorByClass.get(row.class_id) || [];
+    rows.push(row);
+    behaviorByClass.set(row.class_id, rows);
+  });
+
+  const attendanceRows = db.prepare(`
+    SELECT ats.class_id, COUNT(ar.id) as record_count
+    FROM attendance_sessions ats
+    LEFT JOIN attendance_records ar ON ar.session_id = ats.id
+    WHERE ats.class_id IN (${placeholders}) AND ats.session_date = ?
+    GROUP BY ats.class_id
+  `).all(...classIds, today);
+  const attendanceByClass = new Map(attendanceRows.map((row) => [row.class_id, Number(row.record_count || 0) > 0]));
+
+  return new Map(classIds.map((classId) => {
+    const rows = behaviorByClass.get(classId) || [];
+    const best = rows[0];
+    const worst = rows.length > 1 ? rows[rows.length - 1] : null;
+    return [classId, {
+      grading: gradingByClass.get(classId) || [],
+      behavior: best ? {
+        best: { student_id: best.student_id, full_name: best.full_name, points: best.total_points },
+        worst: worst ? { student_id: worst.student_id, full_name: worst.full_name, points: worst.total_points } : null,
+      } : null,
+      attendance_marked_today: Boolean(attendanceByClass.get(classId)),
+    }];
+  }));
+}
+
 // GET /api/classes
 router.get('/', (req, res) => {
   const classes = db.prepare(`SELECT * FROM classes
                               WHERE teacher_id = ? AND archived = 0
                               ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
                                        sort_order ASC, created_at DESC, id DESC`).all(req.teacherId);
-  const withCounts = classes.map((c) => {
-    const { count } = db.prepare('SELECT COUNT(*) as count FROM students WHERE class_id = ? AND archived = 0').get(c.id);
-    return { ...c, student_count: count, quick_stats: computeQuickStats(c.id, count) };
-  });
+  const classIds = classes.map((item) => item.id);
+  const countRows = classIds.length
+    ? db.prepare(`SELECT class_id, COUNT(*) as count FROM students WHERE class_id IN (${classIds.map(() => '?').join(',')}) AND archived = 0 GROUP BY class_id`).all(...classIds)
+    : [];
+  const studentCountByClass = new Map(countRows.map((row) => [row.class_id, Number(row.count || 0)]));
+  const quickStatsByClass = buildQuickStatsBatch(classIds, studentCountByClass);
+  const withCounts = classes.map((c) => ({
+    ...c,
+    student_count: studentCountByClass.get(c.id) || 0,
+    quick_stats: quickStatsByClass.get(c.id) || { grading: [], behavior: null, attendance_marked_today: false },
+  }));
   res.json({ classes: withCounts });
 });
 

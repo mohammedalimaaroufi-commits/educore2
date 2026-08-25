@@ -1,8 +1,13 @@
 const express = require('express');
 const multer = require('multer');
 const { parse } = require('csv-parse/sync');
-const XLSX = require('xlsx');
 const { v4: uuid } = require('uuid');
+
+let xlsxModule;
+function getXlsx() {
+  if (!xlsxModule) xlsxModule = require('xlsx');
+  return xlsxModule;
+}
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
@@ -48,6 +53,7 @@ function isStatisticsRow(value) {
 }
 
 function extractStudentRecords(buffer, filename, selectedSheet) {
+  const XLSX = getXlsx();
   const workbook = XLSX.read(buffer, { type: 'buffer', raw: false, cellDates: false });
   const sheets = workbook.SheetNames || [];
   if (!sheets.length) throw new Error('الملف لا يحتوي على أوراق عمل');

@@ -47,7 +47,16 @@ if (!isRemote) {
 // classes(1) --- (N) attendance_sessions (one per date)
 // ------------------------------------------------------------------
 
-db.exec(`
+const REQUIRED_SCHEMA_TABLES = [
+  'teachers', 'subscriptions', 'classes', 'students', 'grade_categories', 'assessments', 'grades',
+  'behavior_types', 'behavior_logs', 'attendance_sessions', 'attendance_records', 'grading_schemes',
+  'grading_scheme_categories', 'comment_templates', 'payment_requests', 'grade_recommendation_rules',
+  'messages', 'password_resets', 'password_reset_requests', 'app_settings', 'subscription_offers',
+  'behavior_type_templates',
+];
+const existingSchemaTables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
+if (REQUIRED_SCHEMA_TABLES.some((table) => !existingSchemaTables.has(table))) {
+  db.exec(`
 CREATE TABLE IF NOT EXISTS teachers (
   id TEXT PRIMARY KEY,
   full_name TEXT NOT NULL,
@@ -304,6 +313,8 @@ CREATE TABLE IF NOT EXISTS behavior_type_templates (
 );
 `);
 
+}
+
 // ------------------------------------------------------------------
 // Small additive migrations for columns introduced after the initial release.
 // SQLite has no "ADD COLUMN IF NOT EXISTS", so guard each with a PRAGMA table_info check —
@@ -359,9 +370,14 @@ if (!hasColumn('messages', 'client_message_id')) {
   db.exec('ALTER TABLE messages ADD COLUMN client_message_id TEXT');
 }
 
-// Existing categories created under the old 0–100 assessment model stay detailed
-// so their saved grades retain their meaning. New categories default to direct mode.
-if (addedGradingMode) {
+// Data conversions for legacy grade data run once per database. This keeps existing grades intact
+// while avoiding a full-table rewrite on every server boot.
+const GRADE_DATA_MIGRATION_KEY = 'grade_data_migrations_v1';
+const gradeDataMigrationDone = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(GRADE_DATA_MIGRATION_KEY)?.value === '1';
+if (!gradeDataMigrationDone) {
+  // Existing categories created under the old 0–100 assessment model stay detailed
+  // so their saved grades retain their meaning. New categories default to direct mode.
+  if (addedGradingMode) {
   db.exec(`UPDATE grade_categories SET grading_mode = 'detailed'
            WHERE EXISTS (
              SELECT 1 FROM assessments a
@@ -402,6 +418,10 @@ db.exec(`UPDATE assessments SET max_score = (
            SELECT 1 FROM assessments detail
            WHERE detail.category_id = assessments.category_id AND detail.is_summary = 0
          )`);
+
+  db.prepare("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))")
+    .run(GRADE_DATA_MIGRATION_KEY, '1');
+}
 
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('trial_days', '14')").run();
 
