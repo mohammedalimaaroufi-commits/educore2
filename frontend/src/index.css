@@ -2328,3 +2328,15 @@ button, input, select, textarea { font-family: inherit; }
   .school-management__generated-code { align-items: stretch; flex-direction: column; }
   .school-management__generated-code button { width: 100%; }
 }
+
+.school-code-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 1rem; background: rgba(15, 34, 29, 0.48); backdrop-filter: blur(4px); }
+.school-code-dialog { position: relative; width: min(100%, 28rem); display: grid; gap: 0.7rem; padding: 1.35rem; border: 1px solid rgba(46, 125, 107, 0.2); border-radius: 1.15rem; background: #fff; box-shadow: 0 24px 70px rgba(15, 34, 29, 0.2); color: #19342e; text-align: start; }
+.school-code-dialog .school-management__card-icon { margin-bottom: 0.1rem; }
+.school-code-dialog h2 { margin: 0; font-size: 1.18rem; }
+.school-code-dialog p { margin: 0; color: rgba(25, 52, 46, 0.62); font-size: 0.78rem; line-height: 1.65; }
+.school-code-dialog__close { position: absolute; inset-inline-end: 0.8rem; inset-block-start: 0.8rem; }
+.school-code-dialog__value { display: block; width: 100%; padding: 0.9rem 0.75rem; border: 1px solid rgba(46, 125, 107, 0.2); border-radius: 0.75rem; background: rgba(46, 125, 107, 0.07); color: #246554; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: clamp(1.25rem, 5vw, 1.65rem); font-weight: 900; letter-spacing: 0.14em; text-align: center; overflow-wrap: anywhere; }
+.school-code-dialog__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.school-code-dialog__actions button { min-height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; flex: 1 1 9rem; }
+.school-code-dialog small { color: rgba(25, 52, 46, 0.52); font-size: 0.68rem; line-height: 1.5; }
+@media (max-width: 640px) { .school-code-dialog-backdrop { align-items: end; padding: 0.6rem; } .school-code-dialog { width: 100%; padding: 1.1rem; } }
