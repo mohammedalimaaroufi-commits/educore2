@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { getLocalFirst } from '../api/client';
+import { getTeacherId } from '../utils/localCache.js';
+import { getLastSync, syncTeacherData } from '../utils/snapshotSync.js';
 import Icon from '../components/Icon.jsx';
 import LoadingOverlay from '../components/LoadingOverlay.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useLocale } from '../context/LocaleContext.jsx';
 
-const EMPTY_CLASS_FORM = { name: '', subjects: '', academic_year: '', color: '#2E7D6B' };
+const CLASS_COLORS = ['#2E7D6B', '#E0A548', '#3F6FB0', '#C1553D', '#7A5CA1', '#3F9C86', '#2C8D9A', '#B05C78', '#6B7280', '#D27A2E'];
+const EMPTY_CLASS_FORM = { name: '', subjects: '', academic_year: '', color: CLASS_COLORS[0] };
 const EMPTY_STUDENT_FORM = { full_name: '', student_number: '' };
 
 const MANAGER_TABS = [
@@ -84,6 +87,7 @@ export default function SchoolManagement() {
   const [activeTab, setActiveTab] = useState('classes');
   const [assignmentCode, setAssignmentCode] = useState('');
   const [classForm, setClassForm] = useState(EMPTY_CLASS_FORM);
+  const [showClassForm, setShowClassForm] = useState(false);
   const [subjectDrafts, setSubjectDrafts] = useState({});
   const [generatedCodes, setGeneratedCodes] = useState({});
   const [visibleCode, setVisibleCode] = useState(null);
@@ -95,6 +99,8 @@ export default function SchoolManagement() {
   const [teacherQuery, setTeacherQuery] = useState('');
   const [editingClassId, setEditingClassId] = useState('');
   const [classEditForm, setClassEditForm] = useState({ name: '', academic_year: '', color: '' });
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState(0);
 
   const selectedMembership = school?.membership;
   const isManager = teacher?.account_role === 'school_manager' && selectedMembership?.role === 'school_admin';
@@ -135,7 +141,7 @@ export default function SchoolManagement() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { void loadSchools(); }, []);
+  useEffect(() => { void loadSchools(); void getLastSync(getTeacherId()).then(setLastSyncAt); }, []);
   useEffect(() => { if (isManager && activeTab !== 'classes' && activeTab !== 'teachers' && activeTab !== 'assignments' && activeTab !== 'roster' && selectedClass?.id) void loadOverview(selectedClass.id); }, [activeTab, isManager, selectedClass?.id]);
 
   const loadOverview = async (classId = selectedClass?.id) => {
@@ -162,11 +168,40 @@ export default function SchoolManagement() {
     if (tabId === 'roster' && isManager && classId) void loadRoster(classId);
   };
 
+  const syncNow = async ({ silent = false } = {}) => {
+    if (syncing) return null;
+    const teacherId = getTeacherId();
+    setSyncing(true);
+    try {
+      const result = await syncTeacherData(teacherId);
+      setLastSyncAt(await getLastSync(teacherId));
+      if (selectedSchoolId) await loadSchool(selectedSchoolId);
+      if (!silent) {
+        if (result?.successful) setMessage(t('syncCompleted'));
+        else if (result?.rejected) setMessage(t('syncCompletedWithRejected', '', { count: result.rejected }));
+        else if (result?.blocked) setMessage(t('syncCompletedWithBlocked', '', { count: result.blocked }));
+        else setMessage(t('syncFailed'));
+      }
+      return result;
+    } catch {
+      if (!silent) setMessage(t('syncFailed'));
+      return null;
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const acceptAssignment = async (event) => {
     event.preventDefault();
     if (!assignmentCode.trim() || busy) return;
     setBusy('assignment');
-    try { const { data } = await api.post('/schools/accept-assignment', { code: assignmentCode.trim() }); setAssignmentCode(''); setMessage(t('schoolAssignmentAccepted')); await loadSchools(data?.school?.school?.id || selectedSchoolId); }
+    try {
+      const { data } = await api.post('/schools/accept-assignment', { code: assignmentCode.trim() });
+      setAssignmentCode('');
+      await syncNow({ silent: true });
+      setMessage(t('schoolAssignmentAccepted'));
+      await loadSchools(data?.school?.school?.id || selectedSchoolId);
+    }
     catch (requestError) { setFailure(requestError); }
     finally { setBusy(''); }
   };
@@ -175,8 +210,9 @@ export default function SchoolManagement() {
     event.preventDefault();
     const subjects = classForm.subjects.split(',').map((item) => item.trim()).filter(Boolean);
     if (!selectedSchoolId || busy || !classForm.name.trim() || !subjects.length) return;
+
     setBusy('class');
-    try { await api.post(`/schools/${selectedSchoolId}/classes`, { ...classForm, subject: subjects[0], subjects }); setClassForm(EMPTY_CLASS_FORM); setMessage(t('schoolClassCreated')); await loadSchool(selectedSchoolId); }
+    try { await api.post(`/schools/${selectedSchoolId}/classes`, { ...classForm, subject: subjects[0], subjects }); setClassForm(EMPTY_CLASS_FORM); setShowClassForm(false); setMessage(t('schoolClassCreated')); await loadSchool(selectedSchoolId); }
     catch (requestError) { setFailure(requestError); }
     finally { setBusy(''); }
   };
@@ -208,7 +244,8 @@ export default function SchoolManagement() {
     finally { setBusy(''); }
   };
 
-  const beginEditClass = (classItem) => { setEditingClassId(classItem.id); setClassEditForm({ name: classItem.name || '', academic_year: classItem.academic_year || '', color: classItem.color || '#2E7D6B' }); };
+  const openCreateClass = () => { setClassForm({ ...EMPTY_CLASS_FORM }); setShowClassForm(true); };
+  const beginEditClass = (classItem) => { setEditingClassId(classItem.id); setClassEditForm({ name: classItem.name || '', academic_year: classItem.academic_year || '', color: classItem.color || CLASS_COLORS[0] }); };
 
   const saveClassEdit = async (event, classId) => {
     event.preventDefault();
@@ -262,7 +299,7 @@ export default function SchoolManagement() {
 
   const renderClassCards = () => <div className="school-shell__class-grid">{sortedClasses.map((classItem) => <article className="school-shell__class-card" key={classItem.id}><div className="school-shell__class-top"><div><span className="school-shell__class-badge"><Icon name="school" className="w-3.5 h-3.5" />{t('schoolManagedClass')}</span><h3>{classItem.name}</h3><p>{classItem.academic_year || t('schoolAcademicYearPlaceholder')}</p></div><span className="school-shell__class-dot" style={{ background: classItem.color || '#2E7D6B' }} /></div><div className="school-shell__class-metrics"><Metric icon="user" label={t('schoolStudents')} value={classItem.student_count} /><Metric icon="book" label={t('schoolClassSubjects')} value={classItem.subject_count} /><Metric icon="users" label={t('schoolMembers')} value={classItem.assigned_teacher_count} /><Metric icon="check" label={t('schoolAttendanceToday')} value={classItem.attendance_session_count} /></div><div className="school-shell__subject-preview">{(classItem.subjects || []).map((subject) => <span key={subject.subject_key}><Icon name="book" className="w-3 h-3" />{subject.subject_label}<b>{subject.assigned_teacher_name || t('schoolNoTeacher')}</b></span>)}</div>{isManager && editingClassId === classItem.id && <form className="school-shell__inline-edit" onSubmit={(event) => void saveClassEdit(event, classItem.id)}><input value={classEditForm.name} onChange={(event) => setClassEditForm((current) => ({ ...current, name: event.target.value }))} aria-label={t('schoolClassName')} required /><input value={classEditForm.academic_year} onChange={(event) => setClassEditForm((current) => ({ ...current, academic_year: event.target.value }))} aria-label={t('schoolAcademicYear')} placeholder={t('schoolAcademicYearPlaceholder')} /><button type="submit" className="btn-primary" disabled={busy === `edit-class:${classItem.id}`}>{t('save')}</button><button type="button" className="btn-secondary" onClick={() => setEditingClassId('')}>{t('cancel')}</button></form>}<div className="school-shell__class-actions">{isManager && <button type="button" className="btn-secondary" onClick={() => { setSelectedClassId(classItem.id); selectTab('roster', classItem.id); }}><Icon name="user" className="w-4 h-4" />{t('schoolManageRoster')}</button>}<button type="button" className="btn-secondary" onClick={() => { setSelectedClassId(classItem.id); selectTab(isManager ? 'analytics' : 'assignments', classItem.id); }}><Icon name="analytics" className="w-4 h-4" />{t('schoolViewOverview')}</button>{!isManager && <Link className="btn-primary" to={`/classes/${classItem.id}`}><Icon name="externalLink" className="w-4 h-4" />{t('schoolOpenClass')}</Link>}{isManager && <><button type="button" className="utility-icon" onClick={() => beginEditClass(classItem)} aria-label={t('schoolEditClass')} title={t('schoolEditClass')}><Icon name="edit" className="w-4 h-4" /></button><button type="button" className="utility-icon utility-icon--danger" onClick={() => void archiveClass(classItem.id)} aria-label={t('schoolArchiveClass')} title={t('schoolArchiveClass')}><Icon name="archive" className="w-4 h-4" /></button></>}</div></article>)}{sortedClasses.length === 0 && <EmptyState icon="school" title={t('schoolNoClasses')} description={t('schoolCreateClassTitle')} />}</div>;
 
-  const renderClassesTab = () => <section className="school-shell__workspace">{renderSchoolStats()}{isManager && <form className="school-shell__create-card" onSubmit={createClass}><div className="school-shell__section-title"><span className="school-shell__section-icon"><Icon name="plus" className="w-5 h-5" /></span><div><h2>{t('schoolCreateClassTitle')}</h2><p>{t('schoolClassSubjectsHint')}</p></div></div><div className="school-shell__form-grid"><label><span>{t('schoolClassName')}</span><input value={classForm.name} onChange={(event) => setClassForm((current) => ({ ...current, name: event.target.value }))} placeholder={t('schoolClassNamePlaceholder')} required /></label><label><span>{t('schoolClassSubjects')}</span><input value={classForm.subjects} onChange={(event) => setClassForm((current) => ({ ...current, subjects: event.target.value }))} placeholder={t('schoolSubjectListPlaceholder')} required /></label><label><span>{t('schoolAcademicYear')}</span><input value={classForm.academic_year} onChange={(event) => setClassForm((current) => ({ ...current, academic_year: event.target.value }))} placeholder={t('schoolAcademicYearPlaceholder')} /></label><button type="submit" className="btn-primary" disabled={busy === 'class'}><Icon name="plus" className="w-4 h-4" />{busy === 'class' ? t('saving') : t('schoolCreateClass')}</button></div></form>}{!isManager && <div className="school-shell__notice"><Icon name="lock" className="w-4 h-4" /><span>{t('schoolTeacherOperationalNote')}</span></div>}{renderClassCards()}</section>;
+  const renderClassesTab = () => <section className="school-shell__workspace">{renderSchoolStats()}{isManager && <div className="school-shell__create-card"><div className="school-shell__section-title"><span className="school-shell__section-icon"><Icon name="plus" className="w-5 h-5" /></span><div><h2>{t('schoolCreateClassTitle')}</h2><p>{t('schoolClassSubjectsHint')}</p></div><button type="button" className="btn-primary" onClick={openCreateClass}><Icon name="plus" className="w-4 h-4" />{t('schoolCreateClass')}</button></div><p className="school-shell__create-hint">{t('schoolClassSubjectsHint')}</p></div>}{!isManager && <div className="school-shell__notice"><Icon name="lock" className="w-4 h-4" /><span>{t('schoolTeacherOperationalNote')}</span></div>}{renderClassCards()}{showClassForm && <div className="school-shell__dialog-backdrop" role="presentation" onClick={() => { if (busy !== 'class') setShowClassForm(false); }}><form className="school-shell__dialog school-shell__dialog--form" onSubmit={createClass} onClick={(event) => event.stopPropagation()}><div className="create-class-form__heading"><div><span className="school-shell__eyebrow">{t('setupNew')}</span><h3>{t('schoolCreateClassTitle')}</h3></div><button type="button" className="utility-icon" onClick={() => setShowClassForm(false)} disabled={busy === 'class'} aria-label={t('close')}>×</button></div><div className="school-shell__form-grid school-shell__form-grid--modal"><label><span>{t('schoolClassName')}</span><input autoFocus value={classForm.name} onChange={(event) => setClassForm((current) => ({ ...current, name: event.target.value }))} placeholder={t('schoolClassNamePlaceholder')} required /></label><label><span>{t('schoolClassSubjects')}</span><input value={classForm.subjects} onChange={(event) => setClassForm((current) => ({ ...current, subjects: event.target.value }))} placeholder={t('schoolSubjectListPlaceholder')} required /></label><label><span>{t('schoolAcademicYear')}</span><input value={classForm.academic_year} onChange={(event) => setClassForm((current) => ({ ...current, academic_year: event.target.value }))} placeholder={t('schoolAcademicYearPlaceholder')} /></label><label><span>{t('accentColor')}</span><div className="color-picker school-shell__color-picker">{CLASS_COLORS.map((color, index) => <button key={color} type="button" className={`color-swatch ${classForm.color === color ? 'is-selected' : ''}`} style={{ background: color }} onClick={() => setClassForm((current) => ({ ...current, color }))} aria-label={`${t('chooseColor')} ${index + 1}`} title={`${t('colorLabel')} ${index + 1}`} />)}</div></label></div><div className="create-class-form__actions"><button type="submit" className="btn-primary" disabled={busy === 'class'}><Icon name="plus" className="w-4 h-4" />{busy === 'class' ? t('saving') : t('schoolCreateClass')}</button><button type="button" className="btn-secondary" onClick={() => setShowClassForm(false)} disabled={busy === 'class'}>{t('cancel')}</button></div></form></div>}</section>;
 
   const renderTeachersTab = () => { const assignments = sortedClasses.flatMap((classItem) => (classItem.subjects || []).map((subject) => ({ ...subject, class_name: classItem.name }))); return <section className="school-shell__workspace"><div className="school-shell__toolbar"><div><span className="school-shell__eyebrow">{t('schoolTabTeachers')}</span><h2>{t('schoolMembers')}</h2><p>{t('schoolTeachersBySubjectHint')}</p></div><label className="school-shell__search"><Icon name="search" className="w-4 h-4" /><input value={teacherQuery} onChange={(event) => setTeacherQuery(event.target.value)} placeholder={t('schoolSearchTeachers')} /></label></div><div className="school-shell__teacher-summary"><Metric icon="users" label={t('schoolMembers')} value={filteredMembers.length} /><Metric icon="book" label={t('schoolClassSubjects')} value={assignments.length} /><Metric icon="link" label={t('schoolAssigned')} value={assignments.filter((item) => item.assigned_teacher_id).length} /></div><div className="school-shell__teacher-grid">{filteredMembers.map((member) => <article className="school-shell__teacher-card" key={member.id}><span className="school-shell__avatar">{String(member.full_name || '?').trim().charAt(0)}</span><div><h3>{member.full_name}</h3><p>{member.email}</p><span>{member.subject || t('schoolNoSubject')} · {member.role === 'school_admin' ? t('schoolRoleAdmin') : t('schoolRoleTeacher')}</span></div></article>)}{filteredMembers.length === 0 && <EmptyState icon="users" title={t('schoolNoMembers')} description={teacherQuery ? t('schoolNoData') : t('schoolTeachersBySubjectHint')} />}</div><div className="school-shell__table-card"><div className="school-shell__table-heading"><div><h2>{t('schoolAssignmentsBySubject')}</h2><p>{t('schoolAssignmentTableHint')}</p></div></div><div className="school-shell__table-wrap"><table><thead><tr><th>{t('schoolClassName')}</th><th>{t('schoolSubject')}</th><th>{t('schoolTeacher')}</th><th>{t('schoolAssignmentStatus')}</th></tr></thead><tbody>{assignments.map((item) => <tr key={`${item.class_id}:${item.subject_key}`}><td>{item.class_name}</td><td>{item.subject_label}</td><td>{item.assigned_teacher_name || t('schoolNoTeacher')}</td><td><span className={`school-shell__status ${item.assignment_id ? 'is-active' : 'is-pending'}`}>{item.assignment_id ? t('schoolAssigned') : t('schoolWaitingTeacher')}</span></td></tr>)}</tbody></table>{!assignments.length && <EmptyState icon="link" title={t('schoolNoAssignments')} />}</div></div></section>; };
 
@@ -278,7 +315,7 @@ export default function SchoolManagement() {
   if (!schools.length) return <div className="school-shell" dir={direction}><div className="school-shell__topbar"><Link to="/" className="school-shell__back"><Icon name="arrowLeft" className="w-4 h-4" />{t('backToClasses')}</Link><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div>{renderNoSchool()}</div>;
 
   return <div className="school-shell" dir={direction}>
-    <header className="school-shell__topbar"><div className="school-shell__topbar-main"><Link to="/" className="school-shell__back"><Icon name="arrowLeft" className="w-4 h-4" />{t('backToClasses')}</Link><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div><div className="school-shell__account"><span className="school-shell__account-avatar">{String(teacher?.full_name || teacher?.email || '?').trim().charAt(0)}</span><span>{isManager ? t('schoolRoleAdmin') : teacher?.subject || t('schoolRoleTeacher')}</span></div></header>
+    <header className="school-shell__topbar"><div className="school-shell__topbar-main"><Link to="/" className="school-shell__back"><Icon name="arrowLeft" className="w-4 h-4" />{t('backToClasses')}</Link><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div><div className="school-shell__account"><span className="school-shell__account-avatar">{String(teacher?.full_name || teacher?.email || '?').trim().charAt(0)}</span><span>{isManager ? t('schoolRoleAdmin') : teacher?.subject || t('schoolRoleTeacher')}</span><small className="school-shell__sync-meta">{lastSyncAt ? new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-US', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(lastSyncAt)) : t('syncBackground')}</small><button type="button" className="school-shell__sync-button" onClick={() => void syncNow()} disabled={syncing} title={syncing ? t('syncing') : t('syncNow')}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? t('syncing') : t('syncNow')}</span></button></div></header>
     {message && <div className="school-shell__feedback school-shell__feedback--success" role="status"><Icon name="check" className="w-4 h-4" />{message}<button type="button" onClick={() => setMessage('')} aria-label={t('close')}>×</button></div>}
     {error && <div className="school-shell__feedback school-shell__feedback--error" role="alert"><Icon name="alert" className="w-4 h-4" />{error}<button type="button" onClick={() => { setError(''); void loadSchools(selectedSchoolId); }}>{t('retry')}</button></div>}
     <section className="school-shell__hero"><div><span className="school-shell__eyebrow">{t('schoolManagementEyebrow')}</span><h1>{school?.school?.name || t('schoolManagementTitle')}</h1><p>{isManager ? t('schoolManagerHeroHint') : t('schoolTeacherHeroHint')}</p></div><div className="school-shell__hero-meta"><span><Icon name="users" className="w-4 h-4" />{t('schoolMemberCount', '', { count: school?.school?.member_count || 0 })}</span><span><Icon name="school" className="w-4 h-4" />{t('schoolClassCount', '', { count: school?.school?.class_count || 0 })}</span></div></section>
