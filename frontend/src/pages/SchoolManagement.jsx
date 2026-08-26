@@ -90,7 +90,7 @@ function SchoolDataHeader({ title, description, classes, selectedClassId, onSele
 }
 
 export default function SchoolManagement() {
-  const { teacher } = useAuth();
+  const { teacher, logout } = useAuth();
   const { t, locale, direction } = useLocale();
   const [schools, setSchools] = useState([]);
   const [selectedSchoolId, setSelectedSchoolId] = useState('');
@@ -123,6 +123,7 @@ export default function SchoolManagement() {
 
   const selectedMembership = school?.membership;
   const isManager = teacher?.account_role === 'school_manager' && selectedMembership?.role === 'school_admin';
+  const schoolName = school?.school?.name || school?.membership?.school_name || teacher?.school_name || t('schoolManagementTitle');
   const tabs = isManager ? MANAGER_TABS : TEACHER_TABS;
   const schoolClasses = school?.classes || [];
   const managerClasses = overview?.classes || schoolClasses;
@@ -417,13 +418,13 @@ export default function SchoolManagement() {
   const renderTab = () => { if (activeTab === 'classes') return isManager ? renderClassesTab() : renderTeacherClasses(); if (activeTab === 'teachers') return renderTeachersTab(); if (activeTab === 'assignments') return renderAssignmentsTab(); if (activeTab === 'roster') return renderRosterTab(); if (activeTab === 'attendance') return renderAttendanceTab(); if (activeTab === 'grades') return renderGradesTab(); if (activeTab === 'behavior') return renderBehaviorTab(); if (activeTab === 'reports') return renderReportsTab(); return renderAnalyticsTab(); };
 
   if (loading && !school && !schools.length) return <div className="school-shell" dir={direction}><LoadingOverlay /></div>;
-  if (!schools.length) return <div className="school-shell" dir={direction}><div className="school-shell__topbar"><Link to="/" className="school-shell__back"><Icon name="arrowLeft" className="w-4 h-4" />{t('backToClasses')}</Link><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div>{renderNoSchool()}</div>;
+  if (!schools.length) return <div className="school-shell" dir={direction}><div className="school-shell__topbar"><button type="button" className="school-shell__back school-shell__logout" onClick={logout}><Icon name="logout" className="w-4 h-4" />{t('logout')}</button><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div>{renderNoSchool()}</div>;
 
   return <div className="school-shell" dir={direction}>
-    <header className="school-shell__topbar"><div className="school-shell__topbar-main"><Link to="/" className="school-shell__back"><Icon name="arrowLeft" className="w-4 h-4" />{t('backToClasses')}</Link><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div><div className="school-shell__account"><span className="school-shell__account-avatar">{String(teacher?.full_name || teacher?.email || '?').trim().charAt(0)}</span><span>{isManager ? t('schoolRoleAdmin') : teacher?.subject || t('schoolRoleTeacher')}</span><small className="school-shell__sync-meta">{lastSyncAt ? displayDateTime(lastSyncAt, locale) : t('syncBackground')}</small><button type="button" className="school-shell__sync-button" onClick={() => void syncNow()} disabled={syncing} title={syncing ? t('syncing') : t('syncNow')}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? t('syncing') : t('syncNow')}</span></button></div></header>
+    <header className="school-shell__topbar"><div className="school-shell__topbar-main"><button type="button" className="school-shell__back school-shell__logout" onClick={logout}><Icon name="logout" className="w-4 h-4" />{t('logout')}</button><span className="school-shell__brand"><Icon name="school" className="w-5 h-5" />EduCore</span></div><div className="school-shell__account"><span className="school-shell__account-avatar">{String(teacher?.full_name || teacher?.email || '?').trim().charAt(0)}</span><span>{isManager ? t('schoolRoleAdmin') : teacher?.subject || t('schoolRoleTeacher')}</span><small className="school-shell__sync-meta">{lastSyncAt ? displayDateTime(lastSyncAt, locale) : t('syncBackground')}</small><button type="button" className="school-shell__sync-button" onClick={() => void syncNow()} disabled={syncing} title={syncing ? t('syncing') : t('syncNow')}><Icon name="refresh" className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? t('syncing') : t('syncNow')}</span></button></div></header>
     {message && <div className="school-shell__feedback school-shell__feedback--success" role="status"><Icon name="check" className="w-4 h-4" />{message}<button type="button" onClick={() => setMessage('')} aria-label={t('close')}>×</button></div>}
     {error && <div className="school-shell__feedback school-shell__feedback--error" role="alert"><Icon name="alert" className="w-4 h-4" />{error}<button type="button" onClick={() => { setError(''); void loadSchools(selectedSchoolId); }}>{t('retry')}</button></div>}
-    <section className="school-shell__hero"><div><span className="school-shell__eyebrow">{t('schoolManagementEyebrow')}</span><h1>{school?.school?.name || t('schoolManagementTitle')}</h1><p>{isManager ? t('schoolManagerHeroHint') : t('schoolTeacherHeroHint')}</p></div><div className="school-shell__hero-meta"><span><Icon name="users" className="w-4 h-4" />{t('schoolMemberCount', '', { count: school?.school?.member_count || 0 })}</span><span><Icon name="school" className="w-4 h-4" />{t('schoolClassCount', '', { count: school?.school?.class_count || 0 })}</span></div></section>
+    <section className="school-shell__hero"><div><span className="school-shell__eyebrow">{t('schoolManagementEyebrow')}</span><h1>{schoolName}</h1><p>{isManager ? t('schoolManagerHeroHint') : t('schoolTeacherHeroHint')}</p></div><div className="school-shell__hero-meta"><span><Icon name="users" className="w-4 h-4" />{t('schoolMemberCount', '', { count: school?.school?.member_count || 0 })}</span><span><Icon name="school" className="w-4 h-4" />{t('schoolClassCount', '', { count: school?.school?.class_count || 0 })}</span></div></section>
     <nav className="school-shell__tabs" role="tablist" aria-label={t('schoolManagementTitle')}>{tabs.map((tab) => <button type="button" role="tab" aria-selected={activeTab === tab.id} key={tab.id} className={activeTab === tab.id ? 'is-active' : ''} onClick={() => selectTab(tab.id)}><Icon name={tab.icon} className="w-4 h-4" /><span>{t(tab.key)}</span></button>)}</nav>
     {isManager && overviewLoading && !overview && <div className="school-shell__loading-note"><Icon name="refresh" className="w-4 h-4 animate-spin" />{t('loading')}</div>}
     {renderTab()}

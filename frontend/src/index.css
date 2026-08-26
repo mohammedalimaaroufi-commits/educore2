@@ -2408,8 +2408,9 @@ button, input, select, textarea { font-family: inherit; }
 .school-shell__sync-button { display:inline-flex; align-items:center; justify-content:center; gap:.28rem; min-height:2rem; padding:.32rem .5rem; border:1px solid rgba(46,125,107,.16); border-radius:.55rem; background:rgba(46,125,107,.08); color:var(--school-primary); font:inherit; font-size:.6rem; font-weight:900; cursor:pointer; }
 .school-shell__sync-button:hover { background:rgba(46,125,107,.15); }
 .school-shell__sync-button:disabled { cursor:wait; opacity:.65; }
-.school-shell__back { gap:.3rem; color:var(--school-muted); font-size:.7rem; font-weight:700; text-decoration:none; }
+.school-shell__back { display:inline-flex; align-items:center; gap:.3rem; border:0; padding:0; background:transparent; color:var(--school-muted); font:inherit; font-size:.7rem; font-weight:700; text-decoration:none; cursor:pointer; }
 .school-shell__back:hover { color:var(--school-primary); }
+.school-shell__logout { white-space:nowrap; }
 .school-shell__brand { gap:.35rem; padding-inline:.5rem; color:var(--school-primary); font-size:.85rem; font-weight:900; letter-spacing:.02em; }
 .school-shell__account { gap:.35rem; color:var(--school-muted); font-size:.65rem; font-weight:800; }
 .school-shell__account-avatar,.school-shell__avatar { display:grid; place-items:center; width:1.75rem; height:1.75rem; border-radius:50%; background:linear-gradient(135deg,var(--school-primary),#79b9a5); color:#fff; font-size:.7rem; font-weight:900; }

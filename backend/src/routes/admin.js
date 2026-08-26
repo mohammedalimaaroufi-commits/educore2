@@ -64,8 +64,8 @@ router.post('/school-managers', async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   try {
     const provision = db.transaction(() => {
-      db.prepare(`INSERT INTO teachers (id, full_name, email, password_hash, auth_provider, account_role, locale)
-                  VALUES (?, ?, ?, ?, 'email', 'school_manager', 'ar')`).run(managerId, fullName, email, passwordHash);
+      db.prepare(`INSERT INTO teachers (id, full_name, email, password_hash, auth_provider, account_role, locale, school_name)
+                  VALUES (?, ?, ?, ?, 'email', 'school_manager', 'ar', ?)`).run(managerId, fullName, email, passwordHash, schoolName);
       db.prepare('INSERT INTO schools (id, name, created_by) VALUES (?, ?, ?)').run(schoolId, schoolName, managerId);
       db.prepare(`INSERT INTO school_memberships (id, school_id, teacher_id, role, status, created_by)
                   VALUES (?, ?, ?, 'school_admin', 'active', ?)`).run(membershipId, schoolId, managerId, managerId);
