@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { signAdminToken, requireAdmin } = require('../middleware/auth');
@@ -43,6 +44,55 @@ router.post('/login', (req, res) => {
 });
 
 router.use(requireAdmin);
+
+// POST /api/admin/school-managers -> provision a distinct school-manager account and its school.
+// The password is accepted only for creation and is never returned in the response.
+router.post('/school-managers', async (req, res) => {
+  const fullName = String(req.body?.full_name || '').trim().slice(0, 160);
+  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
+  const password = String(req.body?.password || '');
+  const schoolName = String(req.body?.school_name || '').trim().slice(0, 160);
+  if (fullName.length < 2 || !email.includes('@') || password.length < 8 || schoolName.length < 2) {
+    return res.status(400).json({ error: 'اسم المدرسة والمدير والبريد وكلمة المرور (8 أحرف على الأقل) مطلوبة', code: 'INVALID_SCHOOL_MANAGER_INPUT' });
+  }
+  if (db.prepare('SELECT id FROM teachers WHERE lower(email) = ?').get(email)) {
+    return res.status(409).json({ error: 'البريد الإلكتروني مستخدم مسبقًا', code: 'SCHOOL_MANAGER_EMAIL_EXISTS' });
+  }
+  const managerId = uuid();
+  const schoolId = uuid();
+  const membershipId = uuid();
+  const passwordHash = await bcrypt.hash(password, 10);
+  try {
+    const provision = db.transaction(() => {
+      db.prepare(`INSERT INTO teachers (id, full_name, email, password_hash, auth_provider, account_role, locale)
+                  VALUES (?, ?, ?, ?, 'email', 'school_manager', 'ar')`).run(managerId, fullName, email, passwordHash);
+      db.prepare('INSERT INTO schools (id, name, created_by) VALUES (?, ?, ?)').run(schoolId, schoolName, managerId);
+      db.prepare(`INSERT INTO school_memberships (id, school_id, teacher_id, role, status, created_by)
+                  VALUES (?, ?, ?, 'school_admin', 'active', ?)`).run(membershipId, schoolId, managerId, managerId);
+    });
+    provision();
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'تعذر إنشاء الحساب لأن البريد مستخدم مسبقًا', code: 'SCHOOL_MANAGER_EMAIL_EXISTS' });
+    throw error;
+  }
+  res.status(201).json({
+    manager: { id: managerId, full_name: fullName, email, account_role: 'school_manager' },
+    school: { id: schoolId, name: schoolName },
+    membership: { id: membershipId, role: 'school_admin', status: 'active' },
+  });
+});
+
+// GET /api/admin/schools -> provisioning overview without passwords or private class data.
+router.get('/schools', (req, res) => {
+  const schools = db.prepare(`SELECT s.id, s.name, s.status, s.created_at,
+    t.id AS manager_id, t.full_name AS manager_name, t.email AS manager_email,
+    (SELECT COUNT(*) FROM school_memberships sm WHERE sm.school_id = s.id AND sm.status = 'active') AS member_count,
+    (SELECT COUNT(*) FROM classes c WHERE c.school_id = s.id AND c.archived = 0) AS class_count
+    FROM schools s LEFT JOIN school_memberships sm ON sm.school_id = s.id AND sm.role = 'school_admin' AND sm.status = 'active'
+    LEFT JOIN teachers t ON t.id = sm.teacher_id
+    ORDER BY datetime(s.created_at) DESC, s.id DESC`).all();
+  res.json({ schools });
+});
 
 // GET /api/admin/public-config -> payment details and announcement editor state
 router.get('/public-config', (req, res) => {
@@ -277,26 +327,29 @@ router.patch('/teachers/:teacherId/account-status', (req, res) => {
 
 // DELETE /api/admin/teachers/:teacherId -> permanently remove a teacher and owned records
 router.delete('/teachers/:teacherId', (req, res) => {
-  const teacher = db.prepare('SELECT id, email FROM teachers WHERE id = ?').get(req.params.teacherId);
+  const teacher = db.prepare('SELECT id, email, account_role FROM teachers WHERE id = ?').get(req.params.teacherId);
   if (!teacher) return res.status(404).json({ error: 'المعلم غير موجود' });
+  if (teacher.account_role === 'school_manager') return res.status(409).json({ error: 'استخدم تعطيل الحساب أو إجراء إدارة المدرسة لحساب مدير المدرسة', code: 'SCHOOL_MANAGER_DELETE_REQUIRES_SCHOOL_ACTION' });
   const removeOwnedData = db.transaction(() => {
     const teacherId = teacher.id;
     db.prepare(`DELETE FROM grades WHERE assessment_id IN (
       SELECT a.id FROM assessments a
       JOIN grade_categories gc ON gc.id = a.category_id
       JOIN classes c ON c.id = gc.class_id
-      WHERE c.teacher_id = ?
-    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
+      WHERE c.school_id IS NULL AND c.teacher_id = ?
+    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?)`).run(teacherId, teacherId);
     db.prepare(`DELETE FROM behavior_logs WHERE behavior_type_id IN (
-      SELECT bt.id FROM behavior_types bt JOIN classes c ON c.id = bt.class_id WHERE c.teacher_id = ?
-    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
-    db.prepare(`DELETE FROM attendance_records WHERE session_id IN (SELECT ats.id FROM attendance_sessions ats JOIN classes c ON c.id = ats.class_id WHERE c.teacher_id = ?) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?)`).run(teacherId, teacherId);
-    db.prepare('DELETE FROM assessments WHERE category_id IN (SELECT gc.id FROM grade_categories gc JOIN classes c ON c.id = gc.class_id WHERE c.teacher_id = ?)').run(teacherId);
-    db.prepare('DELETE FROM grade_categories WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
-    db.prepare('DELETE FROM behavior_types WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
-    db.prepare('DELETE FROM attendance_sessions WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
-    db.prepare('DELETE FROM students WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ?)').run(teacherId);
-    db.prepare('DELETE FROM classes WHERE teacher_id = ?').run(teacherId);
+      SELECT bt.id FROM behavior_types bt JOIN classes c ON c.id = bt.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?
+    ) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?)`).run(teacherId, teacherId);
+          db.prepare(`DELETE FROM attendance_records WHERE session_id IN (SELECT ats.id FROM attendance_sessions ats JOIN classes c ON c.id = ats.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?) OR student_id IN (SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?)`).run(teacherId, teacherId);
+
+          db.prepare('DELETE FROM assessments WHERE category_id IN (SELECT gc.id FROM grade_categories gc JOIN classes c ON c.id = gc.class_id WHERE c.school_id IS NULL AND c.teacher_id = ?)').run(teacherId);
+      db.prepare('DELETE FROM grade_categories WHERE class_id IN (SELECT id FROM classes WHERE school_id IS NULL AND teacher_id = ?)').run(teacherId);
+      db.prepare('DELETE FROM behavior_types WHERE class_id IN (SELECT id FROM classes WHERE school_id IS NULL AND teacher_id = ?)').run(teacherId);
+      db.prepare('DELETE FROM attendance_sessions WHERE class_id IN (SELECT id FROM classes WHERE school_id IS NULL AND teacher_id = ?)').run(teacherId);
+      db.prepare('DELETE FROM students WHERE class_id IN (SELECT id FROM classes WHERE school_id IS NULL AND teacher_id = ?)').run(teacherId);
+      db.prepare('DELETE FROM classes WHERE school_id IS NULL AND teacher_id = ?').run(teacherId);
+
     db.prepare('DELETE FROM grading_scheme_categories WHERE scheme_id IN (SELECT id FROM grading_schemes WHERE teacher_id = ?)').run(teacherId);
     db.prepare('DELETE FROM grading_schemes WHERE teacher_id = ?').run(teacherId);
     for (const table of ['subscriptions', 'comment_templates', 'payment_requests', 'grade_recommendation_rules', 'messages', 'password_resets', 'password_reset_requests', 'behavior_type_templates', 'teacher_space_posts']) {

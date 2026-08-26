@@ -608,6 +608,62 @@ function BroadcastComposer({ onSent }) {
   );
 }
 
+function SchoolProvisioning() {
+  const { t, locale } = useLocale();
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', school_name: '' });
+  const [schools, setSchools] = useState([]);
+  const [created, setCreated] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const loadSchools = async () => {
+    try {
+      const { data } = await adminApi.get('/admin/schools');
+      setSchools(data.schools || []);
+    } catch (requestError) {
+      setError(t('schoolProvisioningLoadFailed'));
+    }
+  };
+  useEffect(() => { void loadSchools(); }, []);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError(''); setMessage(''); setCreated(null);
+    try {
+      const { data } = await adminApi.post('/admin/school-managers', form);
+      setCreated(data);
+      setMessage(t('schoolManagerCreated'));
+      setForm({ full_name: '', email: '', password: '', school_name: '' });
+      await loadSchools();
+    } catch (requestError) {
+      const code = requestError?.response?.data?.code;
+      setError(code === 'SCHOOL_MANAGER_EMAIL_EXISTS' ? t('schoolManagerEmailExists') : t('schoolManagerInvalid'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="space-y-4">
+    <section className="admin-provisioning-card">
+      <div className="admin-provisioning-card__heading"><div><span className="eyebrow">{t('schoolManagement')}</span><h2>{t('schoolProvisioningTitle')}</h2><p>{t('schoolProvisioningDescription')}</p></div><Icon name="school" className="w-6 h-6" /></div>
+      {message && <div className="admin-action-feedback" role="status">{message}</div>}
+      {error && <div className="admin-list-error" role="alert">{error}</div>}
+      <form className="admin-provisioning-form" onSubmit={submit}>
+        <label><span>{t('schoolManagerName')}</span><input className="input" value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} required autoComplete="name" /></label>
+        <label><span>{t('schoolManagerEmail')}</span><input className="input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required autoComplete="email" /></label>
+        <label><span>{t('schoolManagerPassword')}</span><input className="input" type="password" minLength={8} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} required autoComplete="new-password" /></label>
+        <label><span>{t('schoolNameLabel')}</span><input className="input" value={form.school_name} onChange={(event) => setForm((current) => ({ ...current, school_name: event.target.value }))} required /></label>
+        <button type="submit" className="btn-primary" disabled={busy}>{busy ? t('saving') : t('createSchoolManager')}</button>
+      </form>
+      <p className="admin-provisioning-card__hint">{t('schoolManagerCredentialsHint')}</p>
+    </section>
+    {created && <section className="admin-provisioning-result" role="status"><strong>{created.school?.name}</strong><span>{created.manager?.full_name} · {created.manager?.email}</span><small>{t('schoolManagerPasswordHint')}</small></section>}
+    <section className="card table-scroll-sticky"><div className="p-4 border-b border-line"><h3 className="font-bold">{t('schoolProvisionedList')}</h3></div><div className="overflow-x-auto"><table className="w-full text-sm table-head-sticky"><thead className="bg-surface"><tr><th className="text-right px-4 py-2">{t('schoolNameLabel')}</th><th className="text-right px-4 py-2">{t('schoolManagerName')}</th><th className="text-right px-4 py-2">{t('schoolMembers')}</th><th className="text-right px-4 py-2">{t('schoolClasses')}</th></tr></thead><tbody>{schools.map((item) => <tr className="border-t border-line" key={item.id}><td className="px-4 py-2">{item.name}</td><td className="px-4 py-2">{item.manager_name || '—'}<small className="block text-xs text-ink/45">{item.manager_email || '—'}</small></td><td className="px-4 py-2">{item.member_count}</td><td className="px-4 py-2">{item.class_count}</td></tr>)}</tbody></table></div>{schools.length === 0 && <p className="p-4 text-sm text-ink/50">{t('schoolNoProvisionedSchools')}</p>}</section>
+  </div>;
+}
+
 function ChatPanel({ initialTeacher, refreshKey = 0 }) {
   const { t, locale } = useLocale();
   const [conversations, setConversations] = useState([]);
@@ -795,19 +851,21 @@ export default function AdminDashboard() {
         <nav className="admin-tabs" aria-label={t('adminSections')}>
           <button onClick={() => setTab('requests')} className={`admin-tab ${tab === 'requests' ? 'is-active' : ''}`}><span>01</span>{t('activationRequests')}</button>
           <button onClick={() => setTab('teachers')} className={`admin-tab ${tab === 'teachers' ? 'is-active' : ''}`}><span>02</span>{t('allTeachers')}</button>
-          <button onClick={() => setTab('restrictions')} className={`admin-tab ${tab === 'restrictions' ? 'is-active' : ''}`}><span>03</span>{t('expiryRestrictions')}</button>
-          <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>04</span>{t('subscriptionOffers')}</button>
-          <button onClick={() => setTab('studentLimits')} className={`admin-tab ${tab === 'studentLimits' ? 'is-active' : ''}`}><span>05</span>{t('studentLimits')}</button>
-          <button onClick={() => setTab('payment')} className={`admin-tab ${tab === 'payment' ? 'is-active' : ''}`}><span>06</span>{t('paymentSettings')}</button>
-          <button onClick={() => setTab('announcement')} className={`admin-tab ${tab === 'announcement' ? 'is-active' : ''}`}><span>07</span>{t('urgentAnnouncement')}</button>
-          <button onClick={() => setTab('notifications')} className={`admin-tab ${tab === 'notifications' ? 'is-active' : ''}`}><span>08</span>{t('notifications')}</button>
-          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>09</span>{t('passwordRequests')}</button>
-          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>10</span>{t('teacherChat')}</button>
+          <button onClick={() => setTab('schools')} className={`admin-tab ${tab === 'schools' ? 'is-active' : ''}`}><span>03</span>{t('schoolProvisioning')}</button>
+          <button onClick={() => setTab('restrictions')} className={`admin-tab ${tab === 'restrictions' ? 'is-active' : ''}`}><span>04</span>{t('expiryRestrictions')}</button>
+          <button onClick={() => setTab('subscriptions')} className={`admin-tab ${tab === 'subscriptions' ? 'is-active' : ''}`}><span>05</span>{t('subscriptionOffers')}</button>
+          <button onClick={() => setTab('studentLimits')} className={`admin-tab ${tab === 'studentLimits' ? 'is-active' : ''}`}><span>06</span>{t('studentLimits')}</button>
+          <button onClick={() => setTab('payment')} className={`admin-tab ${tab === 'payment' ? 'is-active' : ''}`}><span>07</span>{t('paymentSettings')}</button>
+          <button onClick={() => setTab('announcement')} className={`admin-tab ${tab === 'announcement' ? 'is-active' : ''}`}><span>08</span>{t('urgentAnnouncement')}</button>
+          <button onClick={() => setTab('notifications')} className={`admin-tab ${tab === 'notifications' ? 'is-active' : ''}`}><span>09</span>{t('notifications')}</button>
+          <button onClick={() => setTab('passwords')} className={`admin-tab ${tab === 'passwords' ? 'is-active' : ''}`}><span>10</span>{t('passwordRequests')}</button>
+          <button onClick={() => setTab('chat')} className={`admin-tab ${tab === 'chat' ? 'is-active' : ''}`}><span>11</span>{t('teacherChat')}</button>
         </nav>
       </div>
       <main className="admin-page-content">
         {tab === 'requests' && <PaymentRequests refreshKey={syncRevision} />}
         {tab === 'teachers' && <TeachersList onMessage={goToChat} refreshKey={syncRevision} />}
+        {tab === 'schools' && <SchoolProvisioning />}
         {tab === 'restrictions' && <RestrictionsTab />}
         {tab === 'subscriptions' && <SubscriptionConfig />}
         {tab === 'studentLimits' && <StudentLimitsConfig />}

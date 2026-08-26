@@ -80,6 +80,7 @@ const Register = lazyWithAssetRecovery(() => import('./pages/Register.jsx'));
 const ForgotPassword = lazyWithAssetRecovery(() => import('./pages/ForgotPassword.jsx'));
 const ResetPassword = lazyWithAssetRecovery(() => import('./pages/ResetPassword.jsx'));
 const Dashboard = lazyWithAssetRecovery(() => import('./pages/Dashboard.jsx'));
+const SchoolManagement = lazyWithAssetRecovery(() => import('./pages/SchoolManagement.jsx'));
 const ClassDetail = lazyWithAssetRecovery(() => import('./pages/ClassDetail.jsx'));
 const Subscription = lazyWithAssetRecovery(() => import('./pages/Subscription.jsx'));
 const Settings = lazyWithAssetRecovery(() => import('./pages/Settings.jsx'));
@@ -98,6 +99,12 @@ function OfflineBanner() {
   const { t } = useLocale();
   if (!offline) return null;
   return <div className="sticky top-0 z-50 bg-amber-100 text-amber-900 border-b border-amber-200 px-4 py-2 text-center text-xs">{t('offline')}</div>;
+}
+
+function HomeRoute() {
+  const { teacher } = useAuth();
+  if (teacher?.account_role === 'school_manager') return <Navigate to="/school" replace />;
+  return <Dashboard />;
 }
 
 function ProtectedRoute({ children }) {
@@ -124,7 +131,8 @@ export default function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
+        <Route path="/school" element={<ProtectedRoute><SchoolManagement /></ProtectedRoute>} />
         <Route path="/classes/:id" element={<ProtectedRoute><ClassDetail /></ProtectedRoute>} />
         <Route path="/subscription" element={<ProtectedRoute><Subscription /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

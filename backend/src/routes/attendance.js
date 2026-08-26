@@ -3,13 +3,16 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
 router.use(requireFeature('attendance'));
 
 function assertClassOwnership(classId, teacherId) {
-  return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
+  return canTeacherOperateClass(classId, teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(classId)
+    : null;
 }
 
 // GET /api/attendance/session?class_id=...&date=YYYY-MM-DD  -> creates session if missing, returns roster+status
@@ -37,8 +40,9 @@ router.get('/session', (req, res) => {
 router.post('/session', (req, res) => {
   const { session_id, class_id, session_date, records } = req.body;
   let session = session_id
-    ? db.prepare(`SELECT ats.* FROM attendance_sessions ats JOIN classes c ON ats.class_id = c.id WHERE ats.id = ? AND c.teacher_id = ?`).get(session_id, req.teacherId)
+    ? db.prepare(`SELECT ats.* FROM attendance_sessions ats WHERE ats.id = ?`).get(session_id)
     : null;
+  if (session && !assertClassOwnership(session.class_id, req.teacherId)) session = null;
   if (!session && class_id && session_date && assertClassOwnership(class_id, req.teacherId)) {
     const stableId = session_id || uuid();
     db.prepare('INSERT OR IGNORE INTO attendance_sessions (id, class_id, session_date) VALUES (?, ?, ?)').run(stableId, class_id, session_date);
@@ -48,8 +52,24 @@ router.post('/session', (req, res) => {
 
   const upsert = db.prepare(`INSERT INTO attendance_records (id, session_id, student_id, status) VALUES (?, ?, ?, ?)
                               ON CONFLICT(session_id, student_id) DO UPDATE SET status = excluded.status`);
-  const saveAll = db.transaction((items) => { for (const it of items) upsert.run(uuid(), session.id, it.student_id, it.status); });
-  saveAll(records || []);
+  const saveAll = db.transaction((items) => {
+    for (const it of items) {
+      const student = db.prepare('SELECT id FROM students WHERE id = ? AND class_id = ? AND archived = 0').get(it.student_id, session.class_id);
+      if (!student) {
+        const invalid = new Error('الطالب غير موجود في هذا الصف');
+        invalid.code = 'STUDENT_NOT_IN_CLASS';
+        throw invalid;
+      }
+      const status = ['present', 'absent', 'late', 'excused'].includes(it.status) ? it.status : 'present';
+      upsert.run(uuid(), session.id, it.student_id, status);
+    }
+  });
+  try {
+    saveAll(Array.isArray(records) ? records : []);
+  } catch (error) {
+    if (error?.code === 'STUDENT_NOT_IN_CLASS') return res.status(400).json({ error: error.message, code: error.code });
+    throw error;
+  }
   res.json({ success: true, session });
 });
 
@@ -75,7 +95,8 @@ router.get('/stats', (req, res) => {
 
 // GET /api/attendance/student/:id  -> full attendance history + totals for one student (used in analytics detail view)
 router.get('/student/:id', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
+  const student = db.prepare('SELECT s.* FROM students s WHERE s.id = ?').get(req.params.id);
+  if (student && !assertClassOwnership(student.class_id, req.teacherId)) return res.status(404).json({ error: 'الطالب غير موجود' });
   if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
 
   const records = db.prepare(`SELECT ats.session_date, ar.status FROM attendance_records ar

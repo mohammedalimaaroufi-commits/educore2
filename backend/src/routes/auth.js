@@ -111,7 +111,7 @@ router.post('/register', async (req, res) => {
                                   VALUES (?, ?, ?, ?, ?, ?)`);
   defaultRules.forEach((r, i) => insertRule.run(uuid(), id, r.min, r.max, r.text, i));
 
-  const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(id);
+  const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url, account_role FROM teachers WHERE id = ?').get(id);
   const token = signToken(teacher);
   res.status(201).json({ token, teacher });
 });
@@ -127,7 +127,7 @@ router.post('/login', async (req, res) => {
   const accountStatus = getAccountStatus(teacher.id);
   if (isAccountBlocked(accountStatus.status)) return res.status(403).json({ error: accountStatusMessage(accountStatus.status), code: 'ACCOUNT_BLOCKED', account_status: accountStatus.status });
 
-  const publicTeacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(teacher.id);
+  const publicTeacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url, account_role FROM teachers WHERE id = ?').get(teacher.id);
   const token = signToken(publicTeacher);
   res.json({ token, teacher: publicTeacher });
 });
@@ -214,7 +214,16 @@ function repairSubscriptionFromApprovedRequest(teacherId, rawSub) {
 
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
-  const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url FROM teachers WHERE id = ?').get(req.teacherId);
+  const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name, locale, avatar_url, account_role FROM teachers WHERE id = ?').get(req.teacherId);
+  const schoolMemberships = db.prepare(`SELECT sm.school_id, sm.role, sm.status, s.name AS school_name
+                                       FROM school_memberships sm JOIN schools s ON s.id = sm.school_id
+                                       WHERE sm.teacher_id = ? AND sm.status = 'active' AND s.status = 'active'
+                                       ORDER BY s.name COLLATE NOCASE`).all(req.teacherId);
+  // School managers are separate operational accounts. They do not receive a teacher
+  // trial/subscription payload and are routed to their scoped school workspace.
+  if (teacher?.account_role === 'school_manager') {
+    return res.json({ teacher, schoolMemberships, subscription: null, trialInfo: null, subscriptionInfo: null, restrictions: {} });
+  }
   const rawSub = getCurrentSubscription(req.teacherId);
   const repairedSub = repairSubscriptionFromApprovedRequest(req.teacherId, rawSub);
   const periodReadySub = repairPaidSubscriptionPeriod(repairedSub);

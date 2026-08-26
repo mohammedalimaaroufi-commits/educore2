@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
+const { isSchoolManagerAccount } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -34,9 +35,10 @@ function insertIfMissing(table, row) {
 // is already 100% local, this is just a portable snapshot of it.
 router.get('/export', (req, res) => {
   const teacherId = req.teacherId;
+  if (isSchoolManagerAccount(teacherId)) return res.status(403).json({ error: 'النسخ الاحتياطي متاح للصفوف الشخصية فقط', code: 'PERSONAL_BACKUP_ONLY' });
   const teacher = db.prepare('SELECT id, full_name, email, subject, school_stage, school_name FROM teachers WHERE id = ?').get(teacherId);
 
-  const classes = db.prepare('SELECT * FROM classes WHERE teacher_id = ?').all(teacherId);
+  const classes = db.prepare('SELECT * FROM classes WHERE teacher_id = ? AND school_id IS NULL').all(teacherId);
   const data = {
     version: BACKUP_VERSION,
     exported_at: new Date().toISOString(),
@@ -75,15 +77,19 @@ router.get('/export', (req, res) => {
 // safe and won't duplicate anything. Existing data is never overwritten or deleted, only added to.
 router.post('/import', (req, res) => {
   const backup = req.body;
+  if (isSchoolManagerAccount(req.teacherId)) return res.status(403).json({ error: 'النسخ الاحتياطي متاح للصفوف الشخصية فقط', code: 'PERSONAL_BACKUP_ONLY' });
   if (!backup || !Array.isArray(backup.classes)) {
     return res.status(400).json({ error: 'ملف النسخة الاحتياطية غير صالح' });
   }
 
   const teacherId = req.teacherId;
+  const schoolClasses = (backup.classes || []).filter((cls) => cls.school_id);
+  if (schoolClasses.length > 0) return res.status(400).json({ error: 'لا يمكن استيراد صفوف مدرسية إلى النسخة الشخصية', code: 'SCHOOL_CLASSES_NOT_IN_PERSONAL_BACKUP' });
   const counts = { classes: 0, students: 0, grades: 0, behaviorLogs: 0, attendanceRecords: 0 };
   const activeLimit = getActiveStudentLimit(teacherId);
   if (activeLimit) {
-    const existingIds = new Set(db.prepare(`SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ?`).all(teacherId).map((row) => row.id));
+    const existingIds = new Set(db.prepare(`SELECT s.id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = ? AND c.school_id IS NULL
+`).all(teacherId).map((row) => row.id));
     const backupClassIds = new Set((backup.classes || []).filter((cls) => Number(cls.archived) !== 1).map((cls) => cls.id));
     const incomingActiveStudents = (backup.classes || []).reduce((total, cls) => {
       if (!backupClassIds.has(cls.id)) return total;

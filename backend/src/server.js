@@ -42,6 +42,7 @@ const messagesRoutes = require('./routes/messages');
 const backupRoutes = require('./routes/backup');
 const syncRoutes = require('./routes/sync');
 const teacherSpaceRoutes = require('./routes/teacherSpace');
+const schoolRoutes = require('./routes/schools');
 
 
 
@@ -91,6 +92,7 @@ app.use('/api/messages', messagesRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/teacher-space', teacherSpaceRoutes);
+app.use('/api/schools', schoolRoutes);
 
 
 

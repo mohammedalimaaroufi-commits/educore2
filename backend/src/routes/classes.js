@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -190,9 +191,15 @@ function buildQuickStatsBatch(classIds, studentCountByClass) {
 // GET /api/classes
 router.get('/', (req, res) => {
   const classes = db.prepare(`SELECT * FROM classes
-                              WHERE teacher_id = ? AND archived = 0
+                              WHERE archived = 0 AND (
+                                (school_id IS NULL AND teacher_id = ?)
+                                OR (school_id IS NOT NULL AND EXISTS (
+                                  SELECT 1 FROM school_class_assignments a
+                                  WHERE a.class_id = classes.id AND a.teacher_id = ? AND a.status = 'active'
+                                ))
+                              )
                               ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
-                                       sort_order ASC, created_at DESC, id DESC`).all(req.teacherId);
+                                       sort_order ASC, created_at DESC, id DESC`).all(req.teacherId, req.teacherId);
   const classIds = classes.map((item) => item.id);
   const countRows = classIds.length
     ? db.prepare(`SELECT class_id, COUNT(*) as count FROM students WHERE class_id IN (${classIds.map(() => '?').join(',')}) AND archived = 0 GROUP BY class_id`).all(...classIds)
@@ -213,7 +220,7 @@ router.get('/archived', (req, res) => {
     SELECT c.*, COUNT(s.id) AS student_count
     FROM classes c
     LEFT JOIN students s ON s.class_id = c.id
-    WHERE c.teacher_id = ? AND c.archived = 1
+    WHERE c.school_id IS NULL AND c.teacher_id = ? AND c.archived = 1
     GROUP BY c.id
     ORDER BY c.updated_at DESC
   `).all(req.teacherId);
@@ -222,7 +229,7 @@ router.get('/archived', (req, res) => {
 
 // POST /api/classes/:id/restore  -> un-archive a class
 router.post('/:id/restore', (req, res) => {
-  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
+  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ? AND school_id IS NULL').get(req.params.id, req.teacherId);
   if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
 
   const limit = getActiveStudentLimit(req.teacherId);
@@ -249,7 +256,7 @@ router.post('/', (req, res) => {
   const { id: requestedId, name, subject, academic_year, color, icon } = req.body;
   if (!name) return res.status(400).json({ error: 'اسم الصف مطلوب' });
   const id = requestedId || uuid();
-  const existing = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(id, req.teacherId);
+  const existing = db.prepare('SELECT * FROM classes WHERE id = ? AND school_id IS NULL AND teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ class: existing, reused: true });
   const nextOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM classes WHERE teacher_id = ? AND archived = 0').get(req.teacherId).next_order;
   db.prepare(`INSERT INTO classes (id, teacher_id, name, subject, academic_year, color, icon, sort_order)
@@ -297,7 +304,7 @@ router.patch('/reorder', (req, res) => {
   if (!requestedIds || requestedIds.length > 1000) return res.status(400).json({ error: 'ترتيب الصفوف غير صالح' });
 
   const existing = db.prepare(`SELECT id FROM classes
-                               WHERE teacher_id = ? AND archived = 0
+                               WHERE school_id IS NULL AND teacher_id = ? AND archived = 0
                                ORDER BY CASE WHEN sort_order IS NULL THEN 1 ELSE 0 END,
                                         sort_order ASC, created_at DESC, id DESC`).all(req.teacherId);
   const allowed = new Set(existing.map((item) => item.id));
@@ -315,22 +322,24 @@ router.patch('/reorder', (req, res) => {
       seen.add(item.id);
     }
   });
-  const update = db.prepare("UPDATE classes SET sort_order = ?, updated_at = datetime('now') WHERE id = ? AND teacher_id = ? AND archived = 0");
+  const update = db.prepare("UPDATE classes SET sort_order = ?, updated_at = datetime('now') WHERE id = ? AND school_id IS NULL AND teacher_id = ? AND archived = 0");
   db.transaction(() => orderedIds.forEach((id, index) => update.run(index, id, req.teacherId)))();
   res.json({ class_ids: orderedIds });
 });
 
 // GET /api/classes/:id
 router.get('/:id', (req, res) => {
-  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
+  const cls = canTeacherOperateClass(req.params.id, req.teacherId)
+    ? db.prepare('SELECT * FROM classes WHERE id = ? AND archived = 0').get(req.params.id)
+    : null;
+  if (!cls) return res.status(404).json({ error: 'الصف غير موجود أو غير مسند إلى حسابك' });
   res.json({ class: cls });
 });
 
 // PATCH /api/classes/:id
 router.patch('/:id', (req, res) => {
-  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
+  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND school_id IS NULL AND teacher_id = ? AND archived = 0').get(req.params.id, req.teacherId);
+  if (!cls) return res.status(403).json({ error: 'لا يمكن تعديل بيانات الصف المدرسي من حساب المعلم', code: 'SCHOOL_CLASS_METADATA_LOCKED' });
 
   const updates = {};
   if (req.body.name !== undefined) updates.name = String(req.body.name).trim();
@@ -347,15 +356,15 @@ router.patch('/:id', (req, res) => {
       .run({ ...updates, id: cls.id, teacher_id: req.teacherId });
   }
 
-  const saved = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(cls.id, req.teacherId);
+  const saved = db.prepare('SELECT * FROM classes WHERE id = ? AND school_id IS NULL AND teacher_id = ?').get(cls.id, req.teacherId);
   res.json({ class: saved, saved_fields: keys });
 });
 
 // DELETE /api/classes/:id            -> archive (soft delete, recoverable)
 // DELETE /api/classes/:id?permanent=1 -> hard delete (removes class + all students/grades/behavior/attendance permanently)
 router.delete('/:id', (req, res) => {
-  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!cls) return res.status(404).json({ error: 'الصف غير موجود' });
+  const cls = db.prepare('SELECT * FROM classes WHERE id = ? AND school_id IS NULL AND teacher_id = ?').get(req.params.id, req.teacherId);
+  if (!cls) return res.status(403).json({ error: 'لا يمكن أرشفة أو حذف صف مدرسي من حساب المعلم', code: 'SCHOOL_CLASS_DELETE_LOCKED' });
 
   if (req.query.permanent === '1' || req.query.permanent === 'true') {
     db.prepare('DELETE FROM classes WHERE id = ?').run(cls.id); // ON DELETE CASCADE removes students/categories/behavior/attendance
@@ -371,7 +380,7 @@ router.post('/:id/transfer-student', (req, res) => {
   const { student_id, target_class_id, mode } = req.body;
   const student = db.prepare(`SELECT s.*, c.teacher_id, c.archived AS source_class_archived
                              FROM students s JOIN classes c ON c.id = s.class_id
-                             WHERE s.id = ? AND s.class_id = ? AND c.teacher_id = ?`)
+                             WHERE s.id = ? AND s.class_id = ? AND c.school_id IS NULL AND c.teacher_id = ?`)
     .get(student_id, req.params.id, req.teacherId);
   if (!student) return res.status(404).json({ error: 'الطالب غير موجود في هذا الصف' });
 
@@ -380,7 +389,7 @@ router.post('/:id/transfer-student', (req, res) => {
     return res.json({ success: true, mode: 'archived' });
   }
 
-  const targetClass = db.prepare('SELECT * FROM classes WHERE id = ? AND teacher_id = ?').get(target_class_id, req.teacherId);
+  const targetClass = db.prepare('SELECT * FROM classes WHERE id = ? AND school_id IS NULL AND teacher_id = ?').get(target_class_id, req.teacherId);
   if (!targetClass) return res.status(404).json({ error: 'الصف الهدف غير موجود' });
 
   // Moving from an archived class into an active class makes this student count toward the plan.

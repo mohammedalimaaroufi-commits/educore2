@@ -60,6 +60,9 @@ function validDate(value) {
 }
 
 function normalizeSubscriptionSession(data) {
+  if (data?.teacher?.account_role === 'school_manager') {
+    return { ...data, subscription: null, trialInfo: null, subscriptionInfo: null, restrictions: data.restrictions || {} };
+  }
   const rawSubscription = data?.subscription || null;
   const rawPlan = canonicalPlan(rawSubscription?.plan);
   const infoPlan = canonicalPlan(data?.subscriptionInfo?.plan);

@@ -342,7 +342,7 @@ function getStudentCount(teacherId) {
   const row = db.prepare(`SELECT COUNT(*) AS count
                           FROM students s
                           JOIN classes c ON c.id = s.class_id
-                          WHERE c.teacher_id = ? AND c.archived = 0 AND s.archived = 0`).get(teacherId);
+                          WHERE c.teacher_id = ? AND c.school_id IS NULL AND c.archived = 0 AND s.archived = 0`).get(teacherId);
   return Number(row?.count || 0);
 }
 

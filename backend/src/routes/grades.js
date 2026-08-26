@@ -3,13 +3,28 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
 router.use(requireFeature('gradebook'));
 
 function assertClassOwnership(classId, teacherId) {
-  return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
+  return canTeacherOperateClass(classId, teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(classId)
+    : null;
+}
+
+function getOperableCategory(categoryId, teacherId) {
+  const category = db.prepare('SELECT * FROM grade_categories WHERE id = ?').get(categoryId);
+  return category && canTeacherOperateClass(category.class_id, teacherId) ? category : null;
+}
+
+function getOperableAssessment(assessmentId, teacherId) {
+  const assessment = db.prepare(`SELECT a.*, gc.class_id, gc.weight_percent, gc.grading_mode
+                                 FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
+                                 WHERE a.id = ?`).get(assessmentId);
+  return assessment && canTeacherOperateClass(assessment.class_id, teacherId) ? assessment : null;
 }
 
 function categoryAssessments(categoryId) {
@@ -103,7 +118,7 @@ router.post('/categories', (req, res) => {
 
 // PATCH /api/grades/categories/:id  (rename / change weight - validated against 100% on the frontend + here)
 router.patch('/categories/:id', (req, res) => {
-  const cat = db.prepare('SELECT gc.* FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE gc.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
+  const cat = getOperableCategory(req.params.id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
   const { name, weight_percent, grading_type, grading_mode, details_note } = req.body;
   const nextWeight = weight_percent === undefined || weight_percent === null ? Number(cat.weight_percent || 0) : Number(weight_percent);
@@ -126,7 +141,9 @@ router.patch('/categories/:id', (req, res) => {
 });
 
 router.delete('/categories/:id', (req, res) => {
-  const result = db.prepare(`DELETE FROM grade_categories WHERE id = ? AND class_id IN (SELECT id FROM classes WHERE teacher_id = ?)`).run(req.params.id, req.teacherId);
+  const category = getOperableCategory(req.params.id, req.teacherId);
+  if (!category) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  const result = db.prepare('DELETE FROM grade_categories WHERE id = ?').run(category.id);
   if (result.changes === 0) return res.status(404).json({ error: 'الفئة غير موجودة' });
   res.json({ success: true });
 });
@@ -136,16 +153,15 @@ router.delete('/categories/:id', (req, res) => {
 // GET /api/grades/assessments?category_id=...
 router.get('/assessments', (req, res) => {
   const { category_id } = req.query;
-  const assessments = db.prepare(`SELECT a.* FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
-                                   JOIN classes c ON gc.class_id = c.id WHERE a.category_id = ? AND c.teacher_id = ?
-                                   ORDER BY a.date DESC, a.created_at DESC`).all(category_id, req.teacherId);
+  if (!getOperableCategory(category_id, req.teacherId)) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  const assessments = db.prepare(`SELECT a.* FROM assessments a WHERE a.category_id = ? ORDER BY a.date DESC, a.created_at DESC`).all(category_id);
   res.json({ assessments });
 });
 
 // POST /api/grades/assessments
 router.post('/assessments', (req, res) => {
   const { id: requestedId, category_id, title, max_score, date, is_summary } = req.body;
-  const cat = db.prepare(`SELECT gc.* FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE gc.id = ? AND c.teacher_id = ?`).get(category_id, req.teacherId);
+  const cat = getOperableCategory(category_id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
   if (!title) return res.status(400).json({ error: 'عنوان التقييم مطلوب' });
   const summary = Boolean(is_summary);
@@ -155,7 +171,8 @@ router.post('/assessments', (req, res) => {
   // The UI shows a warning, but the API does not block the draft rubric.
   const detailTotalBefore = detailTotal(category_id);
   const id = requestedId || uuid();
-  const existing = db.prepare('SELECT a.* FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
+  const existing = db.prepare('SELECT a.*, gc.class_id FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id WHERE a.id = ?').get(id);
+  if (existing && !canTeacherOperateClass(existing.class_id, req.teacherId)) return res.status(404).json({ error: 'التقييم غير موجود' });
   if (existing) return res.json({ assessment: existing, reused: true });
   db.prepare(`INSERT INTO assessments (id, category_id, title, max_score, is_summary, date) VALUES (?, ?, ?, ?, ?, ?)`)
     .run(id, category_id, title, max, summary ? 1 : 0, date || null);
@@ -172,10 +189,7 @@ router.post('/assessments', (req, res) => {
 
 // PATCH /api/grades/assessments/:id  -> edit a detail title, maximum, or date
 router.patch('/assessments/:id', (req, res) => {
-  const assessment = db.prepare(`SELECT a.*, gc.weight_percent, gc.id AS category_id
-    FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
-    JOIN classes c ON gc.class_id = c.id
-    WHERE a.id = ? AND c.teacher_id = ?`).get(req.params.id, req.teacherId);
+  const assessment = getOperableAssessment(req.params.id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
   if (Number(assessment.is_summary)) return res.status(400).json({ error: 'لا يمكن تعديل خانة الفئة الأساسية من هنا' });
   const title = req.body.title === undefined ? assessment.title : String(req.body.title || '').trim();
@@ -195,8 +209,9 @@ router.patch('/assessments/:id', (req, res) => {
 });
 
 router.delete('/assessments/:id', (req, res) => {
-  const result = db.prepare(`DELETE FROM assessments WHERE id = ? AND category_id IN
-    (SELECT gc.id FROM grade_categories gc JOIN classes c ON gc.class_id = c.id WHERE c.teacher_id = ?)`).run(req.params.id, req.teacherId);
+  const assessment = getOperableAssessment(req.params.id, req.teacherId);
+  if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
+  const result = db.prepare('DELETE FROM assessments WHERE id = ?').run(assessment.id);
   if (result.changes === 0) return res.status(404).json({ error: 'التقييم غير موجود' });
   res.json({ success: true });
 });
@@ -206,8 +221,7 @@ router.delete('/assessments/:id', (req, res) => {
 // GET /api/grades/grid?assessment_id=...  -> returns all students in the class with their grade (or null)
 router.get('/grid', (req, res) => {
   const { assessment_id } = req.query;
-  const assessment = db.prepare(`SELECT a.*, gc.class_id FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
-                                  JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?`).get(assessment_id, req.teacherId);
+  const assessment = getOperableAssessment(assessment_id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
 
   const assessmentWithLimit = db.prepare(`SELECT a.*, gc.weight_percent, gc.grading_mode,
@@ -225,8 +239,7 @@ router.get('/grid', (req, res) => {
 // POST /api/grades/grid  { assessment_id, entries: [{student_id, score_numeric | score_letter | rubric_json, comment}] }
 router.post('/grid', (req, res) => {
   const { assessment_id, entries } = req.body;
-  const assessment = db.prepare(`SELECT a.*, gc.class_id FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
-                                  JOIN classes c ON gc.class_id = c.id WHERE a.id = ? AND c.teacher_id = ?`).get(assessment_id, req.teacherId);
+  const assessment = getOperableAssessment(assessment_id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
 
   const upsert = db.prepare(`INSERT INTO grades (id, assessment_id, student_id, score_numeric, score_letter, rubric_json, comment, updated_at)
@@ -241,6 +254,8 @@ router.post('/grid', (req, res) => {
   const maxScore = effectiveAssessmentMax(assessmentLimit);
   const saveAll = db.transaction((items) => {
     for (const item of items) {
+      const student = db.prepare('SELECT id FROM students WHERE id = ? AND class_id = ? AND archived = 0').get(item.student_id, assessment.class_id);
+      if (!student) throw new Error('الطالب غير موجود في هذا الصف');
       const validationError = validateScore(item.score_numeric, maxScore);
       if (validationError) throw new Error(validationError);
       upsert.run(uuid(), assessment_id, item.student_id, item.score_numeric ?? null, item.score_letter ?? null,
@@ -323,12 +338,13 @@ router.post('/matrix', (req, res) => {
   // Verify every assessment referenced belongs to this teacher before writing anything
   const assessmentIds = [...new Set(entries.map((e) => e.assessment_id))];
   const placeholders = assessmentIds.map(() => '?').join(',');
-  const owned = db.prepare(`SELECT a.id, a.max_score, a.is_summary, gc.weight_percent, gc.grading_mode,
+  const ownedRows = db.prepare(`SELECT a.id, a.max_score, a.is_summary, gc.class_id, gc.weight_percent, gc.grading_mode,
                                (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
                                (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
                              FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
-                             JOIN classes c ON gc.class_id = c.id WHERE a.id IN (${placeholders}) AND c.teacher_id = ?`)
-    .all(...assessmentIds, req.teacherId);
+                             WHERE a.id IN (${placeholders})`)
+    .all(...assessmentIds);
+  const owned = ownedRows.filter((row) => canTeacherOperateClass(row.class_id, req.teacherId));
   const ownedMap = new Map(owned.map((o) => [o.id, o]));
   if (owned.length !== assessmentIds.length) return res.status(403).json({ error: 'لا تملك صلاحية على أحد هذه التقييمات' });
 
@@ -344,6 +360,8 @@ router.post('/matrix', (req, res) => {
       const maxScore = effectiveAssessmentMax(assessment);
       const validationError = validateScore(item.score_numeric, maxScore);
       if (validationError) throw new Error(validationError);
+      const student = db.prepare('SELECT id FROM students WHERE id = ? AND class_id = ? AND archived = 0').get(item.student_id, assessment.class_id);
+      if (!student) throw new Error('الطالب غير موجود في هذا الصف');
       upsert.run(uuid(), item.assessment_id, item.student_id, item.score_numeric ?? null, item.comment ?? null);
       count += 1;
     }

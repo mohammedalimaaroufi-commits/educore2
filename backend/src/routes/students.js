@@ -11,7 +11,8 @@ function getXlsx() {
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
-const { getStudentCount, getActiveStudentLimit } = require('../utils/subscriptions');
+const { getActiveStudentLimit } = require('../utils/subscriptions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -117,14 +118,31 @@ function uniqueStudentRecords(records, classId) {
 }
 
 function assertClassOwnership(classId, teacherId) {
-  return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
+  return canTeacherOperateClass(classId, teacherId)
+    ? db.prepare('SELECT id, school_id FROM classes WHERE id = ? AND archived = 0').get(classId)
+    : null;
+}
+
+function getPersonalStudentCount(teacherId) {
+  return Number(db.prepare(`SELECT COUNT(*) AS count FROM students s
+                            JOIN classes c ON c.id = s.class_id
+                            WHERE c.teacher_id = ? AND c.school_id IS NULL AND c.archived = 0 AND s.archived = 0`).get(teacherId)?.count || 0);
 }
 
 function getStudentCapacity(teacherId) {
   const limit = getActiveStudentLimit(teacherId);
   if (!limit) return null;
-  const studentCount = getStudentCount(teacherId);
+  const studentCount = getPersonalStudentCount(teacherId);
   return { ...limit, studentCount, remaining: Math.max(0, limit.includedStudents - studentCount) };
+}
+
+function requirePersonalRosterClass(classId, teacherId, res) {
+  const classData = db.prepare('SELECT id, school_id, teacher_id, archived FROM classes WHERE id = ? AND archived = 0').get(classId);
+  if (!classData || classData.teacher_id !== teacherId || classData.school_id) {
+    res.status(403).json({ error: 'إدارة قائمة طلاب الصفوف المدرسية تحتاج إلى سعة مدرسية مخصصة', code: 'SCHOOL_ROSTER_MANAGER_ONLY' });
+    return null;
+  }
+  return classData;
 }
 
 function studentLimitError(capacity) {
@@ -165,10 +183,11 @@ router.get('/archived', (req, res) => {
 router.post('/', (req, res) => {
   const { id: requestedId, class_id, full_name, student_number, guardian_name, guardian_phone, guardian_email, health_notes, private_notes, photo_url } = req.body;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
+  if (!requirePersonalRosterClass(class_id, req.teacherId, res)) return;
   if (!full_name) return res.status(400).json({ error: 'اسم الطالب مطلوب' });
 
   const id = requestedId || uuid();
-  const existing = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
+  const existing = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.school_id IS NULL AND c.teacher_id = ?').get(id, req.teacherId);
   if (existing) return res.json({ student: existing, reused: true });
   const insertStudent = db.transaction(() => {
     const capacity = getStudentCapacity(req.teacherId);
@@ -192,6 +211,7 @@ router.post('/', (req, res) => {
 router.post('/import', upload.single('file'), (req, res) => {
   const { class_id, sheet_name: selectedSheet } = req.body;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
+  if (!requirePersonalRosterClass(class_id, req.teacherId, res)) return;
   if (!req.file) return res.status(400).json({ error: 'الرجاء إرفاق ملف CSV أو Excel' });
 
   let parsed;
@@ -241,7 +261,7 @@ router.post('/import', upload.single('file'), (req, res) => {
 
 // POST /api/students/:id/restore
 router.post('/:id/restore', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND s.archived = 1').get(req.params.id, req.teacherId);
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND c.school_id IS NULL AND s.archived = 1').get(req.params.id, req.teacherId);
   if (!student) return res.status(404).json({ error: 'الطالب المؤرشف غير موجود' });
   const capacity = getStudentCapacity(req.teacherId);
   if (capacity && capacity.remaining <= 0) return sendStudentLimitError(res, capacity);
@@ -251,8 +271,8 @@ router.post('/:id/restore', (req, res) => {
 
 // PATCH /api/students/:id
 router.patch('/:id', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND c.school_id IS NULL').get(req.params.id, req.teacherId);
+  if (!student) return res.status(403).json({ error: 'لا يمكن تعديل roster الصف المدرسي من خلال باقة المعلم', code: 'SCHOOL_ROSTER_MANAGER_ONLY' });
 
   const fields = ['full_name', 'student_number', 'guardian_name', 'guardian_phone', 'guardian_email', 'health_notes', 'private_notes', 'photo_url'];
   const updates = {};
@@ -265,7 +285,7 @@ router.patch('/:id', (req, res) => {
 
 // DELETE /api/students/:id/permanent (permanent delete; archived students only)
 router.delete('/:id/permanent', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND s.archived = 1').get(req.params.id, req.teacherId);
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND c.school_id IS NULL AND s.archived = 1').get(req.params.id, req.teacherId);
   if (!student) return res.status(404).json({ error: 'الطالب المؤرشف غير موجود' });
   const removeStudent = db.transaction(() => {
     db.prepare('DELETE FROM grades WHERE student_id = ?').run(student.id);
@@ -279,8 +299,8 @@ router.delete('/:id/permanent', (req, res) => {
 
 // DELETE /api/students/:id (archive)
 router.delete('/:id', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ? AND c.school_id IS NULL').get(req.params.id, req.teacherId);
+  if (!student) return res.status(403).json({ error: 'لا يمكن أرشفة طالب من صف مدرسي عبر حساب المعلم', code: 'SCHOOL_ROSTER_MANAGER_ONLY' });
   db.prepare("UPDATE students SET archived = 1, updated_at = datetime('now') WHERE id = ?").run(student.id);
   res.json({ success: true });
 });

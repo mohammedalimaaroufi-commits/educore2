@@ -2,13 +2,16 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
 router.use(requireFeature('reports'));
 
 function assertClassOwnership(classId, teacherId) {
-  return db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(classId, teacherId);
+  return canTeacherOperateClass(classId, teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(classId)
+    : null;
 }
 
 function hasScore(row) {
@@ -126,8 +129,8 @@ router.get('/category-averages', (req, res) => {
 
 router.get('/growth', (req, res) => {
   const { student_id } = req.query;
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(student_id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s WHERE s.id = ?').get(student_id);
+  if (!student || !canTeacherOperateClass(student.class_id, req.teacherId)) return res.status(404).json({ error: 'الطالب غير موجود' });
   const rows = db.prepare(`SELECT a.title, a.date, a.max_score, g.score_numeric, gc.name as category_name
                             FROM grades g JOIN assessments a ON g.assessment_id = a.id
                             JOIN grade_categories gc ON a.category_id = gc.id
@@ -137,8 +140,8 @@ router.get('/growth', (req, res) => {
 });
 
 router.get('/student/:id', (req, res) => {
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(req.params.id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s WHERE s.id = ?').get(req.params.id);
+  if (!student || !canTeacherOperateClass(student.class_id, req.teacherId)) return res.status(404).json({ error: 'الطالب غير موجود' });
   const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(student.class_id);
   const gradeRows = db.prepare(`
     SELECT gc.id as category_id, gc.name as category, gc.weight_percent, gc.grading_mode,

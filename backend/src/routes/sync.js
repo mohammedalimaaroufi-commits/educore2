@@ -29,7 +29,12 @@ router.get('/snapshot', (req, res) => {
   const row = db.prepare(`
     WITH context AS (SELECT ? AS teacher_id),
     owned_classes AS (
-      SELECT c.* FROM classes c, context WHERE c.teacher_id = context.teacher_id
+      SELECT c.* FROM classes c, context
+      WHERE (c.school_id IS NULL AND c.teacher_id = context.teacher_id)
+         OR (c.school_id IS NOT NULL AND EXISTS (
+           SELECT 1 FROM school_class_assignments a
+           WHERE a.class_id = c.id AND a.teacher_id = context.teacher_id AND a.status = 'active'
+         ))
     ),
     owned_students AS (
       SELECT s.* FROM students s JOIN owned_classes c ON c.id = s.class_id
@@ -50,7 +55,7 @@ router.get('/snapshot', (req, res) => {
       (SELECT json_object(
         'id', t.id, 'full_name', t.full_name, 'email', t.email,
         'subject', t.subject, 'school_stage', t.school_stage,
-        'school_name', t.school_name, 'avatar_url', t.avatar_url, 'locale', t.locale,
+        'school_name', t.school_name, 'avatar_url', t.avatar_url, 'locale', t.locale, 'account_role', t.account_role,
         'created_at', t.created_at, 'updated_at', t.updated_at
       ) FROM teachers t, context WHERE t.id = context.teacher_id) AS teacher,
       (SELECT COALESCE(json_group_array(json_object(
@@ -61,7 +66,7 @@ router.get('/snapshot', (req, res) => {
         'created_at', s.created_at, 'updated_at', s.updated_at
       )), '[]') FROM subscriptions s, context WHERE s.teacher_id = context.teacher_id) AS subscriptions,
       (SELECT COALESCE(json_group_array(json_object(
-        'id', id, 'teacher_id', teacher_id, 'name', name, 'subject', subject,
+        'id', id, 'teacher_id', teacher_id, 'school_id', school_id, 'name', name, 'subject', subject,
         'academic_year', academic_year, 'color', color, 'icon', icon, 'sort_order', sort_order, 'archived', archived,
         'created_at', created_at, 'updated_at', updated_at
       )), '[]') FROM owned_classes) AS classes,

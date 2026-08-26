@@ -2,7 +2,7 @@ import {
   Star, Heart, Check, Trophy, ThumbsUp, Flag,
   Clock, AlertTriangle, X, ThumbsDown, VolumeX, Frown,
   FileCheck, Camera, User, MessageCircle, Send, Archive, RotateCcw, Image as ImageIcon,
-  Search, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Settings, LogOut, CreditCard, Bell, Filter, RefreshCw, BarChart3, FileText, LockKeyhole, Smartphone, Globe2, ShieldCheck, Pencil, Trash2, ExternalLink, GripVertical, Users, Plus,
+  Search, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Settings, LogOut, CreditCard, Bell, Filter, RefreshCw, BarChart3, FileText, LockKeyhole, Smartphone, Globe2, ShieldCheck, Pencil, Trash2, ExternalLink, GripVertical, Users, Plus, School,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -12,7 +12,7 @@ const ICON_MAP = {
   archive: Archive, restore: RotateCcw, image: ImageIcon,
   search: Search, chevronUp: ChevronUp, chevronDown: ChevronDown, arrowLeft: ArrowLeft, arrowRight: ArrowRight,
   settings: Settings, logout: LogOut, subscription: CreditCard, bell: Bell, filter: Filter, refresh: RefreshCw, analytics: BarChart3, reports: FileText,
-  lock: LockKeyhole, android: Smartphone, web: Globe2, secure: ShieldCheck, edit: Pencil, trash: Trash2, externalLink: ExternalLink, grip: GripVertical, users: Users, plus: Plus,
+  lock: LockKeyhole, android: Smartphone, web: Globe2, secure: ShieldCheck, edit: Pencil, trash: Trash2, externalLink: ExternalLink, grip: GripVertical, users: Users, plus: Plus, school: School,
 };
 
 export default function Icon({ name, className = 'w-4 h-4', ...props }) {

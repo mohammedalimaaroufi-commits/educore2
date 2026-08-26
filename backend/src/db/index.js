@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   school_name TEXT,
   avatar_url TEXT,
   locale TEXT DEFAULT 'ar', -- ar | en (drives RTL/LTR)
+  account_role TEXT NOT NULL DEFAULT 'teacher', -- teacher | school_manager
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -369,6 +370,73 @@ if (!hasColumn('payment_requests', 'archived')) {
 if (!hasColumn('messages', 'client_message_id')) {
   db.exec('ALTER TABLE messages ADD COLUMN client_message_id TEXT');
 }
+if (!hasColumn('teachers', 'account_role')) {
+  db.exec("ALTER TABLE teachers ADD COLUMN account_role TEXT NOT NULL DEFAULT 'teacher'");
+}
+// Keep any unexpected legacy values fail-closed as normal teacher accounts.
+db.prepare("UPDATE teachers SET account_role = 'teacher' WHERE account_role IS NULL OR account_role NOT IN ('teacher', 'school_manager')").run();
+
+// School management is additive: personal teacher-owned classes keep working, while
+// school-managed classes receive a school_id and remain governed by school memberships.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schools (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS school_memberships (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'teacher',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(school_id, teacher_id)
+  );
+  CREATE TABLE IF NOT EXISTS school_assignment_codes (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    created_by TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL UNIQUE,
+    code_hint TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS school_class_assignments (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    assigned_by TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    code_id TEXT REFERENCES school_assignment_codes(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    accepted_at TEXT DEFAULT (datetime('now')),
+    revoked_at TEXT
+  );
+`);
+if (!hasColumn('classes', 'school_id')) {
+  db.exec('ALTER TABLE classes ADD COLUMN school_id TEXT');
+}
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_schools_created_by ON schools(created_by, status);
+  CREATE INDEX IF NOT EXISTS idx_school_memberships_teacher ON school_memberships(teacher_id, status);
+  CREATE INDEX IF NOT EXISTS idx_school_memberships_school ON school_memberships(school_id, status, role);
+  CREATE INDEX IF NOT EXISTS idx_school_codes_lookup ON school_assignment_codes(code_hash, status, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_school_codes_class ON school_assignment_codes(school_id, class_id, status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_school_assignments_teacher ON school_class_assignments(teacher_id, school_id, status);
+  CREATE INDEX IF NOT EXISTS idx_school_assignments_class ON school_class_assignments(class_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_school_one_active_assignment ON school_class_assignments(class_id) WHERE status = 'active';
+`);
 
 // Data conversions for legacy grade data run once per database. This keeps existing grades intact
 // while avoiding a full-table rewrite on every server boot.

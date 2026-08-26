@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
+const { canTeacherOperateClass } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -11,7 +12,9 @@ router.use(requireFeature('behavior'));
 // GET /api/behavior/types?class_id=...
 router.get('/types', (req, res) => {
   const { class_id } = req.query;
-  const owns = db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(class_id, req.teacherId);
+  const owns = canTeacherOperateClass(class_id, req.teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(class_id)
+    : null;
   if (!owns) return res.status(404).json({ error: 'الصف غير موجود' });
   const types = db.prepare('SELECT * FROM behavior_types WHERE class_id = ? ORDER BY is_default DESC, label').all(class_id);
   res.json({ types });
@@ -20,11 +23,14 @@ router.get('/types', (req, res) => {
 // POST /api/behavior/types  (custom behavior)
 router.post('/types', (req, res) => {
   const { id: requestedId, class_id, label, polarity, points, icon } = req.body;
-  const owns = db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(class_id, req.teacherId);
+  const owns = canTeacherOperateClass(class_id, req.teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(class_id)
+    : null;
   if (!owns) return res.status(404).json({ error: 'الصف غير موجود' });
   if (!label) return res.status(400).json({ error: 'اسم السلوك مطلوب' });
   const id = requestedId || uuid();
-  const existing = db.prepare('SELECT bt.* FROM behavior_types bt JOIN classes c ON bt.class_id = c.id WHERE bt.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
+  const existing = db.prepare('SELECT bt.* FROM behavior_types bt WHERE bt.id = ?').get(id);
+  if (existing && !canTeacherOperateClass(existing.class_id, req.teacherId)) return res.status(404).json({ error: 'نوع السلوك غير موجود' });
   if (existing) return res.json({ type: existing, reused: true });
   db.prepare(`INSERT INTO behavior_types (id, class_id, label, polarity, points, icon, is_default)
               VALUES (?, ?, ?, ?, ?, ?, 0)`)
@@ -33,7 +39,8 @@ router.post('/types', (req, res) => {
 });
 
 function getOwnedType(id, teacherId) {
-  return db.prepare(`SELECT bt.* FROM behavior_types bt JOIN classes c ON bt.class_id = c.id WHERE bt.id = ? AND c.teacher_id = ?`).get(id, teacherId);
+  const type = db.prepare('SELECT bt.* FROM behavior_types bt WHERE bt.id = ?').get(id);
+  return type && canTeacherOperateClass(type.class_id, teacherId) ? type : null;
 }
 
 // PATCH /api/behavior/types/:id  -> edit a custom type owned by the teacher
@@ -66,10 +73,13 @@ router.delete('/types/:id', (req, res) => {
 // POST /api/behavior/log  (one-tap log, optional note text/audio)
 router.post('/log', (req, res) => {
   const { id: requestedId, student_id, behavior_type_id, note_text, note_audio_url } = req.body;
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(student_id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s WHERE s.id = ?').get(student_id);
+  if (!student || !canTeacherOperateClass(student.class_id, req.teacherId)) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const behaviorType = getOwnedType(behavior_type_id, req.teacherId);
+  if (!behaviorType || behaviorType.class_id !== student.class_id) return res.status(404).json({ error: 'نوع السلوك غير موجود في هذا الصف' });
   const id = requestedId || uuid();
-  const existing = db.prepare('SELECT bl.* FROM behavior_logs bl JOIN students s ON bl.student_id = s.id JOIN classes c ON s.class_id = c.id WHERE bl.id = ? AND c.teacher_id = ?').get(id, req.teacherId);
+  const existing = db.prepare('SELECT bl.* FROM behavior_logs bl JOIN students s ON bl.student_id = s.id WHERE bl.id = ?').get(id);
+  if (existing && !canTeacherOperateClass(db.prepare('SELECT class_id FROM students WHERE id = ?').get(existing.student_id)?.class_id, req.teacherId)) return res.status(404).json({ error: 'السجل غير موجود' });
   if (existing) return res.json({ log: existing, reused: true });
   db.prepare(`INSERT INTO behavior_logs (id, student_id, behavior_type_id, note_text, note_audio_url) VALUES (?, ?, ?, ?, ?)`)
     .run(id, student_id, behavior_type_id, note_text || null, note_audio_url || null);
@@ -80,8 +90,8 @@ router.post('/log', (req, res) => {
 router.delete('/log/:id', (req, res) => {
   const log = db.prepare(`SELECT bl.* FROM behavior_logs bl
                           JOIN students s ON bl.student_id = s.id
-                          JOIN classes c ON s.class_id = c.id
-                          WHERE bl.id = ? AND c.teacher_id = ?`).get(req.params.id, req.teacherId);
+                          WHERE bl.id = ?`).get(req.params.id);
+  if (log && !canTeacherOperateClass(db.prepare('SELECT class_id FROM students WHERE id = ?').get(log.student_id)?.class_id, req.teacherId)) return res.status(404).json({ error: 'سجل السلوك غير موجود' });
   if (!log) return res.status(404).json({ error: 'سجل السلوك غير موجود' });
   db.prepare('DELETE FROM behavior_logs WHERE id = ?').run(log.id);
   res.json({ success: true, deleted_log_id: log.id });
@@ -90,8 +100,8 @@ router.delete('/log/:id', (req, res) => {
 // GET /api/behavior/log?student_id=...  (full history for a student)
 router.get('/log', (req, res) => {
   const { student_id } = req.query;
-  const student = db.prepare('SELECT s.* FROM students s JOIN classes c ON s.class_id = c.id WHERE s.id = ? AND c.teacher_id = ?').get(student_id, req.teacherId);
-  if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+  const student = db.prepare('SELECT s.* FROM students s WHERE s.id = ?').get(student_id);
+  if (!student || !canTeacherOperateClass(student.class_id, req.teacherId)) return res.status(404).json({ error: 'الطالب غير موجود' });
   const logs = db.prepare(`SELECT bl.*, bt.label, bt.polarity, bt.points, bt.icon FROM behavior_logs bl
                             JOIN behavior_types bt ON bl.behavior_type_id = bt.id
                             WHERE bl.student_id = ? ORDER BY bl.occurred_at DESC`).all(student_id);
@@ -102,7 +112,9 @@ router.get('/log', (req, res) => {
 // GET /api/behavior/class-summary?class_id=...  (behavior score per student, for charts)
 router.get('/class-summary', (req, res) => {
   const { class_id } = req.query;
-  const owns = db.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ?').get(class_id, req.teacherId);
+  const owns = canTeacherOperateClass(class_id, req.teacherId)
+    ? db.prepare('SELECT id FROM classes WHERE id = ? AND archived = 0').get(class_id)
+    : null;
   if (!owns) return res.status(404).json({ error: 'الصف غير موجود' });
   const rows = db.prepare(`SELECT s.id as student_id, s.full_name,
                               COALESCE(SUM(bt.points), 0) as behavior_score,

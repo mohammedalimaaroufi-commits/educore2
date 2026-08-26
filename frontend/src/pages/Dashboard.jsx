@@ -467,6 +467,7 @@ export default function Dashboard() {
           <nav className="dashboard-nav-actions" aria-label={t('accountActions')}>
             <NotificationBell />
             <Link to="/subscription" className="topbar-icon-action" aria-label={t('subscription')} title={t('subscription')}><Icon name="subscription" className="w-5 h-5" /></Link>
+            <Link to="/school" className="topbar-icon-action" aria-label={t('schoolManagement')} title={t('schoolManagement')}><Icon name="school" className="w-5 h-5" /></Link>
             <Link to="/settings" className="topbar-icon-action" aria-label={t('settings')} title={t('settings')}><Icon name="settings" className="w-5 h-5" /></Link>
             <button type="button" className="topbar-icon-action topbar-icon-action--danger" onClick={logout} aria-label={t('logout')} title={t('logout')}><Icon name="logout" className="w-5 h-5" /></button>
           </nav>
@@ -569,12 +570,12 @@ export default function Dashboard() {
                     <button
                       type="button"
                       className="class-card__drag-handle"
-                      draggable={!hasFilters}
-                      disabled={hasFilters}
+                      draggable={!hasFilters && !c.school_id}
+                      disabled={hasFilters || Boolean(c.school_id)}
                       aria-label={`${t('reorderClasses')}: ${c.name}`}
                       title={hasFilters ? t('clearFiltersToReorder') : t('reorderClasses')}
                       onDragStart={(event) => {
-                        if (hasFilters) { event.preventDefault(); return; }
+                        if (hasFilters || c.school_id) { event.preventDefault(); return; }
                         event.dataTransfer.effectAllowed = 'move';
                         event.dataTransfer.setData('text/plain', c.id);
                         setDraggedClassId(c.id);
@@ -583,7 +584,7 @@ export default function Dashboard() {
                     ><Icon name="grip" className="w-4 h-4" /></button>
                     <Link to={`/classes/${c.id}`} className="class-card__compact-main" aria-label={`${t('openClass')}: ${c.name}`} >
                       <span className="class-card__accent-dot" style={{ background: accent }} aria-hidden="true" />
-                      <span className="class-card__compact-copy"><strong>{c.name}</strong><small>{t('studentsCount', '', { count: c.student_count })}</small></span>
+                      <span className="class-card__compact-copy"><strong>{c.name}</strong><small>{c.school_id ? t('schoolAssignedClass') : t('personalClass')} · {t('studentsCount', '', { count: c.student_count })}</small></span>
                     </Link>
                     <div className="class-card__compact-actions">
                       <Link to={`/classes/${c.id}`} className="class-card__compact-open" aria-label={`${t('openClass')}: ${c.name}`} title={t('openClass')}>
@@ -604,9 +605,9 @@ export default function Dashboard() {
                     <div className="class-card__footer">
                       <Link to={`/classes/${c.id}`} className="class-card__open"><Icon name="externalLink" className="w-4 h-4" /><span>{t('openClass')}</span><span>{locale === 'ar' ? '←' : '→'}</span></Link>
                       <div className="class-card__actions">
-                        <button className="class-card__icon-action" onClick={(e) => startEdit(e, c)} title={t('editClass')} aria-label={t('editClass')}><Icon name="edit" className="w-4 h-4" /><span>{t('editClass')}</span></button>
+                        {!c.school_id && <><button className="class-card__icon-action" onClick={(e) => startEdit(e, c)} title={t('editClass')} aria-label={t('editClass')}><Icon name="edit" className="w-4 h-4" /><span>{t('editClass')}</span></button>
                         <button className="class-card__icon-action" onClick={(e) => archiveClass(e, c.id)} title={t('archiveClass')} aria-label={t('archiveClass')}><Icon name="archive" className="w-4 h-4" /><span>{t('archiveClass')}</span></button>
-                        <button className="class-card__icon-action class-card__icon-action--danger" onClick={(e) => deleteClassPermanently(e, c.id)} title={t('deleteClass')} aria-label={t('deleteClass')}><Icon name="trash" className="w-4 h-4" /><span>{t('deleteClass')}</span></button>
+                        <button className="class-card__icon-action class-card__icon-action--danger" onClick={(e) => deleteClassPermanently(e, c.id)} title={t('deleteClass')} aria-label={t('deleteClass')}><Icon name="trash" className="w-4 h-4" /><span>{t('deleteClass')}</span></button></>}
                       </div>
                     </div>
                   </div>}
