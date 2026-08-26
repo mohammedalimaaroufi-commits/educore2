@@ -98,7 +98,8 @@ export default function StudentDetailModal({ studentId, onClose }) {
                   {report.attendance.length === 0 && <p className="text-ink/50 text-sm">{t('studentDetailNoAttendance')}</p>}
                   {report.attendance.map((attendance, index) => {
                     const status = ATTENDANCE_STATUS[attendance.status] || ATTENDANCE_STATUS.present;
-                    return <div key={index} className="flex items-center gap-2 text-sm border-b border-line pb-2"><Icon name={status.icon} className={`w-4 h-4 ${status.color}`} /><span>{attendance.session_date}</span><span className={`text-xs mr-auto px-2 py-0.5 rounded-full ${status.bg}`}>{t({ present: 'reportsPresent', absent: 'reportsAbsent', late: 'reportsLate', excused: 'reportsExcused' }[attendance.status] || 'reportsPresent')}</span></div>;
+                    const context = [attendance.period_label || attendance.period_key, attendance.starts_at].filter(Boolean).join(' · ');
+                    return <div key={index} className="flex items-center gap-2 text-sm border-b border-line pb-2"><Icon name={status.icon} className={`w-4 h-4 ${status.color}`} /><span>{attendance.session_date}</span>{context && <small className="text-ink/45 text-xs">{context}</small>}<span className={`text-xs mr-auto px-2 py-0.5 rounded-full ${status.bg}`}>{t({ present: 'reportsPresent', absent: 'reportsAbsent', late: 'reportsLate', excused: 'reportsExcused' }[attendance.status] || 'reportsPresent')}</span></div>;
                   })}
                 </div>
               )}

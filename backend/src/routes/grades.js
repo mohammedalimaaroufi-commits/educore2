@@ -3,7 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/restrictions');
-const { canTeacherOperateClass } = require('../utils/schoolAccess');
+const { canTeacherOperateClass, canTeacherOperateClassSubject } = require('../utils/schoolAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -15,16 +15,43 @@ function assertClassOwnership(classId, teacherId) {
     : null;
 }
 
+function isSchoolClass(classId) {
+  return Boolean(db.prepare('SELECT id FROM classes WHERE id = ? AND school_id IS NOT NULL').get(classId));
+}
+
+function canTeacherOperateCategory(category, teacherId) {
+  if (!category || !canTeacherOperateClass(category.class_id, teacherId)) return false;
+  if (!isSchoolClass(category.class_id) || !category.subject_key) return true;
+  return canTeacherOperateClassSubject(category.class_id, category.subject_key, teacherId);
+}
+
+function getVisibleCategories(classId, teacherId) {
+  if (!assertClassOwnership(classId, teacherId)) return [];
+  const school = isSchoolClass(classId);
+  if (!school) return db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(classId);
+  const assignments = db.prepare("SELECT subject_key FROM school_class_assignments WHERE class_id = ? AND teacher_id = ? AND status = 'active'").all(classId, teacherId);
+  const keys = assignments.map((item) => item.subject_key).filter(Boolean);
+  if (!keys.length) return [];
+  const placeholders = keys.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM grade_categories WHERE class_id = ? AND (subject_key IN (${placeholders}) OR subject_key IS NULL) ORDER BY sort_order`).all(classId, ...keys);
+}
+
 function getOperableCategory(categoryId, teacherId) {
   const category = db.prepare('SELECT * FROM grade_categories WHERE id = ?').get(categoryId);
-  return category && canTeacherOperateClass(category.class_id, teacherId) ? category : null;
+  return canTeacherOperateCategory(category, teacherId) ? category : null;
+}
+
+function requirePersonalStructureClass(classId, teacherId, res) {
+  if (!assertClassOwnership(classId, teacherId)) { res.status(404).json({ error: 'الصف غير موجود' }); return null; }
+  if (isSchoolClass(classId)) { res.status(403).json({ error: 'هيكل الصف المدرسي تديره الإدارة، ويمكن للمعلم إدخال الدرجات فقط', code: 'SCHOOL_CLASS_STRUCTURE_LOCKED' }); return null; }
+  return true;
 }
 
 function getOperableAssessment(assessmentId, teacherId) {
-  const assessment = db.prepare(`SELECT a.*, gc.class_id, gc.weight_percent, gc.grading_mode
+  const assessment = db.prepare(`SELECT a.*, gc.class_id, gc.subject_key, gc.weight_percent, gc.grading_mode
                                  FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
                                  WHERE a.id = ?`).get(assessmentId);
-  return assessment && canTeacherOperateClass(assessment.class_id, teacherId) ? assessment : null;
+  return canTeacherOperateCategory(assessment, teacherId) ? assessment : null;
 }
 
 function categoryAssessments(categoryId) {
@@ -88,10 +115,11 @@ function weightedPercentFromMemory(studentId, category, assessments, gradeMap) {
 router.get('/categories', (req, res) => {
   const { class_id } = req.query;
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
-  const categories = db.prepare(`SELECT gc.*,
-      (SELECT COUNT(*) FROM assessments a WHERE a.category_id = gc.id AND a.is_summary = 0) AS detail_count,
-      (SELECT COALESCE(SUM(a.max_score), 0) FROM assessments a WHERE a.category_id = gc.id AND a.is_summary = 0) AS detail_total
-    FROM grade_categories gc WHERE gc.class_id = ? ORDER BY gc.sort_order`).all(class_id);
+  const categories = getVisibleCategories(class_id, req.teacherId).map((category) => ({
+    ...category,
+    detail_count: Number(db.prepare('SELECT COUNT(*) AS count FROM assessments WHERE category_id = ? AND is_summary = 0').get(category.id)?.count || 0),
+    detail_total: Number(db.prepare('SELECT COALESCE(SUM(max_score), 0) AS total FROM assessments WHERE category_id = ? AND is_summary = 0').get(category.id)?.total || 0),
+  }));
   const totalWeight = categories.reduce((sum, c) => sum + Number(c.weight_percent || 0), 0);
   res.json({ categories, totalWeight, isValid: Math.round(totalWeight) === 100 });
 });
@@ -99,7 +127,7 @@ router.get('/categories', (req, res) => {
 // POST /api/grades/categories
 router.post('/categories', (req, res) => {
   const { class_id, name, weight_percent, grading_type, grading_mode, details_note } = req.body;
-  if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
+  if (!requirePersonalStructureClass(class_id, req.teacherId, res)) return;
   if (!name) return res.status(400).json({ error: 'اسم الفئة مطلوب' });
   const weight = Number(weight_percent || 0);
   if (weight < 0) return res.status(400).json({ error: 'وزن الفئة لا يمكن أن يكون سالبًا' });
@@ -120,6 +148,7 @@ router.post('/categories', (req, res) => {
 router.patch('/categories/:id', (req, res) => {
   const cat = getOperableCategory(req.params.id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  if (!requirePersonalStructureClass(cat.class_id, req.teacherId, res)) return;
   const { name, weight_percent, grading_type, grading_mode, details_note } = req.body;
   const nextWeight = weight_percent === undefined || weight_percent === null ? Number(cat.weight_percent || 0) : Number(weight_percent);
   if (nextWeight < 0) return res.status(400).json({ error: 'وزن الفئة لا يمكن أن يكون سالبًا' });
@@ -143,6 +172,7 @@ router.patch('/categories/:id', (req, res) => {
 router.delete('/categories/:id', (req, res) => {
   const category = getOperableCategory(req.params.id, req.teacherId);
   if (!category) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  if (!requirePersonalStructureClass(category.class_id, req.teacherId, res)) return;
   const result = db.prepare('DELETE FROM grade_categories WHERE id = ?').run(category.id);
   if (result.changes === 0) return res.status(404).json({ error: 'الفئة غير موجودة' });
   res.json({ success: true });
@@ -163,6 +193,7 @@ router.post('/assessments', (req, res) => {
   const { id: requestedId, category_id, title, max_score, date, is_summary } = req.body;
   const cat = getOperableCategory(category_id, req.teacherId);
   if (!cat) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  if (!requirePersonalStructureClass(cat.class_id, req.teacherId, res)) return;
   if (!title) return res.status(400).json({ error: 'عنوان التقييم مطلوب' });
   const summary = Boolean(is_summary);
   const max = Number(max_score || 0);
@@ -191,6 +222,7 @@ router.post('/assessments', (req, res) => {
 router.patch('/assessments/:id', (req, res) => {
   const assessment = getOperableAssessment(req.params.id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
+  if (!requirePersonalStructureClass(assessment.class_id, req.teacherId, res)) return;
   if (Number(assessment.is_summary)) return res.status(400).json({ error: 'لا يمكن تعديل خانة الفئة الأساسية من هنا' });
   const title = req.body.title === undefined ? assessment.title : String(req.body.title || '').trim();
   const max = req.body.max_score === undefined ? Number(assessment.max_score) : Number(req.body.max_score);
@@ -211,6 +243,7 @@ router.patch('/assessments/:id', (req, res) => {
 router.delete('/assessments/:id', (req, res) => {
   const assessment = getOperableAssessment(req.params.id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
+  if (!requirePersonalStructureClass(assessment.class_id, req.teacherId, res)) return;
   const result = db.prepare('DELETE FROM assessments WHERE id = ?').run(assessment.id);
   if (result.changes === 0) return res.status(404).json({ error: 'التقييم غير موجود' });
   res.json({ success: true });
@@ -224,7 +257,7 @@ router.get('/grid', (req, res) => {
   const assessment = getOperableAssessment(assessment_id, req.teacherId);
   if (!assessment) return res.status(404).json({ error: 'التقييم غير موجود' });
 
-  const assessmentWithLimit = db.prepare(`SELECT a.*, gc.weight_percent, gc.grading_mode,
+  const assessmentWithLimit = db.prepare(`SELECT a.*, gc.subject_key, gc.weight_percent, gc.grading_mode,
       (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
       (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
     FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id WHERE a.id = ?`).get(assessment_id);
@@ -247,7 +280,7 @@ router.post('/grid', (req, res) => {
                               ON CONFLICT(assessment_id, student_id) DO UPDATE SET
                                 score_numeric=excluded.score_numeric, score_letter=excluded.score_letter,
                                 rubric_json=excluded.rubric_json, comment=excluded.comment, updated_at=datetime('now')`);
-  const assessmentLimit = db.prepare(`SELECT a.*, gc.weight_percent, gc.grading_mode,
+  const assessmentLimit = db.prepare(`SELECT a.*, gc.subject_key, gc.weight_percent, gc.grading_mode,
       (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
       (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
     FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id WHERE a.id = ?`).get(assessment_id);
@@ -278,7 +311,7 @@ router.get('/matrix', (req, res) => {
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
 
   const students = db.prepare('SELECT id, full_name FROM students WHERE class_id = ? AND archived = 0 ORDER BY full_name COLLATE NOCASE').all(class_id);
-  const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
+  const categories = getVisibleCategories(class_id, req.teacherId);
 
   // Self-heal categories in one read/write batch. The previous implementation did
   // two existence queries plus one assessment query per category on every matrix load.
@@ -338,13 +371,13 @@ router.post('/matrix', (req, res) => {
   // Verify every assessment referenced belongs to this teacher before writing anything
   const assessmentIds = [...new Set(entries.map((e) => e.assessment_id))];
   const placeholders = assessmentIds.map(() => '?').join(',');
-  const ownedRows = db.prepare(`SELECT a.id, a.max_score, a.is_summary, gc.class_id, gc.weight_percent, gc.grading_mode,
+  const ownedRows = db.prepare(`SELECT a.id, a.max_score, a.is_summary, gc.class_id, gc.subject_key, gc.weight_percent, gc.grading_mode,
                                (SELECT COUNT(*) FROM assessments a2 WHERE a2.category_id = gc.id AND a2.is_summary = 0) AS detail_count,
                                (SELECT COUNT(*) FROM assessments a3 WHERE a3.category_id = gc.id) AS assessment_count
                              FROM assessments a JOIN grade_categories gc ON a.category_id = gc.id
                              WHERE a.id IN (${placeholders})`)
     .all(...assessmentIds);
-  const owned = ownedRows.filter((row) => canTeacherOperateClass(row.class_id, req.teacherId));
+  const owned = ownedRows.filter((row) => canTeacherOperateCategory(row, req.teacherId));
   const ownedMap = new Map(owned.map((o) => [o.id, o]));
   if (owned.length !== assessmentIds.length) return res.status(403).json({ error: 'لا تملك صلاحية على أحد هذه التقييمات' });
 
@@ -382,7 +415,7 @@ router.get('/summary', (req, res) => {
   if (!assertClassOwnership(class_id, req.teacherId)) return res.status(404).json({ error: 'الصف غير موجود' });
 
   const students = db.prepare('SELECT id, full_name FROM students WHERE class_id = ? AND archived = 0').all(class_id);
-  const categories = db.prepare('SELECT * FROM grade_categories WHERE class_id = ? ORDER BY sort_order').all(class_id);
+  const categories = getVisibleCategories(class_id, req.teacherId);
   const categoryIds = categories.map((category) => category.id);
   const categoryPlaceholders = categoryIds.map(() => '?').join(',');
   const assessments = categoryIds.length

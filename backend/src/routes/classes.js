@@ -165,12 +165,16 @@ function buildQuickStatsBatch(classIds, studentCountByClass) {
   });
 
   const attendanceRows = db.prepare(`
-    SELECT ats.class_id, COUNT(ar.id) as record_count
-    FROM attendance_sessions ats
-    LEFT JOIN attendance_records ar ON ar.session_id = ats.id
-    WHERE ats.class_id IN (${placeholders}) AND ats.session_date = ?
-    GROUP BY ats.class_id
-  `).all(...classIds, today);
+    SELECT class_id, SUM(record_count) AS record_count FROM (
+      SELECT ats.class_id, COUNT(ar.id) AS record_count
+      FROM attendance_sessions ats LEFT JOIN attendance_records ar ON ar.session_id = ats.id
+      WHERE ats.class_id IN (${placeholders}) AND ats.session_date = ? GROUP BY ats.class_id
+      UNION ALL
+      SELECT sas.class_id, COUNT(sar.id) AS record_count
+      FROM school_attendance_sessions sas LEFT JOIN school_attendance_records sar ON sar.session_id = sas.id
+      WHERE sas.class_id IN (${placeholders}) AND sas.session_date = ? GROUP BY sas.class_id
+    ) GROUP BY class_id
+  `).all(...classIds, today, ...classIds, today);
   const attendanceByClass = new Map(attendanceRows.map((row) => [row.class_id, Number(row.record_count || 0) > 0]));
 
   return new Map(classIds.map((classId) => {

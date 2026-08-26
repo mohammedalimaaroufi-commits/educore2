@@ -4,6 +4,22 @@ function round(value, digits = 2) {
 
 const snapshotIndexCache = new WeakMap();
 
+function visibleSubjectKeys(snapshot, classId) {
+  const classData = (snapshot?.classes || []).find((item) => item.id === classId);
+  if (!classData?.school_id) return null;
+  const teacherId = snapshot?.teacher?.id;
+  const keys = (snapshot?.school_class_assignments || [])
+    .filter((item) => item.class_id === classId && item.teacher_id === teacherId && item.status === 'active')
+    .map((item) => item.subject_key)
+    .filter(Boolean);
+  return new Set(keys);
+}
+
+function isVisibleSubject(snapshot, classId, subjectKey) {
+  const keys = visibleSubjectKeys(snapshot, classId);
+  return keys === null || (keys.size > 0 && (!subjectKey || keys.has(subjectKey)));
+}
+
 export function buildSnapshotIndexes(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') {
     return {
@@ -15,6 +31,8 @@ export function buildSnapshotIndexes(snapshot) {
       gradeMap: new Map(),
       gradesByStudent: new Map(),
       behaviorTypes: new Map(),
+      schoolSubjectsByClass: new Map(),
+      schoolAssignmentsByClass: new Map(),
       behaviorLogsByStudent: new Map(),
       sessionsById: new Map(),
       attendanceByStudent: new Map(),
@@ -24,21 +42,40 @@ export function buildSnapshotIndexes(snapshot) {
   }
   const cached = snapshotIndexCache.get(snapshot);
   if (cached) return cached;
+  const classesById = new Map((snapshot.classes || []).map((item) => [item.id, item]));
+  const studentClassById = new Map((snapshot.students || []).map((item) => [item.id, item.class_id]));
   const index = {
-    classesById: new Map((snapshot.classes || []).map((item) => [item.id, item])),
+    classesById,
     studentsById: new Map(),
     studentsByClass: new Map(),
     categoriesByClass: new Map(),
     assessmentsByCategory: new Map(),
     gradeMap: new Map(),
     gradesByStudent: new Map(),
-    behaviorTypes: new Map((snapshot.behavior_types || []).map((item) => [item.id, item])),
+    behaviorTypes: new Map((snapshot.behavior_types || []).filter((item) => isVisibleSubject(snapshot, item.class_id, item.subject_key)).map((item) => [item.id, item])),
+    schoolSubjectsByClass: new Map(),
+    schoolAssignmentsByClass: new Map(),
     behaviorLogsByStudent: new Map(),
-    sessionsById: new Map((snapshot.attendance_sessions || []).map((item) => [item.id, item])),
+    sessionsById: new Map([
+      ...(snapshot.attendance_sessions || []),
+      ...(snapshot.school_attendance_sessions || []).filter((item) => isVisibleSubject(snapshot, item.class_id, item.subject_key)),
+    ].map((item) => [item.id, item])),
     attendanceByStudent: new Map(),
     attendanceBySession: new Map(),
     classDataById: new Map(),
   };
+  (snapshot.school_class_subjects || []).forEach((subject) => {
+    if (!isVisibleSubject(snapshot, subject.class_id, subject.subject_key)) return;
+    const rows = index.schoolSubjectsByClass.get(subject.class_id) || [];
+    rows.push(subject);
+    index.schoolSubjectsByClass.set(subject.class_id, rows);
+  });
+  (snapshot.school_class_assignments || []).forEach((assignment) => {
+    if (!isVisibleSubject(snapshot, assignment.class_id, assignment.subject_key)) return;
+    const rows = index.schoolAssignmentsByClass.get(assignment.class_id) || [];
+    rows.push(assignment);
+    index.schoolAssignmentsByClass.set(assignment.class_id, rows);
+  });
   (snapshot.students || []).forEach((student) => {
     index.studentsById.set(student.id, student);
     const rows = index.studentsByClass.get(student.class_id) || [];
@@ -46,6 +83,7 @@ export function buildSnapshotIndexes(snapshot) {
     index.studentsByClass.set(student.class_id, rows);
   });
   (snapshot.grade_categories || []).forEach((category) => {
+    if (!isVisibleSubject(snapshot, category.class_id, category.subject_key)) return;
     const rows = index.categoriesByClass.get(category.class_id) || [];
     rows.push(category);
     index.categoriesByClass.set(category.class_id, rows);
@@ -62,11 +100,13 @@ export function buildSnapshotIndexes(snapshot) {
     index.gradesByStudent.set(grade.student_id, rows);
   });
   (snapshot.behavior_logs || []).forEach((log) => {
+    const classId = studentClassById.get(log.student_id);
+    if (!isVisibleSubject(snapshot, classId, log.subject_key)) return;
     const rows = index.behaviorLogsByStudent.get(log.student_id) || [];
     rows.push(log);
     index.behaviorLogsByStudent.set(log.student_id, rows);
   });
-  (snapshot.attendance_records || []).forEach((record) => {
+  [...(snapshot.attendance_records || []), ...(snapshot.school_attendance_records || [])].forEach((record) => {
     if (!index.sessionsById.has(record.session_id)) return;
     const studentRows = index.attendanceByStudent.get(record.student_id) || [];
     studentRows.push(record);
@@ -276,7 +316,7 @@ export function buildFollowUpRows(snapshot, classId, settings = DEFAULT_FOLLOW_U
       items: category.items.map((item) => ({ title: item.title, score: item.score, max: item.max_score, comment: item.comment })),
     }));
     const behaviorDetails = negativeLogs.slice(0, 8).map((log) => ({ label: log.label || t('analyticsNegativeBehavior', 'Negative behavior'), points: Math.abs(Number(log.points || 0)), note: log.note_text || '', occurred_at: log.occurred_at }));
-    const attendanceDetails = report.attendance.slice().sort((a, b) => String(b.session_date || '').localeCompare(String(a.session_date || ''))).map((record) => ({ status: record.status, session_date: record.session_date }));
+    const attendanceDetails = report.attendance.slice().sort((a, b) => String(b.session_date || '').localeCompare(String(a.session_date || ''))).map((record) => ({ status: record.status, session_date: record.session_date, period_label: record.period_label, starts_at: record.starts_at }));
 
     if (normalized.enabled.behavior && base.behaviorScore <= normalized.thresholds.behaviorScore) {
       reasons.push({ key: 'behavior', label: t('analyticsNegativeBehavior', 'Negative behavior'), value: formatFollowUpValue(base.behaviorScore, ` ${t('analyticsPoints', 'points')}`), details: behaviorDetails });
@@ -345,10 +385,13 @@ export function buildCategoryAverages(snapshot, classId) {
 
 export function buildGrowth(snapshot, studentId) {
   const indexes = buildSnapshotIndexes(snapshot);
+  const student = indexes.studentsById.get(studentId);
+  const classId = student?.class_id;
   const assessmentMap = new Map((snapshot?.assessments || []).map((assessment) => [assessment.id, assessment]));
   const categoryMap = new Map((snapshot?.grade_categories || []).map((category) => [category.id, category]));
   return (indexes.gradesByStudent.get(studentId) || [])
     .filter((grade) => grade.score_numeric !== null && assessmentMap.has(grade.assessment_id))
+    .filter((grade) => isVisibleSubject(snapshot, classId, categoryMap.get(assessmentMap.get(grade.assessment_id)?.category_id)?.subject_key))
     .map((grade) => {
       const assessment = assessmentMap.get(grade.assessment_id);
       return {
@@ -384,7 +427,10 @@ export function buildStudentReport(snapshot, studentId, indexes = buildSnapshotI
   });
   const behaviorTypeMap = indexes.behaviorTypes;
   const behaviorLogs = (indexes.behaviorLogsByStudent.get(student.id) || []).map((log) => ({ ...log, ...(behaviorTypeMap.get(log.behavior_type_id) || {}) }));
-  const attendance = (indexes.attendanceByStudent.get(student.id) || []).map((record) => ({ ...record, session_date: indexes.sessionsById.get(record.session_id)?.session_date }));
+  const attendance = (indexes.attendanceByStudent.get(student.id) || []).map((record) => {
+    const session = indexes.sessionsById.get(record.session_id) || {};
+    return { ...record, session_date: session.session_date, subject_key: session.subject_key, period_key: session.period_key, period_label: session.period_label, starts_at: session.starts_at };
+  });
   const finalGrade = calculateFinalGrade(student.id, categories, gradeMap);
   const rules = (snapshot.grade_recommendation_rules || []).filter((rule) => finalGrade !== null && finalGrade >= rule.min_score && finalGrade <= rule.max_score);
   return { student, class: classData, gradesByCategory, behaviorLogs, behaviorScore: calculateBehaviorScore(student.id, snapshot, indexes), attendance, attendanceTotals: attendance.reduce((acc, item) => ({ ...acc, [item.status]: (acc[item.status] || 0) + 1 }), {}), finalGrade, autoRecommendation: rules[0]?.text || null, generated_at: new Date().toISOString() };

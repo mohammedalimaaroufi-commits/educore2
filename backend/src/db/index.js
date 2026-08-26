@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS students (
 CREATE TABLE IF NOT EXISTS grade_categories (
   id TEXT PRIMARY KEY,
   class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  subject_key TEXT,
   name TEXT NOT NULL, -- e.g. quizzes, participation, homework, project, final
   weight_percent REAL NOT NULL DEFAULT 0,
   grading_type TEXT NOT NULL DEFAULT 'numeric', -- numeric | letter | rubric
@@ -155,6 +156,7 @@ CREATE TABLE IF NOT EXISTS grades (
 CREATE TABLE IF NOT EXISTS behavior_types (
   id TEXT PRIMARY KEY,
   class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  subject_key TEXT,
   label TEXT NOT NULL, -- e.g. مشاركة متميزة، تأخر
   polarity TEXT NOT NULL DEFAULT 'positive', -- positive | negative
   points INTEGER NOT NULL DEFAULT 1,
@@ -166,6 +168,8 @@ CREATE TABLE IF NOT EXISTS behavior_logs (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   behavior_type_id TEXT NOT NULL REFERENCES behavior_types(id) ON DELETE CASCADE,
+  subject_key TEXT,
+  recorded_by TEXT REFERENCES teachers(id) ON DELETE SET NULL,
   note_text TEXT,
   note_audio_url TEXT,
   occurred_at TEXT DEFAULT (datetime('now'))
@@ -373,6 +377,18 @@ if (!hasColumn('messages', 'client_message_id')) {
 if (!hasColumn('teachers', 'account_role')) {
   db.exec("ALTER TABLE teachers ADD COLUMN account_role TEXT NOT NULL DEFAULT 'teacher'");
 }
+if (!hasColumn('grade_categories', 'subject_key')) {
+  db.exec('ALTER TABLE grade_categories ADD COLUMN subject_key TEXT');
+}
+if (!hasColumn('behavior_types', 'subject_key')) {
+  db.exec('ALTER TABLE behavior_types ADD COLUMN subject_key TEXT');
+}
+if (!hasColumn('behavior_logs', 'subject_key')) {
+  db.exec('ALTER TABLE behavior_logs ADD COLUMN subject_key TEXT');
+}
+if (!hasColumn('behavior_logs', 'recorded_by')) {
+  db.exec('ALTER TABLE behavior_logs ADD COLUMN recorded_by TEXT');
+}
 // Keep any unexpected legacy values fail-closed as normal teacher accounts.
 db.prepare("UPDATE teachers SET account_role = 'teacher' WHERE account_role IS NULL OR account_role NOT IN ('teacher', 'school_manager')").run();
 
@@ -398,10 +414,25 @@ db.exec(`
     updated_at TEXT DEFAULT (datetime('now')),
     UNIQUE(school_id, teacher_id)
   );
+  CREATE TABLE IF NOT EXISTS school_class_subjects (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    subject_key TEXT NOT NULL,
+    subject_label TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(class_id, subject_key)
+  );
   CREATE TABLE IF NOT EXISTS school_assignment_codes (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
     class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    subject_key TEXT,
+    subject_label TEXT,
     created_by TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
     code_hash TEXT NOT NULL UNIQUE,
     code_hint TEXT NOT NULL,
@@ -417,6 +448,8 @@ db.exec(`
     school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
     class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+    subject_key TEXT,
+    subject_label TEXT,
     assigned_by TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
     code_id TEXT REFERENCES school_assignment_codes(id) ON DELETE SET NULL,
     status TEXT NOT NULL DEFAULT 'active',
@@ -427,15 +460,80 @@ db.exec(`
 if (!hasColumn('classes', 'school_id')) {
   db.exec('ALTER TABLE classes ADD COLUMN school_id TEXT');
 }
+// Older school-management databases were created before subject-specific assignment
+// columns existed. Add them first, then backfill a subject row from each school class.
+if (!hasColumn('school_assignment_codes', 'subject_key')) {
+  db.exec('ALTER TABLE school_assignment_codes ADD COLUMN subject_key TEXT');
+}
+if (!hasColumn('school_assignment_codes', 'subject_label')) {
+  db.exec('ALTER TABLE school_assignment_codes ADD COLUMN subject_label TEXT');
+}
+if (!hasColumn('school_class_assignments', 'subject_key')) {
+  db.exec('ALTER TABLE school_class_assignments ADD COLUMN subject_key TEXT');
+}
+if (!hasColumn('school_class_assignments', 'subject_label')) {
+  db.exec('ALTER TABLE school_class_assignments ADD COLUMN subject_label TEXT');
+}
+function normalizeSchoolSubject(value) {
+  return String(value || '').normalize('NFKC').replace(/[\u064B-\u065F\u0670]/g, '').trim().toLocaleLowerCase('en-US').replace(/^ال/u, '').replace(/\s+/g, ' ');
+}
+const schoolClassesToBackfill = db.prepare("SELECT id, school_id, subject FROM classes WHERE school_id IS NOT NULL AND archived = 0 AND subject IS NOT NULL AND TRIM(subject) <> ''").all();
+const insertSchoolSubject = db.prepare(`INSERT OR IGNORE INTO school_class_subjects (id, school_id, class_id, subject_key, subject_label, sort_order, created_by)
+                                        VALUES (?, ?, ?, ?, ?, 0, NULL)`);
+schoolClassesToBackfill.forEach((classData) => {
+  insertSchoolSubject.run(`${classData.id}:subject:${normalizeSchoolSubject(classData.subject)}`, classData.school_id, classData.id, normalizeSchoolSubject(classData.subject), String(classData.subject).trim());
+});
+
+db.prepare(`UPDATE school_assignment_codes
+            SET subject_key = COALESCE(subject_key, (SELECT subject_key FROM school_class_subjects WHERE class_id = school_assignment_codes.class_id ORDER BY sort_order, created_at LIMIT 1)),
+                subject_label = COALESCE(subject_label, (SELECT subject_label FROM school_class_subjects WHERE class_id = school_assignment_codes.class_id ORDER BY sort_order, created_at LIMIT 1))
+            WHERE subject_key IS NULL OR subject_label IS NULL`).run();
+db.prepare(`UPDATE school_class_assignments
+            SET subject_key = COALESCE(subject_key, (SELECT subject_key FROM school_class_subjects WHERE class_id = school_class_assignments.class_id ORDER BY sort_order, created_at LIMIT 1)),
+                subject_label = COALESCE(subject_label, (SELECT subject_label FROM school_class_subjects WHERE class_id = school_class_assignments.class_id ORDER BY sort_order, created_at LIMIT 1))
+            WHERE subject_key IS NULL OR subject_label IS NULL`).run();
+db.prepare(`UPDATE grade_categories
+            SET subject_key = (SELECT subject_key FROM school_class_subjects WHERE class_id = grade_categories.class_id ORDER BY sort_order, created_at LIMIT 1)
+            WHERE subject_key IS NULL AND class_id IN (SELECT id FROM classes WHERE school_id IS NOT NULL)`).run();
+db.prepare(`UPDATE behavior_types
+            SET subject_key = (SELECT subject_key FROM school_class_subjects WHERE class_id = behavior_types.class_id ORDER BY sort_order, created_at LIMIT 1)
+            WHERE subject_key IS NULL AND class_id IN (SELECT id FROM classes WHERE school_id IS NOT NULL)`).run();
 db.exec(`
+  CREATE TABLE IF NOT EXISTS school_attendance_sessions (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    subject_key TEXT NOT NULL DEFAULT 'general',
+    session_date TEXT NOT NULL,
+    period_key TEXT NOT NULL DEFAULT 'daily',
+    period_label TEXT,
+    starts_at TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    created_by TEXT REFERENCES teachers(id) ON DELETE SET NULL,
+    UNIQUE(class_id, subject_key, session_date, period_key)
+  );
+  CREATE TABLE IF NOT EXISTS school_attendance_records (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES school_attendance_sessions(id) ON DELETE CASCADE,
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'present',
+    recorded_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(session_id, student_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_school_attendance_sessions_class ON school_attendance_sessions(class_id, subject_key, session_date, period_key);
+  CREATE INDEX IF NOT EXISTS idx_school_attendance_records_student ON school_attendance_records(student_id, session_id);
+  DROP INDEX IF EXISTS idx_school_one_active_assignment;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_school_active_assignment_subject ON school_class_assignments(class_id, subject_key) WHERE status = 'active';
+  CREATE INDEX IF NOT EXISTS idx_school_assignments_class_subject ON school_class_assignments(class_id, subject_key, status);
+  CREATE INDEX IF NOT EXISTS idx_school_codes_class_subject ON school_assignment_codes(class_id, subject_key, status, created_at);
   CREATE INDEX IF NOT EXISTS idx_schools_created_by ON schools(created_by, status);
   CREATE INDEX IF NOT EXISTS idx_school_memberships_teacher ON school_memberships(teacher_id, status);
   CREATE INDEX IF NOT EXISTS idx_school_memberships_school ON school_memberships(school_id, status, role);
+  CREATE INDEX IF NOT EXISTS idx_school_class_subjects_class ON school_class_subjects(class_id, status, sort_order);
+  CREATE INDEX IF NOT EXISTS idx_school_class_subjects_school ON school_class_subjects(school_id, status, sort_order);
   CREATE INDEX IF NOT EXISTS idx_school_codes_lookup ON school_assignment_codes(code_hash, status, expires_at);
-  CREATE INDEX IF NOT EXISTS idx_school_codes_class ON school_assignment_codes(school_id, class_id, status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_school_codes_class ON school_assignment_codes(school_id, class_id, subject_key, status, created_at);
   CREATE INDEX IF NOT EXISTS idx_school_assignments_teacher ON school_class_assignments(teacher_id, school_id, status);
-  CREATE INDEX IF NOT EXISTS idx_school_assignments_class ON school_class_assignments(class_id, status);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_school_one_active_assignment ON school_class_assignments(class_id) WHERE status = 'active';
+  CREATE INDEX IF NOT EXISTS idx_school_assignments_class ON school_class_assignments(class_id, subject_key, status);
 `);
 
 // Data conversions for legacy grade data run once per database. This keeps existing grades intact

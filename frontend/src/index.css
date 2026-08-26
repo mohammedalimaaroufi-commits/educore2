@@ -2340,3 +2340,57 @@ button, input, select, textarea { font-family: inherit; }
 .school-code-dialog__actions button { min-height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; flex: 1 1 9rem; }
 .school-code-dialog small { color: rgba(25, 52, 46, 0.52); font-size: 0.68rem; line-height: 1.5; }
 @media (max-width: 640px) { .school-code-dialog-backdrop { align-items: end; padding: 0.6rem; } .school-code-dialog { width: 100%; padding: 1.1rem; } }
+
+/* School multi-subject workspace */
+.class-school-badge, .school-operational-note { display: inline-flex; align-items: center; gap: .4rem; border-radius: .65rem; font-size: .72rem; font-weight: 800; }
+.class-school-badge { margin-inline-start: auto; padding: .42rem .65rem; color: #246554; background: rgba(46,125,107,.09); border: 1px solid rgba(46,125,107,.16); }
+.school-operational-note { margin-bottom: .75rem; padding: .65rem .8rem; color: #246554; background: rgba(46,125,107,.07); border: 1px solid rgba(46,125,107,.13); line-height: 1.5; }
+.school-management__subjects-heading { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-top:.75rem; padding-top:.65rem; border-top:1px solid rgba(25,52,46,.08); color:#19342e; font-size:.7rem; }
+.school-management__subjects-heading span { color:rgba(25,52,46,.5); font-size:.62rem; }
+.school-management__subjects { display:grid; gap:.35rem; margin-top:.35rem; }
+.school-management__subject-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.45rem; border:1px solid rgba(25,52,46,.08); border-radius:.55rem; background:#fff; }
+.school-management__subject-main, .school-management__subject-actions { display:flex; align-items:center; gap:.4rem; min-width:0; }
+.school-management__subject-main { flex:1; }
+.school-management__subject-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; width:1.8rem; height:1.8rem; border-radius:.5rem; color:#2e7d6b; background:rgba(46,125,107,.09); }
+.school-management__subject-main strong, .school-management__subject-main span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.school-management__subject-main strong { font-size:.7rem; }
+.school-management__subject-main div span { margin-top:.1rem; color:rgba(25,52,46,.52); font-size:.6rem; }
+.school-management__assigned-chip { display:inline-flex; align-items:center; gap:.25rem; max-width:9rem; padding:.3rem .4rem; border-radius:.45rem; background:rgba(46,125,107,.07); color:#246554; font-size:.6rem; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.school-management__subject-actions .school-management__code-button { min-height:1.85rem; display:inline-flex; align-items:center; gap:.25rem; padding:.3rem .45rem; border-radius:.45rem; font-size:.6rem; font-weight:800; cursor:pointer; }
+.school-management__add-subject { display:flex; gap:.4rem; margin-top:.45rem; }
+.school-management__add-subject input, .school-management__student-form input { min-width:0; flex:1; min-height:2.2rem; padding:.45rem .6rem; border:1px solid rgba(25,52,46,.13); border-radius:.55rem; background:#fff; color:#19342e; font:inherit; font-size:.7rem; }
+.school-management__add-subject button, .school-management__student-form button { min-height:2.2rem; display:inline-flex; align-items:center; justify-content:center; gap:.25rem; padding:.35rem .55rem; font-size:.65rem; white-space:nowrap; }
+.school-management__roster-panel { margin-top:1rem; }
+.school-management__roster-panel .school-management__panel-heading select { min-height:2.1rem; max-width:13rem; padding:.35rem .5rem; border:1px solid rgba(25,52,46,.13); border-radius:.55rem; background:#fff; color:#19342e; font:inherit; font-size:.7rem; }
+.school-management__student-form { display:grid; grid-template-columns:1.4fr .8fr auto; gap:.45rem; margin-bottom:.7rem; }
+.school-management__roster-list { display:grid; max-height:24rem; overflow-y:auto; scrollbar-width:thin; }
+.school-management__roster-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.5rem .2rem; border-bottom:1px solid rgba(25,52,46,.08); }
+.school-management__roster-row > div { min-width:0; }
+.school-management__roster-row strong, .school-management__roster-row span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.school-management__roster-row strong { font-size:.72rem; }
+.school-management__roster-row span { margin-top:.12rem; color:rgba(25,52,46,.5); font-size:.62rem; }
+.school-management__roster-row.is-archived { opacity:.55; }
+.school-management__roster-row button { min-height:1.8rem; padding:.25rem .45rem; font-size:.62rem; }
+.school-management__report-grid { display:grid; grid-template-columns:1.25fr .75fr; gap:1rem; margin-top:1rem; }
+.school-management__report-grid h3 { margin:0 0 .5rem; color:#19342e; font-size:.78rem; }
+.school-management__report-card { margin-bottom:.55rem; padding:.65rem; border:1px solid rgba(25,52,46,.09); border-radius:.65rem; background:rgba(250,253,252,.92); }
+.school-management__report-card strong, .school-management__report-card span, .school-management__report-card small { display:block; }
+.school-management__report-card strong { font-size:.7rem; }
+.school-management__report-card span { margin-top:.15rem; color:#2e7d6b; font-size:.63rem; font-weight:800; }
+.school-management__report-card small { margin-top:.25rem; color:rgba(25,52,46,.55); font-size:.6rem; line-height:1.45; }
+.school-management__report-table { display:grid; gap:.2rem; max-height:14rem; overflow-y:auto; margin-top:.45rem; padding-top:.4rem; border-top:1px solid rgba(25,52,46,.07); }
+.school-management__report-table > div { display:flex; justify-content:space-between; gap:.5rem; padding:.25rem 0; font-size:.62rem; }
+.school-management__report-table > div + div { border-top:1px solid rgba(25,52,46,.05); }
+.school-management__report-table span { min-width:0; margin:0; color:rgba(25,52,46,.7); font-size:.62rem; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.school-management__report-table strong { color:#246554; font-size:.65rem; }
+.school-management__report-table small { min-width:0; margin:0; text-align:end; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width: 700px) { .class-school-badge { margin-inline-start:0; margin-top:.4rem; } .school-management__subject-row { align-items:flex-start; flex-direction:column; } .school-management__subject-actions { width:100%; justify-content:flex-end; } .school-management__report-grid, .school-management__student-form { grid-template-columns:1fr; } .school-management__student-form button { width:100%; } }
+
+.school-management__class-admin-actions { display:flex; justify-content:flex-end; gap:.35rem; margin-top:.45rem; }
+.school-management__class-admin-actions .utility-icon { width:1.8rem; height:1.8rem; }
+.utility-icon--danger:hover { color:#c1553d; border-color:#c1553d; background:rgba(193,85,61,.06); }
+.school-management__class-edit { display:grid; grid-template-columns:1.3fr .8fr auto; gap:.4rem; margin-top:.5rem; padding:.55rem; border:1px solid rgba(46,125,107,.15); border-radius:.6rem; background:rgba(46,125,107,.04); }
+.school-management__class-edit input { min-width:0; min-height:2rem; padding:.35rem .5rem; border:1px solid rgba(25,52,46,.13); border-radius:.45rem; background:#fff; color:#19342e; font:inherit; font-size:.68rem; }
+.school-management__class-edit > div { display:flex; gap:.3rem; }
+.school-management__class-edit button { min-height:2rem; padding:.3rem .45rem; font-size:.62rem; white-space:nowrap; }
+@media (max-width:700px) { .school-management__class-edit { grid-template-columns:1fr 1fr; } .school-management__class-edit > div { grid-column:1 / -1; } .school-management__class-edit button { flex:1; } }

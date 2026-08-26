@@ -71,14 +71,17 @@ export default function ClassDetail() {
   const studentsCount = classData.students.length;
   const categoriesCount = classData.categories.length;
   const assessmentsCount = classData.categories.reduce((total, category) => total + category.assessments.length, 0);
-  const attendanceSessionsCount = (snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length;
+  const attendanceSessionsCount = ((snapshot?.attendance_sessions || []).filter((session) => session.class_id === id).length
+    + (snapshot?.school_attendance_sessions || []).filter((session) => session.class_id === id).length);
+  const isSchoolClass = Boolean(cls?.school_id);
   const isArabic = locale === 'ar';
   const blockedFeatures = new Set(restrictions?.active ? (restrictions.blocked_features || []) : []);
-  const visibleTabs = TAB_KEYS.filter((item) => !blockedFeatures.has(item.feature));
+  const visibleTabs = TAB_KEYS.filter((item) => (!isSchoolClass || item.id !== 'students') && !blockedFeatures.has(item.feature));
   const isBlockedTab = (tabId) => blockedFeatures.has(TAB_KEYS.find((item) => item.id === tabId)?.feature);
   useEffect(() => {
-    if (isBlockedTab(tab)) setTab(visibleTabs[0]?.id || null);
-  }, [tab, restrictions?.active, restrictions?.blocked_features?.join(','), visibleTabs.length]);
+    if (isSchoolClass && tab === 'students') setTab('gradebook');
+    else if (isBlockedTab(tab) || !visibleTabs.some((item) => item.id === tab)) setTab(visibleTabs[0]?.id || null);
+  }, [tab, isSchoolClass, restrictions?.active, restrictions?.blocked_features?.join(','), visibleTabs.length]);
 
   return (
     <div className="class-page-shell" dir={direction}>
@@ -94,6 +97,7 @@ export default function ClassDetail() {
           className="compact-page-header--class"
           style={{ '--class-accent': cls.color || '#2E7D6B' }}
         >
+          {isSchoolClass && <div className="class-school-badge"><Icon name="school" className="w-4 h-4" /><span>{t('schoolManagedClass')}</span></div>}
           <div className="compact-page-header__stats" aria-label={t('classSections')}>
             <span><strong>{studentsCount}</strong><small>{t('studentUnit')}</small></span>
             <span><strong>{categoriesCount}</strong><small>{t('categoryUnit')}</small></span>
@@ -108,8 +112,8 @@ export default function ClassDetail() {
       <main className={`class-tab-panel class-tab-panel--${tab || 'restricted'}`}>
         {visibleTabs.length === 0 ? <div className="class-page-restricted-empty"><strong>{t('restrictedFeature')}</strong><span>{t('restrictionsNotice')}</span></div> : <Suspense fallback={<LoadingOverlay label={t('loadingSection')} />}>
           {tab === 'students' && <StudentsTab classId={id} subscriptionInfo={subscriptionInfo} />}
-          {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} />}
-          {tab === 'behavior' && <BehaviorTab classId={id} />}
+          {tab === 'gradebook' && <GradebookTab classId={id} className={cls?.name} schoolClass={isSchoolClass} />}
+          {tab === 'behavior' && <BehaviorTab classId={id} schoolClass={isSchoolClass} />}
           {tab === 'attendance' && <AttendanceTab classId={id} />}
           {tab === 'analytics' && <AnalyticsTab classId={id} />}
           {tab === 'reports' && <ReportsTab classId={id} className={cls?.name} />}

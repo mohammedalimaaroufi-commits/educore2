@@ -46,7 +46,10 @@ function cardForClass(snapshot, classData, indexes = buildSnapshotIndexes(snapsh
   ));
   const ordered = [...roster].sort((a, b) => b.behaviorScore - a.behaviorScore);
   const today = new Date().toISOString().slice(0, 10);
-  const sessionsToday = (snapshot.attendance_sessions || []).filter((session) => session.class_id === classData.id && session.session_date === today);
+  const sessionsToday = [
+    ...(snapshot.attendance_sessions || []),
+    ...(snapshot.school_attendance_sessions || []),
+  ].filter((session) => session.class_id === classData.id && session.session_date === today);
   const attendance_marked_today = sessionsToday.some((session) => (indexes.attendanceBySession.get(session.id) || []).length > 0);
   return { ...classData, student_count: students.length, quick_stats: { grading, behavior: ordered.length ? { best: { student_id: ordered[0].student_id, full_name: ordered[0].full_name, points: ordered[0].behaviorScore }, worst: ordered.length > 1 ? { student_id: ordered[ordered.length - 1].student_id, full_name: ordered[ordered.length - 1].full_name, points: ordered[ordered.length - 1].behaviorScore } : null } : null, attendance_marked_today } };
 }

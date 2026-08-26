@@ -36,20 +36,44 @@ router.get('/snapshot', (req, res) => {
            WHERE a.class_id = c.id AND a.teacher_id = context.teacher_id AND a.status = 'active'
          ))
     ),
+    owned_subjects AS (
+      SELECT scs.* FROM school_class_subjects scs JOIN owned_classes c ON c.id = scs.class_id, context
+      WHERE c.school_id IS NULL OR EXISTS (
+        SELECT 1 FROM school_class_assignments a
+        WHERE a.class_id = scs.class_id AND a.subject_key = scs.subject_key
+          AND a.teacher_id = context.teacher_id AND a.status = 'active'
+      )
+    ),
+    owned_assignments AS (
+      SELECT a.* FROM school_class_assignments a JOIN owned_classes c ON c.id = a.class_id, context
+      WHERE c.school_id IS NULL OR (a.teacher_id = context.teacher_id AND a.status = 'active')
+    ),
     owned_students AS (
       SELECT s.* FROM students s JOIN owned_classes c ON c.id = s.class_id
     ),
     owned_categories AS (
       SELECT gc.* FROM grade_categories gc JOIN owned_classes c ON c.id = gc.class_id
+      WHERE c.school_id IS NULL OR gc.subject_key IS NULL OR EXISTS (
+        SELECT 1 FROM owned_subjects os WHERE os.class_id = gc.class_id AND os.subject_key = gc.subject_key
+      )
     ),
     owned_assessments AS (
       SELECT a.* FROM assessments a JOIN owned_categories gc ON gc.id = a.category_id
     ),
     owned_behavior_types AS (
       SELECT bt.* FROM behavior_types bt JOIN owned_classes c ON c.id = bt.class_id
+      WHERE c.school_id IS NULL OR bt.subject_key IS NULL OR EXISTS (
+        SELECT 1 FROM owned_subjects os WHERE os.class_id = bt.class_id AND os.subject_key = bt.subject_key
+      )
     ),
     owned_sessions AS (
-      SELECT ats.* FROM attendance_sessions ats JOIN owned_classes c ON c.id = ats.class_id
+      SELECT ats.* FROM attendance_sessions ats JOIN owned_classes c ON c.id = ats.class_id WHERE c.school_id IS NULL
+    ),
+    owned_school_sessions AS (
+      SELECT sas.* FROM school_attendance_sessions sas JOIN owned_classes c ON c.id = sas.class_id
+      WHERE c.school_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM owned_subjects os WHERE os.class_id = sas.class_id AND os.subject_key = sas.subject_key
+      )
     )
     SELECT
       (SELECT json_object(
@@ -71,13 +95,17 @@ router.get('/snapshot', (req, res) => {
         'created_at', created_at, 'updated_at', updated_at
       )), '[]') FROM owned_classes) AS classes,
       (SELECT COALESCE(json_group_array(json_object(
-        'id', id, 'class_id', class_id, 'full_name', full_name, 'student_number', student_number,
-        'photo_url', photo_url, 'guardian_name', guardian_name, 'guardian_phone', guardian_phone,
-        'guardian_email', guardian_email, 'health_notes', health_notes, 'private_notes', private_notes,
-        'archived', archived, 'created_at', created_at, 'updated_at', updated_at
-      )), '[]') FROM owned_students) AS students,
+        'id', s.id, 'class_id', s.class_id, 'full_name', s.full_name, 'student_number', s.student_number,
+        'photo_url', s.photo_url,
+        'guardian_name', CASE WHEN c.school_id IS NULL THEN s.guardian_name ELSE NULL END,
+        'guardian_phone', CASE WHEN c.school_id IS NULL THEN s.guardian_phone ELSE NULL END,
+        'guardian_email', CASE WHEN c.school_id IS NULL THEN s.guardian_email ELSE NULL END,
+        'health_notes', CASE WHEN c.school_id IS NULL THEN s.health_notes ELSE NULL END,
+        'private_notes', CASE WHEN c.school_id IS NULL THEN s.private_notes ELSE NULL END,
+        'archived', s.archived, 'created_at', s.created_at, 'updated_at', s.updated_at
+      )), '[]') FROM owned_students s JOIN owned_classes c ON c.id = s.class_id) AS students,
       (SELECT COALESCE(json_group_array(json_object(
-        'id', id, 'class_id', class_id, 'name', name, 'weight_percent', weight_percent,
+        'id', id, 'class_id', class_id, 'subject_key', subject_key, 'name', name, 'weight_percent', weight_percent,
         'grading_type', grading_type, 'grading_mode', grading_mode, 'details_note', details_note,
         'sort_order', sort_order, 'created_at', created_at
       )), '[]') FROM owned_categories) AS grade_categories,
@@ -92,11 +120,12 @@ router.get('/snapshot', (req, res) => {
       )), '[]') FROM grades g JOIN owned_assessments a ON a.id = g.assessment_id
         JOIN owned_students s ON s.id = g.student_id) AS grades,
       (SELECT COALESCE(json_group_array(json_object(
-        'id', id, 'class_id', class_id, 'label', label, 'polarity', polarity,
+        'id', id, 'class_id', class_id, 'subject_key', subject_key, 'label', label, 'polarity', polarity,
         'points', points, 'icon', icon, 'is_default', is_default
       )), '[]') FROM owned_behavior_types) AS behavior_types,
       (SELECT COALESCE(json_group_array(json_object(
         'id', bl.id, 'student_id', bl.student_id, 'behavior_type_id', bl.behavior_type_id,
+        'subject_key', bl.subject_key, 'recorded_by', bl.recorded_by,
         'note_text', bl.note_text, 'note_audio_url', bl.note_audio_url, 'occurred_at', bl.occurred_at
       )), '[]') FROM behavior_logs bl JOIN owned_students s ON s.id = bl.student_id) AS behavior_logs,
       (SELECT COALESCE(json_group_array(json_object(
@@ -106,6 +135,22 @@ router.get('/snapshot', (req, res) => {
         'id', ar.id, 'session_id', ar.session_id, 'student_id', ar.student_id, 'status', ar.status
       )), '[]') FROM attendance_records ar JOIN owned_sessions ats ON ats.id = ar.session_id
         JOIN owned_students s ON s.id = ar.student_id) AS attendance_records,
+      (SELECT COALESCE(json_group_array(json_object(
+        'id', sas.id, 'class_id', sas.class_id, 'subject_key', sas.subject_key, 'session_date', sas.session_date,
+        'period_key', sas.period_key, 'period_label', sas.period_label, 'starts_at', sas.starts_at,
+        'recorded_at', sas.recorded_at, 'created_by', sas.created_by
+      )), '[]') FROM owned_school_sessions sas) AS school_attendance_sessions,
+      (SELECT COALESCE(json_group_array(json_object(
+        'id', sar.id, 'session_id', sar.session_id, 'student_id', sar.student_id, 'status', sar.status, 'recorded_at', sar.recorded_at
+      )), '[]') FROM school_attendance_records sar JOIN owned_school_sessions sas ON sas.id = sar.session_id) AS school_attendance_records,
+      (SELECT COALESCE(json_group_array(json_object(
+        'id', os.id, 'school_id', os.school_id, 'class_id', os.class_id, 'subject_key', os.subject_key,
+        'subject_label', os.subject_label, 'sort_order', os.sort_order, 'status', os.status
+      )), '[]') FROM owned_subjects os) AS school_class_subjects,
+      (SELECT COALESCE(json_group_array(json_object(
+        'id', oa.id, 'school_id', oa.school_id, 'class_id', oa.class_id, 'teacher_id', oa.teacher_id,
+        'subject_key', oa.subject_key, 'subject_label', oa.subject_label, 'status', oa.status, 'accepted_at', oa.accepted_at
+      )), '[]') FROM owned_assignments oa) AS school_class_assignments,
       (SELECT COALESCE(json_group_array(json_object(
         'id', gs.id, 'teacher_id', gs.teacher_id, 'name', gs.name, 'is_default', gs.is_default,
         'created_at', gs.created_at
@@ -135,7 +180,7 @@ router.get('/snapshot', (req, res) => {
   if (!row || !row.teacher) return res.status(404).json({ error: 'بيانات المعلم غير موجودة' });
 
   const snapshot = {
-    version: 2,
+    version: 4,
     generated_at: new Date().toISOString(),
     teacher: parseJson(row.teacher, null),
     subscriptions: parseJson(row.subscriptions, []),
@@ -151,6 +196,10 @@ router.get('/snapshot', (req, res) => {
     behavior_logs: parseJson(row.behavior_logs, []),
     attendance_sessions: parseJson(row.attendance_sessions, []),
     attendance_records: parseJson(row.attendance_records, []),
+    school_attendance_sessions: parseJson(row.school_attendance_sessions, []),
+    school_attendance_records: parseJson(row.school_attendance_records, []),
+    school_class_subjects: parseJson(row.school_class_subjects, []),
+    school_class_assignments: parseJson(row.school_class_assignments, []),
     grading_schemes: parseJson(row.grading_schemes, []),
     grading_scheme_categories: parseJson(row.grading_scheme_categories, []),
     comment_templates: parseJson(row.comment_templates, []),

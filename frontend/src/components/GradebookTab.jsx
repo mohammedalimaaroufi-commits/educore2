@@ -31,7 +31,7 @@ function readViewOptions(classId) {
   }
 }
 
-export default function GradebookTab({ classId, className }) {
+export default function GradebookTab({ classId, className, schoolClass = false }) {
   const { t } = useLocale();
   const [sub, setSub] = useState('grid');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -40,7 +40,8 @@ export default function GradebookTab({ classId, className }) {
 
   useEffect(() => {
     setViewOptions(readViewOptions(classId));
-  }, [classId]);
+    if (schoolClass) setSub('grid');
+  }, [classId, schoolClass]);
 
   useEffect(() => {
     try {
@@ -59,9 +60,10 @@ export default function GradebookTab({ classId, className }) {
 
   return (
     <div className="gradebook-workspace">
+      {schoolClass && <div className="school-operational-note"><Icon name="school" className="w-4 h-4" /><span>{t('schoolTeacherOperationalNote')}</span></div>}
       <div className="gradebook-subtabs-row print:hidden">
         <div className="gradebook-subtabs" role="tablist" aria-label={t('gradebook')}>
-          {SUBTAB_KEYS.map((item) => (
+          {SUBTAB_KEYS.filter((item) => !schoolClass || item.id === 'grid').map((item) => (
             <button key={item.id} type="button" role="tab" aria-selected={sub === item.id} onClick={() => switchSubtab(item.id)}
               className={`gradebook-subtab ${sub === item.id ? 'is-active' : ''}`}>
               <Icon name={item.icon} className="w-4 h-4" />
@@ -100,7 +102,7 @@ export default function GradebookTab({ classId, className }) {
       </div>
 
       {sub === 'grid' && <GradeMatrix classId={classId} className={className} viewOptions={viewOptions} key={refreshKey} onActionsChange={setGridActions} />}
-      {sub === 'categories' && <CategoryManager classId={classId} refreshKey={refreshKey} onChange={() => setRefreshKey((k) => k + 1)} />}
+      {sub === 'categories' && !schoolClass && <CategoryManager classId={classId} refreshKey={refreshKey} onChange={() => setRefreshKey((k) => k + 1)} />}
     </div>
   );
 }
