@@ -257,8 +257,8 @@ function attendanceToday(classId) {
                                LEFT JOIN school_class_subjects scs ON scs.class_id = sas.class_id AND scs.subject_key = sas.subject_key
                                WHERE sas.class_id = ? AND sas.session_date = date('now')
                                GROUP BY sas.id ORDER BY COALESCE(sas.starts_at, ''), sas.period_key`).all(classId);
-  const legacy = db.prepare(`SELECT ats.id, 'general' AS subject_key, 'daily' AS period_key, 'اليومي' AS period_label, NULL AS starts_at,
-                                    NULL AS recorded_at, 'عام' AS subject_label, COUNT(ar.id) AS record_count,
+  const legacy = db.prepare(`SELECT ats.id, 'general' AS subject_key, 'daily' AS period_key, NULL AS period_label, NULL AS starts_at,
+                                    NULL AS recorded_at, NULL AS subject_label, COUNT(ar.id) AS record_count,
                                     SUM(CASE WHEN ar.status = 'absent' THEN 1 ELSE 0 END) AS absent_count,
                                     SUM(CASE WHEN ar.status = 'late' THEN 1 ELSE 0 END) AS late_count,
                                     SUM(CASE WHEN ar.status = 'excused' THEN 1 ELSE 0 END) AS excused_count
@@ -324,6 +324,188 @@ function managerClassOverview(classData) {
   };
 }
 
+function normalizeCountRows(rows) {
+  return rows.map((row) => ({
+    ...row,
+    record_count: Number(row.record_count || 0),
+    absent_count: Number(row.absent_count || 0),
+    late_count: Number(row.late_count || 0),
+    excused_count: Number(row.excused_count || 0),
+  }));
+}
+
+function managerSchoolAttendanceToday(schoolId) {
+  const schoolRows = db.prepare(`SELECT sas.id, sas.class_id, sas.subject_key, sas.period_key, sas.period_label, sas.starts_at, sas.recorded_at,
+                                        c.name AS class_name, COALESCE(scs.subject_label, sas.subject_key) AS subject_label,
+                                        COUNT(sar.id) AS record_count,
+                                        SUM(CASE WHEN sar.status = 'absent' THEN 1 ELSE 0 END) AS absent_count,
+                                        SUM(CASE WHEN sar.status = 'late' THEN 1 ELSE 0 END) AS late_count,
+                                        SUM(CASE WHEN sar.status = 'excused' THEN 1 ELSE 0 END) AS excused_count
+                                 FROM school_attendance_sessions sas
+                                 JOIN classes c ON c.id = sas.class_id AND c.school_id = ? AND c.archived = 0
+                                 LEFT JOIN school_class_subjects scs ON scs.class_id = sas.class_id AND scs.subject_key = sas.subject_key
+                                 LEFT JOIN school_attendance_records sar ON sar.session_id = sas.id
+                                 WHERE sas.session_date = date('now')
+                                 GROUP BY sas.id
+                                 ORDER BY c.sort_order, COALESCE(sas.starts_at, ''), sas.period_key`).all(schoolId);
+  const legacyRows = db.prepare(`SELECT ats.id, ats.class_id, 'general' AS subject_key, 'daily' AS period_key, NULL AS period_label, NULL AS starts_at,
+                                        NULL AS recorded_at, c.name AS class_name, NULL AS subject_label,
+                                        COUNT(ar.id) AS record_count,
+                                        SUM(CASE WHEN ar.status = 'absent' THEN 1 ELSE 0 END) AS absent_count,
+                                        SUM(CASE WHEN ar.status = 'late' THEN 1 ELSE 0 END) AS late_count,
+                                        SUM(CASE WHEN ar.status = 'excused' THEN 1 ELSE 0 END) AS excused_count
+                                 FROM attendance_sessions ats
+                                 JOIN classes c ON c.id = ats.class_id AND c.school_id = ? AND c.archived = 0
+                                 LEFT JOIN attendance_records ar ON ar.session_id = ats.id
+                                 WHERE ats.session_date = date('now')
+                                 GROUP BY ats.id
+                                 ORDER BY c.sort_order, ats.id`).all(schoolId);
+  return normalizeCountRows([...schoolRows, ...legacyRows]);
+}
+
+function managerSchoolAttendanceByStudent(schoolId) {
+  const counts = new Map();
+  const add = (row) => {
+    const current = counts.get(row.student_id) || { present: 0, absent: 0, late: 0, excused: 0, total: 0 };
+    const status = String(row.status || 'present');
+    current[status] = Number(current[status] || 0) + 1;
+    current.total += 1;
+    counts.set(row.student_id, current);
+  };
+  db.prepare(`SELECT sar.student_id, sar.status
+              FROM school_attendance_records sar
+              JOIN school_attendance_sessions sas ON sas.id = sar.session_id
+              JOIN classes c ON c.id = sas.class_id
+              WHERE c.school_id = ? AND c.archived = 0`).all(schoolId).forEach(add);
+  db.prepare(`SELECT ar.student_id, ar.status
+              FROM attendance_records ar
+              JOIN attendance_sessions ats ON ats.id = ar.session_id
+              JOIN classes c ON c.id = ats.class_id
+              WHERE c.school_id = ? AND c.archived = 0`).all(schoolId).forEach(add);
+  return counts;
+}
+
+function managerSchoolBehavior(schoolId) {
+  const students = db.prepare(`SELECT s.id AS student_id, s.full_name, c.id AS class_id, c.name AS class_name,
+                                      COALESCE(SUM(CASE WHEN bt.points > 0 THEN bt.points ELSE 0 END), 0) AS positive_points,
+                                      COALESCE(SUM(CASE WHEN bt.points < 0 THEN ABS(bt.points) ELSE 0 END), 0) AS negative_points,
+                                      COUNT(bl.id) AS behavior_count
+                               FROM students s
+                               JOIN classes c ON c.id = s.class_id AND c.school_id = ? AND c.archived = 0
+                               LEFT JOIN behavior_logs bl ON bl.student_id = s.id
+                               LEFT JOIN behavior_types bt ON bt.id = bl.behavior_type_id
+                               WHERE s.archived = 0
+                               GROUP BY s.id, s.full_name, c.id, c.name
+                               ORDER BY c.sort_order, (positive_points - negative_points) ASC, s.full_name COLLATE NOCASE`).all(schoolId)
+    .map((row) => ({ ...row, positive_points: Number(row.positive_points || 0), negative_points: Number(row.negative_points || 0), behavior_count: Number(row.behavior_count || 0), behavior_points: Number(row.positive_points || 0) - Number(row.negative_points || 0) }));
+  const details = db.prepare(`SELECT bl.id, bl.student_id, s.full_name, c.id AS class_id, c.name AS class_name,
+                                     COALESCE(bl.subject_key, bt.subject_key, 'general') AS subject_key,
+                                     COALESCE(scs.subject_label, bl.subject_key, bt.subject_key, 'general') AS subject_label,
+                                     bt.label AS behavior_label, bt.polarity, bt.points, bl.note_text, bl.occurred_at,
+                                     COALESCE(recorded.full_name, assigned.full_name) AS recorded_by_name
+                              FROM behavior_logs bl
+                              JOIN students s ON s.id = bl.student_id AND s.archived = 0
+                              JOIN classes c ON c.id = s.class_id AND c.school_id = ? AND c.archived = 0
+                              JOIN behavior_types bt ON bt.id = bl.behavior_type_id
+                              LEFT JOIN school_class_subjects scs ON scs.class_id = c.id AND scs.subject_key = COALESCE(bl.subject_key, bt.subject_key)
+                              LEFT JOIN school_class_assignments assignment ON assignment.class_id = c.id AND assignment.subject_key = COALESCE(bl.subject_key, bt.subject_key) AND assignment.status = 'active'
+                              LEFT JOIN teachers assigned ON assigned.id = assignment.teacher_id
+                              LEFT JOIN teachers recorded ON recorded.id = bl.recorded_by
+                              ORDER BY datetime(bl.occurred_at) DESC
+                              LIMIT 1000`).all(schoolId);
+  return { students, details };
+}
+
+function managerSchoolOverview(schoolId) {
+  const school = getSchool(schoolId);
+  if (!school) return null;
+  const memberCount = Number(db.prepare("SELECT COUNT(*) AS count FROM school_memberships WHERE school_id = ? AND status = 'active'").get(schoolId)?.count || 0);
+  const classes = db.prepare(`SELECT c.*,
+         (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id AND s.archived = 0) AS student_count,
+         (SELECT COUNT(*) FROM school_class_subjects scs WHERE scs.class_id = c.id AND scs.status = 'active') AS subject_count,
+         (SELECT COUNT(*) FROM school_class_assignments a WHERE a.class_id = c.id AND a.status = 'active') AS assigned_teacher_count
+       FROM classes c
+       WHERE c.school_id = ? AND c.archived = 0
+       ORDER BY c.sort_order ASC, c.created_at DESC, c.id DESC`).all(schoolId);
+  const attendanceToday = managerSchoolAttendanceToday(schoolId);
+  const attendanceByStudent = managerSchoolAttendanceByStudent(schoolId);
+  const behavior = managerSchoolBehavior(schoolId);
+  const grades = [];
+  const classReports = classes.map((classData) => {
+    const report = managerClassOverview(classData);
+    report.subjects.forEach((subject) => subject.student_grades.forEach((row) => grades.push({
+      student_id: row.student_id,
+      full_name: row.full_name,
+      class_id: classData.id,
+      class_name: classData.name,
+      subject_key: subject.subject_key,
+      subject_label: subject.subject_label,
+      assigned_teacher_id: subject.assigned_teacher_id,
+      assigned_teacher_name: subject.assigned_teacher_name,
+      final_grade: row.final_grade,
+      weight_entered: row.weight_entered,
+    })));
+    return {
+      id: classData.id,
+      name: classData.name,
+      academic_year: classData.academic_year,
+      color: classData.color,
+      student_count: Number(classData.student_count || 0),
+      subject_count: Number(classData.subject_count || 0),
+      assigned_teacher_count: Number(classData.assigned_teacher_count || 0),
+      subjects: report.subjects,
+      metrics: report.metrics,
+      attendance_today: attendanceToday.filter((row) => row.class_id === classData.id),
+    };
+  });
+  const students = db.prepare(`SELECT s.id, s.class_id, s.full_name, s.student_number, s.photo_url, c.name AS class_name
+                              FROM students s JOIN classes c ON c.id = s.class_id
+                              WHERE c.school_id = ? AND c.archived = 0 AND s.archived = 0
+                              ORDER BY c.sort_order, c.name COLLATE NOCASE, s.full_name COLLATE NOCASE`).all(schoolId);
+  const gradesByStudent = new Map();
+  grades.forEach((row) => {
+    const rows = gradesByStudent.get(row.student_id) || [];
+    rows.push(row);
+    gradesByStudent.set(row.student_id, rows);
+  });
+  const behaviorByStudent = new Map(behavior.students.map((row) => [row.student_id, row]));
+  const studentReports = students.map((student) => ({
+    ...student,
+    attendance: attendanceByStudent.get(student.id) || { present: 0, absent: 0, late: 0, excused: 0, total: 0 },
+    grades: gradesByStudent.get(student.id) || [],
+    behavior: behaviorByStudent.get(student.id) || { positive_points: 0, negative_points: 0, behavior_points: 0, behavior_count: 0 },
+    behavior_details: behavior.details.filter((row) => row.student_id === student.id),
+  }));
+  const gradeEntries = grades.filter((row) => row.final_grade !== null && row.final_grade !== undefined).length;
+  return {
+    school: { ...school, member_count: memberCount, class_count: classReports.length },
+    metrics: {
+      class_count: classReports.length,
+      student_count: students.length,
+      member_count: memberCount,
+      subject_count: classReports.reduce((sum, row) => sum + row.subject_count, 0),
+      grade_entries: gradeEntries,
+      behavior_entries: behavior.students.reduce((sum, row) => sum + row.behavior_count, 0),
+      attendance_sessions_today: attendanceToday.length,
+      attendance_records_today: attendanceToday.reduce((sum, row) => sum + row.record_count, 0),
+    },
+    classes: classReports,
+    students,
+    attendance_today: attendanceToday,
+    grades,
+    behavior_by_student: behavior.students,
+    behavior_details: behavior.details,
+    student_reports: studentReports,
+  };
+}
+
+router.get('/:schoolId/overview', (req, res) => {
+  if (!requireManager(req.params.schoolId, req.teacherId, res)) return;
+  const overview = managerSchoolOverview(req.params.schoolId);
+  if (!overview) return res.status(404).json({ error: 'المدرسة غير موجودة', code: 'SCHOOL_NOT_FOUND' });
+  res.json(overview);
+});
+
 router.get('/', (req, res) => {
   const rows = db.prepare(`SELECT s.*, sm.role, sm.status AS membership_status,
       (SELECT COUNT(*) FROM school_memberships members WHERE members.school_id = s.id AND members.status = 'active') AS member_count,
@@ -359,14 +541,13 @@ router.post('/:schoolId/classes', (req, res) => {
   const academicYear = clean(req.body?.academic_year, 40);
   const color = clean(req.body?.color, 20) || '#2E7D6B';
   if (name.length < 2) return res.status(400).json({ error: 'اسم الصف مطلوب', code: 'INVALID_CLASS_NAME' });
-  if (!subjects.length) return res.status(400).json({ error: 'أدخل مادة واحدة على الأقل للصف', code: 'CLASS_SUBJECT_REQUIRED' });
   const classId = clean(req.body?.id, 100) || uuid();
   if (db.prepare('SELECT id FROM classes WHERE id = ?').get(classId)) return res.status(409).json({ error: 'معرّف الصف مستخدم مسبقًا', code: 'CLASS_ID_EXISTS' });
   const insertClass = db.prepare(`INSERT INTO classes (id, teacher_id, school_id, name, subject, academic_year, color, icon, sort_order)
                                   VALUES (?, ?, ?, ?, ?, ?, ?, 'school', ?)`);
   const nextOrder = Number(db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM classes WHERE school_id = ? AND archived = 0').get(school.id)?.next_order || 0);
   const create = db.transaction(() => {
-    insertClass.run(classId, req.teacherId, school.id, name, subjects[0].label, academicYear || null, color, nextOrder);
+    insertClass.run(classId, req.teacherId, school.id, name, subjects[0]?.label || clean(req.body?.subject, 160) || null, academicYear || null, color, nextOrder);
     const classData = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
     subjects.forEach((subject) => addClassSubject(classData, subject, req.teacherId));
     return classData;
